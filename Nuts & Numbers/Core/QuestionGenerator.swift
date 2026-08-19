@@ -110,8 +110,11 @@ nonisolated public final class QuestionGenerator {
     /// A question for a normal round.
     /// - Parameter requiredDistractors: how many wrong answers the current card
     ///   mode needs. The generator keeps trying until it can supply that many.
-    public func next(requiredDistractors: Int) -> MathQuestion {
-        generateValidated(requiredDistractors: requiredDistractors, forceTopLevel: false)
+    public func next(requiredDistractors: Int,
+                     excludingAnswers: Set<AnswerValue> = []) -> MathQuestion {
+        generateValidated(requiredDistractors: requiredDistractors,
+                          forceTopLevel: false,
+                          excludingAnswers: excludingAnswers)
     }
 
     /// A harder question for the special double card: always drawn from the top
@@ -119,7 +122,9 @@ nonisolated public final class QuestionGenerator {
     /// have no range to climb — the level's own number is all there is — so
     /// there it is simply the next question on the route.
     public func nextHarder(requiredDistractors: Int) -> MathQuestion {
-        generateValidated(requiredDistractors: requiredDistractors, forceTopLevel: true)
+        generateValidated(requiredDistractors: requiredDistractors,
+                          forceTopLevel: true,
+                          excludingAnswers: [])
     }
 
     /// Resets the anti-repeat memory for a fresh session.
@@ -173,11 +178,14 @@ nonisolated public final class QuestionGenerator {
 
     // MARK: - Generation
 
-    private func generateValidated(requiredDistractors: Int, forceTopLevel: Bool) -> MathQuestion {
+    private func generateValidated(requiredDistractors: Int,
+                                   forceTopLevel: Bool,
+                                   excludingAnswers: Set<AnswerValue>) -> MathQuestion {
         // Bounded retry: reject a repeat of the previous prompt, and any
         // question that cannot supply enough genuinely-wrong distractors.
         var fallback: (question: MathQuestion, steps: Int)?
-        for attempt in 0..<24 {
+        let attempts = excludingAnswers.isEmpty ? 24 : 64
+        for attempt in 0..<attempts {
             // A rejected attempt walks the fixed route forward rather than
             // re-offering the sum that was just thrown away.
             let question = generate(forceTopLevel: forceTopLevel, stepOffset: attempt)
@@ -189,6 +197,7 @@ nonisolated public final class QuestionGenerator {
             // a single-operation topic has nothing else to offer.
             if repeatsPrompt { continue }
             if repeatsKind, attempt < 3, level.topic == .mixed { continue }
+            if excludingAnswers.contains(AnswerValue(question.correctAnswer)) { continue }
             return record(question, steps: attempt + 1)
         }
         // Every retry produced the same prompt (e.g. the table of 1 at card

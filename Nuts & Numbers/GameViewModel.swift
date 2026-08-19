@@ -198,8 +198,7 @@ final class GameViewModel: ObservableObject {
         prepareHaptics()
         PlaytimeTracker.shared.challengeStarted()
         AppAudio.shared.setGameplayActive(true, questionText: nil)
-        AppAudio.shared.setGameplayRate(isStreakBoostActive
-                                        ? Float(GameConfig.streakSpeedMultiplier) : 1)
+        AppAudio.shared.setGameplayRate(1)
         let work = pendingScheduledWork
         pendingScheduledWork = nil
         work?()
@@ -281,17 +280,13 @@ final class GameViewModel: ObservableObject {
         let token = generation
         let delay: Double
         switch outcome {
-        case .correct(let cardsEarned, let usedBonusFish, let startedStreak):
+        case .correct(let cardsEarned, let usedBonusFish, _):
             pendingScoreRewards.append(cardsEarned)
             sync()
-            onAnswerResolved?(true, startedStreak)
+            onAnswerResolved?(true, false)
             AppAudio.shared.playCorrect()
             if usedBonusFish {
                 hasBonusFishPower = false
-                AppAudio.shared.playDoubleScore()
-            }
-            if startedStreak {
-                streakAnnouncementID &+= 1
                 AppAudio.shared.playDoubleScore()
             }
             haptic(.success)
@@ -340,27 +335,22 @@ final class GameViewModel: ObservableObject {
         return true
     }
 
-    /// Forwards a nut the elephant dropped in the bin. Gold nuts pay the same
-    /// double reward the 2× fish used to, without telling the player the
-    /// number is right.
-    func resolveGrab(nut: ClawNut, isCorrect: Bool) {
-        let outcome = engine.resolveGrab(isCorrect: isCorrect, isGold: nut.isGold)
+    /// Forwards a nut the elephant dropped in the bin. Any shell with the
+    /// standing sum's value scores; gold nuts still pay double.
+    func resolveGrab(nut: ClawNut) {
+        let outcome = engine.resolveGrab(nut: nut)
         guard outcome != .ignored else { return }
         PlaytimeTracker.shared.registerInteraction()
 
         let token = generation
         let delay: Double
         switch outcome {
-        case .correct(let cardsEarned, let usedBonusFish, let startedStreak):
+        case .correct(let cardsEarned, let usedBonusFish, _):
             pendingScoreRewards.append(cardsEarned)
             sync()
-            onAnswerResolved?(true, startedStreak)
+            onAnswerResolved?(true, false)
             AppAudio.shared.playCorrect()
             if usedBonusFish {
-                AppAudio.shared.playDoubleScore()
-            }
-            if startedStreak {
-                streakAnnouncementID &+= 1
                 AppAudio.shared.playDoubleScore()
             }
             haptic(.success)
@@ -542,8 +532,7 @@ final class GameViewModel: ObservableObject {
         isStreakBoostActive = engine.isStreakBoostActive
         isHeartFishAvailable = engine.isHeartFishAvailable
         clawPuzzle = engine.clawPuzzle
-        AppAudio.shared.setGameplayRate(isStreakBoostActive
-                                        ? Float(GameConfig.streakSpeedMultiplier) : 1)
+        AppAudio.shared.setGameplayRate(1)
     }
 
     // MARK: - Clock

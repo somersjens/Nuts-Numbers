@@ -34,14 +34,20 @@ nonisolated public struct GameRound: Identifiable, Equatable, Sendable {
     public let question: MathQuestion
     /// Exactly one option has `isCorrect == true`.
     public let options: [AnswerOption]
+    /// The nut laid for this sum. Another shell with the same printed value
+    /// also counts; this id is the preferred target for layout and highlighting.
+    /// Nil for scripted rounds that still score through `options`.
+    public let targetNutID: UUID?
     public init(id: UUID = UUID(),
                 number: Int,
                 question: MathQuestion,
-                options: [AnswerOption]) {
+                options: [AnswerOption],
+                targetNutID: UUID? = nil) {
         self.id = id
         self.number = number
         self.question = question
         self.options = options
+        self.targetNutID = targetNutID
     }
 
     public var correctOption: AnswerOption? {
@@ -77,12 +83,27 @@ nonisolated public final class RoundFactory {
         return makeRound(number: number, question: question)
     }
 
+    /// A full board of sums, preferring a different printed answer each time
+    /// so the claw pile is not stacked with identical shells.
+    public func makeSession(count: Int) -> [GameRound] {
+        var used: Set<AnswerValue> = []
+        return (1...count).map { number in
+            let question = generator.next(requiredDistractors: GameConfig.distractorCount,
+                                          excludingAnswers: used)
+            used.insert(AnswerValue(question.correctAnswer))
+            return makeRound(number: number, question: question)
+        }
+    }
+
     /// Lays a already-chosen question onto a round so a claw pile can reorder
     /// the session's sums without asking the generator for new ones.
-    public func makeRound(number: Int, question: MathQuestion) -> GameRound {
+    public func makeRound(number: Int,
+                          question: MathQuestion,
+                          targetNutID: UUID? = nil) -> GameRound {
         GameRound(number: number,
                   question: question,
-                  options: makeOptions(for: question))
+                  options: makeOptions(for: question),
+                  targetNutID: targetNutID)
     }
 
     /// One correct card plus the required number of unique wrong cards, laid

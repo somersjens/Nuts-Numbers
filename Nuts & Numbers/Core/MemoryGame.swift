@@ -139,7 +139,7 @@ nonisolated public final class MemoryGame {
 
     /// Whether a tap on an answer card can be accepted right now.
     public var acceptsInput: Bool { state == .answering }
-    public var isStreakBoostActive: Bool { correctStreak >= GameConfig.streakThreshold }
+    public var isStreakBoostActive: Bool { false }
 
     /// Whether the answer values are readable. They are during the memorising
     /// beat, and again while the round resolves so the player can see what they
@@ -269,22 +269,22 @@ nonisolated public final class MemoryGame {
                              correctOptionID: round.correctOption?.id ?? optionID)
     }
 
-    /// Resolves a grabbed nut against the standing sum. The claw scene already
-    /// knows whether the nut's value matches; this is the same scoring path a
-    /// bubble tap uses, without needing that nut to live in `round.options`.
+    /// Resolves a grabbed nut against the standing sum. Any shell whose printed
+    /// value matches the sum is correct — not only the nut laid for this round.
     @discardableResult
-    public func resolveGrab(isCorrect: Bool, isGold: Bool) -> AnswerOutcome {
+    public func resolveGrab(nut: ClawNut) -> AnswerOutcome {
         guard state == .answering,
               let round,
               selectedOptionID == nil
         else { return .ignored }
+        let isCorrect = AnswerValue(nut.text) == AnswerValue(round.question.correctAnswer)
         let selectedID = isCorrect
-            ? (round.correctOption?.id ?? UUID())
-            : UUID()
+            ? (round.targetNutID ?? round.correctOption?.id ?? nut.id)
+            : nut.id
         return resolveAnswer(isCorrect: isCorrect,
-                             usesBonusFish: isGold,
+                             usesBonusFish: nut.isGold,
                              selectedID: selectedID,
-                             correctOptionID: round.correctOption?.id ?? selectedID)
+                             correctOptionID: round.targetNutID ?? round.correctOption?.id ?? selectedID)
     }
 
     /// Ends the session because the clock ran out. Safe to call from any live
@@ -388,12 +388,14 @@ nonisolated public final class MemoryGame {
     /// never sprouts new answers after the first frame.
     nonisolated private func installPlan(startingAt number: Int) {
         factory.reset()
-        let generated = (1...board.maximum).map { factory.makeRound(number: $0) }
+        let generated = factory.makeSession(count: board.maximum)
         let puzzle = ClawPuzzle.build(questions: generated.map(\.question),
                                       seed: puzzleSeed)
         clawPuzzle = puzzle
         plannedRounds = puzzle.questions.enumerated().map { index, question in
-            factory.makeRound(number: index + 1, question: question)
+            factory.makeRound(number: index + 1,
+                              question: question,
+                              targetNutID: puzzle.assignedNut(forQuestionIndex: index)?.id)
         }
         let start = min(max(1, number), plannedRounds.count)
         roundNumber = start
@@ -416,10 +418,8 @@ nonisolated public final class MemoryGame {
 
         let outcome: AnswerOutcome
         if isCorrect {
-            let streakWasActive = isStreakBoostActive
             let fishMultiplier = usesBonusFish ? GameConfig.bonusFishMultiplier : 1
-            let streakMultiplier = streakWasActive ? GameConfig.streakMultiplier : 1
-            let earned = GameConfig.normalCardReward * fishMultiplier * streakMultiplier
+            let earned = GameConfig.normalCardReward * fishMultiplier
             cards += earned
             result.correctAnswers += 1
             result.cardsEarned += earned
@@ -429,24 +429,20 @@ nonisolated public final class MemoryGame {
             result.bonusCards += earned - GameConfig.normalCardReward
             correctStreak += 1
             advanceHeartFishProgressIfNeeded()
-            let startedStreak = !streakWasActive && isStreakBoostActive
             outcome = .correct(cardsEarned: earned,
                                usedBonusFish: usesBonusFish,
-                               startedStreak: startedStreak)
+                               startedStreak: false)
         } else {
-            let streakWasActive = isStreakBoostActive
             result.wrongAnswers += 1
             correctStreak = 0
             if appliesWrongAnswerPenalty {
-                spendLifeHalves(streakWasActive
-                                ? GameConfig.streakWrongAnswerCostHalves
-                                : GameConfig.wrongAnswerCostHalves)
+                spendLifeHalves(GameConfig.wrongAnswerCostHalves)
             }
             // The sum stays standing; `advance` puts this very round back
             // into play instead of installing the next one.
             repeatsRound = true
             outcome = .wrong(correctOptionID: correctOptionID,
-                             lostHalfLife: streakWasActive)
+                             lostHalfLife: false)
         }
         lastOutcome = outcome
         return outcome

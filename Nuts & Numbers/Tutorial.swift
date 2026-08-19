@@ -218,7 +218,11 @@ final class TutorialController: ObservableObject {
     // MARK: Steps
 
     private func advance() {
-        guard let next = step?.next else {
+        var next = step?.next
+        while next == .buildStreak || next == .superBonusRunning {
+            next = next?.next
+        }
+        guard let next else {
             finish()
             return
         }

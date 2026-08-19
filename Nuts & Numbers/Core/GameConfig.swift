@@ -140,7 +140,8 @@ nonisolated public enum GameConfig {
 
     /// Seconds on the clock for each nut the board asks the player to collect.
     public static let clawSecondsPerCard = 10.0
-    /// Extra nuts that are never the right answer for any sum in the level.
+    /// Extra nuts that are never a real answer. Each printed value in the
+    /// pile is unique, so two open shells never show the same number.
     public static let clawDistractorRatio = 0.20
     /// Share of the real answer nuts that pay double when collected correctly.
     public static let clawGoldRatio = 0.10
