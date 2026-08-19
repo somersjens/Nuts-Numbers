@@ -5,10 +5,10 @@
 //  Builds one claw-machine level: the full sum list, the extra decoy nuts,
 //  the gold nuts, and a physical pile that is guaranteed to stay solvable.
 //
-//  Each sum is laid as one nut. Duplicate printed values are avoided, and
-//  when they cannot be (a tiny answer space), copies are spread so the
-//  reachable shells never show the same number twice. Grabbing any shell
-//  whose value matches the standing sum is correct.
+//  The brick mound is built first. Each sum is then parked on a nut that is
+//  already grabable at that point in the session — sometimes the peak, often
+//  a half-free nut one or two rows down — so later shells can sit on top for
+//  many rounds. Duplicate printed values are avoided on decoys.
 //
 
 import Foundation
@@ -42,8 +42,8 @@ nonisolated public struct ClawNut: Identifiable, Equatable, Sendable {
     public let isGold: Bool
     public var position: ClawPoint
     public var radius: Double
-    /// Nuts whose shells rest on this one. A nut is reachable when every id
-    /// still in the machine has left this list.
+    /// Nuts whose shells rest on this one. Live grabability counts every
+    /// overlapping shell above (`occluderCount`), not only this snapshot.
     public var coveredBy: [UUID]
 
     public var isDistractor: Bool { sequenceIndex == nil }
@@ -93,9 +93,33 @@ nonisolated public struct ClawPuzzle: Equatable, Sendable {
     }
 
     /// Whether `nut` can be grabbed given the nuts still sitting in the pile.
+    ///
+    /// Count every remaining shell that overlaps from above — the whole
+    /// column, not only the row on top. Zero blockers is free; one blocker
+    /// leaves it half-exposed (grab 18 while 15 still sits on it). Two or more
+    /// — 24 under 19, 15 and 18 — is buried. Taking 19 drops that count for
+    /// 15 and 18, and those can then be the standing answer.
+    nonisolated public static func isGrabable(_ nut: ClawNut, among remaining: [ClawNut]) -> Bool {
+        ClawPuzzleBuilder.occluderCount(on: nut, among: remaining) <= 1
+    }
+
+    /// Fully uncovered: nothing in the column above overlaps the shell.
     nonisolated public static func isReachable(_ nut: ClawNut, among remaining: [ClawNut]) -> Bool {
-        let present = Set(remaining.map(\.id))
-        return nut.coveredBy.allSatisfy { !present.contains($0) }
+        ClawPuzzleBuilder.occluderCount(on: nut, among: remaining) == 0
+    }
+
+    /// One nut sliding into a vacated pocket after a grab.
+    nonisolated public struct Fall: Equatable, Sendable {
+        public let id: UUID
+        public let from: ClawPoint
+        public let to: ClawPoint
+    }
+
+    /// Nuts that rest on `removed` drop into its pocket, then the hole
+    /// bubbles up. Used so a buried grab still leaves a packed mound.
+    nonisolated public static func fallChain(removing removed: ClawNut,
+                                             among remaining: [ClawNut]) -> [Fall] {
+        ClawPuzzleBuilder.fallChain(removing: removed, among: remaining)
     }
 
     /// Builds a full level from an already-generated sum list. The returned
@@ -136,20 +160,18 @@ nonisolated private enum ClawPuzzleBuilder {
                          distractors: distractors,
                          strategy: strategy,
                          random: random)
-        separateSimilarValues(&nuts)
+        uniquifyPrintedValues(&nuts)
         refreshCovering(&nuts)
-        diversifyReachableValues(&nuts)
-        refreshCovering(&nuts)
-        if !isSolvable(nuts, answerCount: ordered.count) {
-            nuts = place(answers: ordered,
-                         gold: gold,
-                         distractors: distractors,
-                         strategy: .strictPyramid,
-                         random: random)
+        if !isSolvableWithCascade(nuts, answerCount: ordered.count) {
+            nuts = placePeakFirst(answers: ordered,
+                                  gold: gold,
+                                  distractors: distractors,
+                                  strategy: .strictPyramid,
+                                  random: random)
             separateSimilarValues(&nuts)
+            uniquifyPrintedValues(&nuts)
             refreshCovering(&nuts)
-            repairSolvability(&nuts, answerCount: ordered.count)
-            diversifyReachableValues(&nuts)
+            repairGrabability(&nuts, answerCount: ordered.count)
             refreshCovering(&nuts)
         }
         return ClawPuzzle(questions: ordered, nuts: nuts, seed: seed)
@@ -158,7 +180,7 @@ nonisolated private enum ClawPuzzleBuilder {
     // MARK: Ordering
 
     /// Mixes the sums so identical answers never sit next to each other in
-    /// the sequence that is then dropped peak-first into the mound.
+    /// the order they are assigned onto grabable shells.
     nonisolated static func spreadQuestions(_ questions: [MathQuestion],
                                             random: RandomSource) -> [MathQuestion] {
         var remaining = random.shuffled(questions)
@@ -222,10 +244,9 @@ nonisolated private enum ClawPuzzleBuilder {
         return Array(random.shuffled(pool + extras).prefix(wanted))
     }
 
-    // MARK: Hex pyramid
+    // MARK: Brick mound
 
-    /// One resting place in the mound, ordered from the peak down so the first
-    /// sum can sit on top and later answers stay buried until they are needed.
+    /// One resting place in the brick mound.
     struct Slot {
         var position: ClawPoint
         var radius: Double
@@ -238,13 +259,36 @@ nonisolated private enum ClawPuzzleBuilder {
                       strategy: LayoutStrategy,
                       random: RandomSource) -> [ClawNut] {
         let total = answers.count + distractors.count
+        let slots = hexSlots(count: total, strategy: strategy, random: random)
+        var nuts = slots.map { slot in
+            ClawNut(text: "",
+                    sequenceIndex: nil,
+                    isGold: false,
+                    position: slot.position,
+                    radius: slot.radius)
+        }
+        assignAnswers(&nuts,
+                      answers: answers,
+                      gold: gold,
+                      distractors: distractors,
+                      random: random)
+        return nuts
+    }
+
+    /// Emergency layout: early sums on the peak, later sums underneath.
+    /// Only used if grabable-slot assignment somehow cannot finish a session.
+    static func placePeakFirst(answers: [MathQuestion],
+                               gold: Set<Int>,
+                               distractors: [String],
+                               strategy: LayoutStrategy,
+                               random: RandomSource) -> [ClawNut] {
+        let total = answers.count + distractors.count
         var slots = hexSlots(count: total, strategy: strategy, random: random)
-        // Peak first: row 0 is the top of the mound.
         slots.sort { lhs, rhs in
             if lhs.row != rhs.row { return lhs.row < rhs.row }
             return lhs.position.x < rhs.position.x
         }
-        for row in Set(slots.map(\.row)) {
+        for row in Set(slots.map(\.row)).sorted() {
             let indices = slots.indices.filter { slots[$0].row == row }
             var rowSlots = indices.map { slots[$0] }
             rowSlots = random.shuffled(rowSlots)
@@ -260,7 +304,7 @@ nonisolated private enum ClawPuzzleBuilder {
             nuts.append(ClawNut(text: answer.correctAnswer,
                                 sequenceIndex: index,
                                 isGold: gold.contains(index),
-                                position: jitter(slot.position, radius: slot.radius, random: random),
+                                position: slot.position,
                                 radius: slot.radius))
         }
         let remainingSlots = slots.dropFirst(answers.count)
@@ -268,106 +312,162 @@ nonisolated private enum ClawPuzzleBuilder {
             nuts.append(ClawNut(text: text,
                                 sequenceIndex: nil,
                                 isGold: false,
-                                position: jitter(slot.position, radius: slot.radius, random: random),
+                                position: slot.position,
                                 radius: slot.radius))
         }
         return nuts
     }
 
-    static func jitter(_ point: ClawPoint, radius: Double, random: RandomSource) -> ClawPoint {
-        ClawPoint(x: clamp01(point.x + random.double(in: -0.001..<0.001)),
-                  y: min(0.985 - radius, point.y))
+    static func relabel(_ nut: ClawNut,
+                        text: String,
+                        sequenceIndex: Int?,
+                        isGold: Bool) -> ClawNut {
+        ClawNut(id: nut.id,
+                text: text,
+                sequenceIndex: sequenceIndex,
+                isGold: isGold,
+                position: nut.position,
+                radius: nut.radius,
+                coveredBy: nut.coveredBy)
     }
 
-    /// Builds a dense hex mound that fills the pile, matching the claw-machine
-    /// reference: five to seven stacked rows rather than a thin bowling pin.
+    static func assignAnswers(_ nuts: inout [ClawNut],
+                              answers: [MathQuestion],
+                              gold: Set<Int>,
+                              distractors: [String],
+                              random: RandomSource) {
+        var sim = nuts
+        for (index, question) in answers.enumerated() {
+            let grabable = sim.filter { ClawPuzzle.isGrabable($0, among: sim) }
+            let printed = AnswerValue(question.correctAnswer)
+            let already = nuts.filter { $0.sequenceIndex != nil && value(of: $0) == printed }
+            let far = grabable.filter { candidate in
+                !already.contains { closeTogether($0, candidate) }
+            }
+            let pool = far.isEmpty ? grabable : far
+            let chosen = pickAnswerSlot(pool, pile: sim, random: random) ?? random.element(pool)
+            guard let chosen, ClawPuzzle.isGrabable(chosen, among: sim) else { break }
+            if let i = nuts.firstIndex(where: { $0.id == chosen.id }) {
+                nuts[i] = relabel(nuts[i],
+                                  text: question.correctAnswer,
+                                  sequenceIndex: index,
+                                  isGold: gold.contains(index))
+            }
+            if let live = sim.first(where: { $0.id == chosen.id }) {
+                applyFall(&sim, removing: live)
+            }
+        }
+        var decoys = distractors
+        for i in nuts.indices where nuts[i].sequenceIndex == nil {
+            let text = decoys.isEmpty ? "0" : decoys.removeFirst()
+            nuts[i] = relabel(nuts[i], text: text, sequenceIndex: nil, isGold: false)
+        }
+    }
+
+    static func pickAnswerSlot(_ grabable: [ClawNut],
+                               pile: [ClawNut],
+                               random: RandomSource) -> ClawNut? {
+        guard !grabable.isEmpty else { return nil }
+        let free = grabable.filter { occluderCount(on: $0, among: pile) == 0 }
+        let half = grabable.filter { occluderCount(on: $0, among: pile) == 1 }
+        let roll = random.double(in: 0..<1)
+
+        if !half.isEmpty, roll < 0.60 {
+            let sorted = half.sorted { $0.position.y < $1.position.y }
+            return random.weightedHardPick(sorted) ?? sorted.last
+        }
+
+        let peak = free.isEmpty ? grabable : free
+        if peak.count > 1, roll < 0.84 {
+            let ranked = peak
+                .map { item -> (ClawNut, Double) in
+                    (item, unlockScore(item, pile: pile))
+                }
+                .sorted { $0.1 < $1.1 }
+                .map(\.0)
+            return random.weightedHardPick(ranked) ?? ranked.last
+        }
+        return random.element(peak)
+    }
+
+    static func unlockScore(_ nut: ClawNut, pile: [ClawNut]) -> Double {
+        let before = Set(pile.filter { ClawPuzzle.isGrabable($0, among: pile) }.map(\.id))
+        var next = pile
+        applyFall(&next, removing: nut)
+        let unlocked = next.filter { candidate in
+            !before.contains(candidate.id) && ClawPuzzle.isGrabable(candidate, among: next)
+        }
+        return unlocked.reduce(0) { score, opened in
+            score + 1 + max(0, opened.position.y - nut.position.y) * 10
+        }
+    }
+
+    /// Bottom row always spans the pile with this many walnuts. Odd rows nest
+    /// in the valleys (5-4-5-4), so each nut sits exactly between the two below.
+    static let floorColumns = 5
+    /// Vertical gap between row centres, as a fraction of nut diameter. Tight
+    /// enough that the oval shells rest in the valleys with contact.
+    static let nestYFactor = 0.54
+
     static func hexSlots(count: Int,
                          strategy: LayoutStrategy,
                          random: RandomSource) -> [Slot] {
-        if strategy == .twinPiles, count >= 18 {
-            let left = count / 2 + count % 2
-            let right = count - left
-            return mound(count: left, bias: 0.28, width: 0.50, strategy: .centerMountain, random: random)
-                + mound(count: right, bias: 0.74, width: 0.50, strategy: .centerMountain, random: random)
-        }
-        let bias: Double
-        switch strategy {
-        case .leftSlope: bias = 0.46
-        case .rightSlope: bias = 0.54
-        case .cascade: bias = 0.50 + random.double(in: -0.03..<0.03)
-        default: bias = 0.50
-        }
-        let width = strategy == .wideMound ? 0.99 : 0.97
-        return mound(count: count, bias: bias, width: width, strategy: strategy, random: random)
+        _ = strategy
+        _ = random
+        return mound(count: count)
     }
 
-    static func mound(count: Int,
-                      bias: Double,
-                      width: Double,
-                      strategy: LayoutStrategy,
-                      random: RandomSource) -> [Slot] {
-        let rows = rowCounts(total: count, wide: strategy == .wideMound || strategy == .centerMountain)
-        _ = random
-        let bottom = rows.max() ?? max(3, count)
-        let spacingX = width / Double(max(bottom, 1))
-        let radius = spacingX * 0.50
-        let floor = 0.985 - radius
-        // √3 keeps hex valleys; screen mapping is isotropic so this is also
-        // the pixel gap. Nuts rest in the pockets without shell overlap.
-        let spacingY = radius * 1.732
-        var slots: [Slot] = []
+    struct RowPlan {
+        var length: Int
+        var staggered: Bool
+        var capacity: Int
+    }
 
-        for (row, length) in rows.enumerated() {
-            let rowWidth = Double(max(length - 1, 0)) * spacingX
-            let startX = bias - rowWidth / 2
-            let y = floor - Double(max(rows.count - 1 - row, 0)) * spacingY
-            let stagger = (row % 2 == 1) ? spacingX * 0.50 : 0
-            for column in 0..<length {
-                let x = startX + Double(column) * spacingX + stagger
-                slots.append(Slot(position: ClawPoint(x: min(max(x, radius + 0.01), 1 - radius - 0.01),
-                                                      y: y),
+    /// Floor is 5, the row above is 4 in the valleys, then 5, then 4, …
+    static func rowPlan(total: Int) -> [RowPlan] {
+        var remaining = total
+        var even = true
+        var rows: [RowPlan] = []
+        while remaining > 0 {
+            let capacity = even ? floorColumns : floorColumns - 1
+            let length = min(capacity, remaining)
+            rows.append(RowPlan(length: length, staggered: !even, capacity: capacity))
+            remaining -= length
+            even.toggle()
+        }
+        return rows
+    }
+
+    static func mound(count: Int) -> [Slot] {
+        guard count > 0 else { return [] }
+        let radius = 0.5 / Double(floorColumns)
+        let spacingX = radius * 2
+        let rowsFromBottom = rowPlan(total: count)
+        var spacingY = spacingX * nestYFactor
+        let floor = 1 - radius
+        if rowsFromBottom.count > 1 {
+            let maxRise = max(0.12, floor - radius - 0.04)
+            let fitted = maxRise / Double(rowsFromBottom.count - 1)
+            spacingY = min(spacingY, max(spacingX * 0.50, fitted))
+        }
+        let originX = radius
+        let topRow = max(rowsFromBottom.count - 1, 0)
+
+        var slots: [Slot] = []
+        for (rowFromBottom, row) in rowsFromBottom.enumerated() {
+            let y = floor - Double(rowFromBottom) * spacingY
+            let start = (row.capacity - row.length) / 2
+            for column in 0..<row.length {
+                let gridColumn = start + column
+                let x = originX
+                    + (row.staggered ? spacingX * 0.5 : 0)
+                    + Double(gridColumn) * spacingX
+                slots.append(Slot(position: ClawPoint(x: x, y: y),
                                   radius: radius,
-                                  row: row))
+                                  row: topRow - rowFromBottom))
             }
         }
         return slots
-    }
-
-    /// Wide stacked mound: full-width rows at the bottom, a slightly narrower
-    /// peak, enough slots for every nut even on a 50-sum board.
-    static func rowCounts(total: Int, wide: Bool) -> [Int] {
-        guard total > 0 else { return [] }
-        let maxBottom = wide ? 6 : 5
-        let targetRows: Int
-        switch total {
-        case ..<10: targetRows = 3
-        case ..<18: targetRows = 4
-        case ..<28: targetRows = 5
-        case ..<42: targetRows = 6
-        default: targetRows = 7
-        }
-        var bottom = min(maxBottom, max(3, Int(ceil(Double(total) / Double(targetRows)))))
-        while bottom * targetRows < total, bottom < maxBottom {
-            bottom += 1
-        }
-        var remaining = total
-        var fromBottom: [Int] = []
-        while remaining > 0 {
-            let width = min(bottom, remaining)
-            fromBottom.append(width)
-            remaining -= width
-        }
-        var rows = Array(fromBottom.reversed())
-        if rows.count >= 3, let first = rows.first, first == bottom, rows.last == bottom, bottom > 3 {
-            let shave = min(2, first - 2)
-            rows[0] -= shave
-            rows[rows.count - 1] += shave
-        }
-        return rows.filter { $0 > 0 }
-    }
-
-    static func clamp01(_ value: Double) -> Double {
-        min(max(value, 0), 1)
     }
 
     // MARK: Unique exposed values
@@ -390,6 +490,10 @@ nonisolated private enum ClawPuzzleBuilder {
             && abs(a.position.y - b.position.y) < reach * 1.65
     }
 
+    static func sameRow(_ a: ClawNut, _ b: ClawNut) -> Bool {
+        abs(a.position.y - b.position.y) < min(a.radius, b.radius) * 0.45
+    }
+
     static func swapPositions(_ nuts: inout [ClawNut], _ i: Int, _ j: Int) {
         guard i != j else { return }
         let position = nuts[i].position
@@ -401,7 +505,8 @@ nonisolated private enum ClawPuzzleBuilder {
     }
 
     /// Pulls identical printed values apart so they never sit on top of each
-    /// other in the pile.
+    /// other in the pile. Swaps stay in the same row so the brick stack — and
+    /// the peel order — stay intact.
     static func separateSimilarValues(_ nuts: inout [ClawNut]) {
         for _ in 0..<28 {
             var moved = false
@@ -410,15 +515,19 @@ nonisolated private enum ClawPuzzleBuilder {
                     guard value(of: nuts[i]) == value(of: nuts[j]),
                           closeTogether(nuts[i], nuts[j]) else { continue }
                     let match = value(of: nuts[i])
+                    let movable = (nuts[i].sequenceIndex ?? Int.max)
+                        > (nuts[j].sequenceIndex ?? Int.max) ? i : j
+                    let other = movable == i ? j : i
                     let candidates = nuts.indices.filter { k in
                         k != i && k != j
+                            && sameRow(nuts[k], nuts[movable])
                             && value(of: nuts[k]) != match
-                            && !closeTogether(nuts[i], nuts[k])
+                            && !closeTogether(nuts[other], nuts[k])
                     }
                     guard let k = candidates.max(by: {
-                        distance(nuts[i], nuts[$0]) < distance(nuts[i], nuts[$1])
+                        distance(nuts[other], nuts[$0]) < distance(nuts[other], nuts[$1])
                     }) else { continue }
-                    swapPositions(&nuts, j, k)
+                    swapPositions(&nuts, movable, k)
                     moved = true
                 }
             }
@@ -426,32 +535,87 @@ nonisolated private enum ClawPuzzleBuilder {
         }
     }
 
-    /// The grabable layer should read as a set of different answers. Keep the
-    /// soonest assigned copy of a value on top and bury extras.
-    static func diversifyReachableValues(_ nuts: inout [ClawNut]) {
-        for _ in 0..<16 {
-            refreshCovering(&nuts)
-            let reachable = nuts.indices.filter { ClawPuzzle.isReachable(nuts[$0], among: nuts) }
-            var firstIndexForValue: [AnswerValue: Int] = [:]
-            var extra: Int?
-            for index in reachable {
-                let printed = value(of: nuts[index])
-                if let kept = firstIndexForValue[printed] {
-                    extra = nuts[index].sequenceIndex == 0 ? kept : index
-                    if extra == kept, nuts[kept].sequenceIndex == 0 {
-                        extra = index
-                    }
-                    break
+    /// Distractors never reprint a value that already sits in the pile, so at
+    /// most one shell of each answer is visible at a time.
+    static func uniquifyPrintedValues(_ nuts: inout [ClawNut]) {
+        var seen: Set<AnswerValue> = []
+        var next = 1
+        func uniqueExtra() -> String {
+            while true {
+                let candidate = String(next)
+                next += 1
+                let value = AnswerValue(candidate)
+                if !seen.contains(value) {
+                    seen.insert(value)
+                    return candidate
                 }
-                firstIndexForValue[printed] = index
             }
-            guard let extra else { return }
-            let reachableValues = Set(reachable.map { value(of: nuts[$0]) })
-            let buried = nuts.indices.filter { !ClawPuzzle.isReachable(nuts[$0], among: nuts) }
-            guard let partner = buried.first(where: { !reachableValues.contains(value(of: nuts[$0])) })
-            else { return }
-            swapPositions(&nuts, extra, partner)
         }
+        for i in nuts.indices {
+            let printed = value(of: nuts[i])
+            if seen.contains(printed) {
+                guard nuts[i].isDistractor else { continue }
+                nuts[i] = ClawNut(id: nuts[i].id,
+                                  text: uniqueExtra(),
+                                  sequenceIndex: nuts[i].sequenceIndex,
+                                  isGold: nuts[i].isGold,
+                                  position: nuts[i].position,
+                                  radius: nuts[i].radius,
+                                  coveredBy: nuts[i].coveredBy)
+            } else {
+                seen.insert(printed)
+            }
+        }
+    }
+
+    /// True when `upper` rests in a valley of `hole` — the row immediately
+    /// above, not two rows up. In the 5-4 brick, an interior nut has two
+    /// sitters (buried) and an edge nut has one (half free, still grabable).
+    static func sitsOn(upper: ClawNut, hole: ClawPoint, holeRadius: Double) -> Bool {
+        let radius = min(upper.radius, holeRadius)
+        let dy = hole.y - upper.position.y
+        guard dy > radius * 0.35, dy < radius * 1.7 else { return false }
+        return abs(upper.position.x - hole.x) < (upper.radius + holeRadius) * 0.62
+    }
+
+    static func fallChain(removing removed: ClawNut, among remaining: [ClawNut]) -> [ClawPuzzle.Fall] {
+        var positions: [UUID: ClawPoint] = [:]
+        var byID: [UUID: ClawNut] = [:]
+        for nut in remaining where nut.id != removed.id {
+            positions[nut.id] = nut.position
+            byID[nut.id] = nut
+        }
+        var hole = removed.position
+        let holeRadius = removed.radius
+        var chain: [ClawPuzzle.Fall] = []
+        var moved: Set<UUID> = []
+
+        while true {
+            let sitters = byID.values.filter { nut in
+                guard !moved.contains(nut.id), let at = positions[nut.id] else { return false }
+                var probe = nut
+                probe.position = at
+                return sitsOn(upper: probe, hole: hole, holeRadius: holeRadius)
+            }
+            guard let next = sitters.min(by: { a, b in
+                let pa = positions[a.id] ?? a.position
+                let pb = positions[b.id] ?? b.position
+                let dya = hole.y - pa.y
+                let dyb = hole.y - pb.y
+                if abs(dya - dyb) > 0.012 { return dya < dyb }
+                let dxa = abs(pa.x - hole.x)
+                let dxb = abs(pb.x - hole.x)
+                if abs(dxa - dxb) > 0.012 { return dxa < dxb }
+                return pa.x < pb.x
+            }) else { break }
+
+            let from = positions[next.id] ?? next.position
+            chain.append(ClawPuzzle.Fall(id: next.id, from: from, to: hole))
+            moved.insert(next.id)
+            positions[next.id] = hole
+            hole = from
+        }
+        return chain
     }
 
     // MARK: Covering
@@ -469,50 +633,89 @@ nonisolated private enum ClawPuzzleBuilder {
         }
     }
 
-    static func covers(upper: ClawNut, lower: ClawNut) -> Bool {
+    /// Nuts anywhere above `nut` whose shells overlap it in x — the column
+    /// the claw would have to reach through, not just the immediate sitters
+    /// used for the cascade.
+    static func occludes(upper: ClawNut, lower: ClawNut) -> Bool {
+        let radius = min(upper.radius, lower.radius)
         let dy = lower.position.y - upper.position.y
-        guard dy > min(upper.radius, lower.radius) * 0.22 else { return false }
-        let dx = abs(upper.position.x - lower.position.x)
-        let reach = (upper.radius + lower.radius) * 0.78
-        return dx < reach
+        guard dy > radius * 0.7 else { return false }
+        return abs(upper.position.x - lower.position.x) < (upper.radius + lower.radius) * 0.62
     }
 
-    static func isSolvable(_ nuts: [ClawNut], answerCount: Int) -> Bool {
-        var remaining = nuts
+    static func occluderCount(on nut: ClawNut, among remaining: [ClawNut]) -> Int {
+        remaining.reduce(0) { count, other in
+            guard other.id != nut.id else { return count }
+            return occludes(upper: other, lower: nut) ? count + 1 : count
+        }
+    }
+
+    static func applyFall(_ nuts: inout [ClawNut], removing removed: ClawNut) {
+        let chain = fallChain(removing: removed, among: nuts)
+        nuts.removeAll { $0.id == removed.id }
+        for fall in chain {
+            guard let i = nuts.firstIndex(where: { $0.id == fall.id }) else { continue }
+            nuts[i].position = fall.to
+        }
+    }
+
+    /// Walks the whole session: each assigned nut must be at least half-free
+    /// when it is asked, then the cascade is applied before the next sum.
+    static func isSolvableWithCascade(_ nuts: [ClawNut], answerCount: Int) -> Bool {
+        var pile = nuts
         for index in 0..<answerCount {
-            guard let target = remaining.first(where: { $0.isAssigned(toQuestionIndex: index) }) else {
+            guard let target = pile.first(where: { $0.isAssigned(toQuestionIndex: index) }) else {
                 return false
             }
-            if !ClawPuzzle.isReachable(target, among: remaining) { return false }
-            remaining.removeAll { $0.id == target.id }
+            if !ClawPuzzle.isGrabable(target, among: pile) { return false }
+            applyFall(&pile, removing: target)
         }
         return true
     }
 
-    static func repairSolvability(_ nuts: inout [ClawNut], answerCount: Int) {
-        for index in 0..<answerCount {
-            for _ in 0..<24 {
-                refreshCovering(&nuts)
-                var remaining = nuts
-                remaining.removeAll { nut in
-                    (nut.sequenceIndex ?? Int.max) < index
-                }
-                guard let target = remaining.first(where: { $0.isAssigned(toQuestionIndex: index) }),
-                      !ClawPuzzle.isReachable(target, among: remaining)
-                else { break }
-
-                let present = Set(remaining.map(\.id))
-                let blockers = remaining.filter { target.coveredBy.contains($0.id) && present.contains($0.id) }
-                for blocker in blockers {
-                    guard let slot = nuts.firstIndex(where: { $0.id == blocker.id }) else { continue }
-                    let push = blocker.position.x >= target.position.x ? 0.08 : -0.08
-                    nuts[slot].position.x = clamp01(nuts[slot].position.x + push)
-                    if (blocker.sequenceIndex ?? -1) > index || blocker.isDistractor {
-                        nuts[slot].position.y = min(0.96 - nuts[slot].radius,
-                                                    nuts[slot].position.y + 0.025)
-                    }
-                }
+    static func repairGrabability(_ nuts: inout [ClawNut], answerCount: Int) {
+        for _ in 0..<24 {
+            guard !isSolvableWithCascade(nuts, answerCount: answerCount) else { return }
+            guard let (index, target, pile) = firstUngrabable(in: nuts, answerCount: answerCount)
+            else { return }
+            let partners = pile.filter { nut in
+                guard nut.id != target.id else { return false }
+                guard ClawPuzzle.isGrabable(nut, among: pile) else { return false }
+                if nut.isDistractor { return true }
+                return (nut.sequenceIndex ?? -1) > index
             }
+            guard let partner = partners.min(by: { a, b in
+                if a.isDistractor != b.isDistractor { return a.isDistractor }
+                let freeA = ClawPuzzle.isReachable(a, among: pile)
+                let freeB = ClawPuzzle.isReachable(b, among: pile)
+                if freeA != freeB { return freeA }
+                return a.position.y < b.position.y
+            }),
+                  let targetSlot = nuts.firstIndex(where: { $0.id == target.id }),
+                  let partnerSlot = nuts.firstIndex(where: { $0.id == partner.id })
+            else { return }
+            swapPositions(&nuts, targetSlot, partnerSlot)
         }
+    }
+
+    /// Simulated pile at the first question whose assigned nut is not at least
+    /// half-free, after earlier answers have been taken and the cascade applied.
+    static func firstUngrabable(in nuts: [ClawNut],
+                                answerCount: Int) -> (index: Int, target: ClawNut, pile: [ClawNut])? {
+        var pile = nuts
+        for index in 0..<answerCount {
+            guard let target = pile.first(where: { $0.isAssigned(toQuestionIndex: index) }) else {
+                return nil
+            }
+            if !ClawPuzzle.isGrabable(target, among: pile) {
+                return (index, target, pile)
+            }
+            applyFall(&pile, removing: target)
+        }
+        return nil
+    }
+
+    static func covers(upper: ClawNut, lower: ClawNut) -> Bool {
+        sitsOn(upper: upper, hole: lower.position, holeRadius: lower.radius)
     }
 }

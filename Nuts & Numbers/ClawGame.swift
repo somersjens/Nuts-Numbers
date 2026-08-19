@@ -3,8 +3,9 @@
 //  Nuts & Numbers
 //
 //  The claw-machine playing surface. The session still lives in `MemoryGame`;
-//  this file only steers the hanging elephant, decides which reachable nut was
-//  chosen, and plays the grab / return / time-up animations.
+//  this file only steers the hanging elephant, decides which nut was chosen
+//  (including one sitting under another), slides the pile into the hole, and
+//  plays the grab / return / time-up animations.
 //
 
 import SwiftUI
@@ -24,13 +25,19 @@ enum ClawConfig {
     static let swingDrive: CGFloat = 5.6
     static let maxSwing: CGFloat = 0.42
 
-    static let descendDuration = 0.28
-    static let grabPause = 0.08
-    static let ascendDuration = 0.24
-    static let carryDuration = 0.32
-    static let dropDuration = 1.08
-    static let returnDuration = 0.26
+    /// Full-depth lower; kept gentle so the whole grab loop can breathe.
+    static let descendDuration = 0.58
+    static let grabPause = 0.20
+    static let ascendDuration = 0.50
+    static let carryDuration = 0.42
+    static let dropDuration = 0.40
+    static let dropSettle = 0.20
+    static let returnDuration = 0.34
     static let spitDuration = 1.08
+    static let cascadeDuration = 0.30
+    static let cascadeStagger = 0.08
+    /// Gravity for a released nut falling into the crate, in points/s².
+    static let dropGravity: CGFloat = 2400
 
     static let entranceDuration = 0.85
     static let completionDuration = 1.15
@@ -49,8 +56,21 @@ enum ClawConfig {
     }
 
     static func nutPixelRadius(unit: Double, pile: CGSize) -> CGFloat {
-        CGFloat(unit) * pile.width * 1.04
+        CGFloat(unit) * pile.width
     }
+
+    /// `1_nootje` canvas is 1536×1024; the walnut itself occupies this slice.
+    static let nutImageName = "1_nootje"
+    static let nutCanvasAspect: CGFloat = 1536.0 / 1024.0
+    static let nutContentWidthFraction: CGFloat = 0.7142
+    /// Visual walnut height divided by visual width.
+    static let nutContentAspect: CGFloat = 0.7575
+    /// Draw the shell a little larger than the grid cell so the irregular
+    /// outline kisses its neighbours instead of leaving a dark gap.
+    static let nutPackScale: CGFloat = 1.08
+    /// Cap on the printed answer. Longer values keep this size as a ceiling
+    /// and shrink to fit the shell.
+    static let nutMaxTextSize: CGFloat = 17
 }
 
 // MARK: - Palette
@@ -87,7 +107,7 @@ enum ClawTutorialEvent {
 // MARK: - Runtime nut
 
 struct ClawNutRuntime: Identifiable {
-    let spec: ClawNut
+    var spec: ClawNut
     var rest: CGPoint
     var position: CGPoint
     var isPresent: Bool
@@ -174,10 +194,18 @@ final class ClawEngine: ObservableObject {
     private var grabTarget: UUID?
     private var grabStartX: CGFloat = 0.5
     private var grabDepth: CGFloat = 0.7
+    private var grabFrom: CGPoint = .zero
+    private var descendTime = ClawConfig.descendDuration
+    private var ascendTime = ClawConfig.ascendDuration
+    private var carryTime = ClawConfig.carryDuration
+    private var returnTime = ClawConfig.returnDuration
+    private var returnFromX: CGFloat = 0.5
     private var carryFromX: CGFloat = 0.5
     private var dropFrom: CGPoint = .zero
     private var dropTo: CGPoint = .zero
     private var dropFlightTime = ClawConfig.dropDuration
+    private var trolleyMinX: CGFloat = 0.06
+    private var trolleyMaxFreeX: CGFloat = 0.72
     private var spitFrom: CGPoint = .zero
     private var spitTo: CGPoint = .zero
     private var spitFlightTime = ClawConfig.spitDuration
@@ -189,6 +217,11 @@ final class ClawEngine: ObservableObject {
     private var entranceAge: Double?
     private var finaleAge: Double?
     private var reduceMotion = false
+    private var slides: [ClawPuzzle.Fall] = []
+    private var slideStart: [UUID: CGPoint] = [:]
+    private var slideEnd: [UUID: CGPoint] = [:]
+    private var slideAge: Double = 0
+    private var reversingSlides = false
 
     var acceptsGrab: Bool {
         isLive && phase == .idle && !tutorialPlan.suppressesGrab
@@ -202,7 +235,7 @@ final class ClawEngine: ObservableObject {
         self.isPad = isPad
         let post: CGFloat = isPad ? 38 : 26
         let headerH: CGFloat = isPad ? 64 : 52
-        let panelH: CGFloat = isPad ? 216 : 178
+        let panelH: CGFloat = isPad ? 132 : 110
         let top = topReserve + 2
         let headerW = min(size.width - post * 2 - (isPad ? 200 : 150), size.width * 0.50)
         headerRect = CGRect(x: (size.width - headerW) / 2, y: top, width: headerW, height: headerH)
@@ -210,20 +243,29 @@ final class ClawEngine: ObservableObject {
                            y: size.height - panelH - max(bottomReserve * 0.12, 2),
                            width: size.width,
                            height: panelH + max(bottomReserve * 0.12, 2))
+        let cabinetOverlap = panelH * 0.30
         playRect = CGRect(x: post,
                           y: headerRect.maxY + 8,
                           width: size.width - post * 2,
-                          height: max(180, panelRect.minY - headerRect.maxY - 2))
-        pileRect = CGRect(x: playRect.minX + playRect.width * 0.015,
-                          y: playRect.minY + playRect.height * 0.22,
-                          width: playRect.width * 0.80,
-                          height: playRect.height * 0.76)
+                          height: max(180, panelRect.minY + cabinetOverlap - headerRect.maxY - 2))
         let binW = playRect.width * 0.18
         let binH = playRect.height * 0.52
         binRect = CGRect(x: playRect.maxX - binW - playRect.width * 0.01,
                          y: playRect.maxY - binH,
                          width: binW,
                          height: binH)
+        let pileLeft = playRect.minX + playRect.width * 0.015
+        pileRect = CGRect(x: pileLeft,
+                          y: playRect.minY + playRect.height * 0.22,
+                          width: max(40, binRect.minX - pileLeft - playRect.width * 0.02),
+                          height: playRect.height * 0.76)
+        trolleyMinX = 0.06
+        let pileRight = CGFloat((pileRect.maxX - playRect.minX) / max(playRect.width, 1))
+        let holeLeft = CGFloat((binRect.minX - playRect.minX) / max(playRect.width, 1))
+        trolleyMaxFreeX = min(pileRight, holeLeft - 0.02)
+        if phase == .idle {
+            trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
+        }
         restY = 0
         relayoutNuts()
     }
@@ -243,7 +285,7 @@ final class ClawEngine: ObservableObject {
                                   rest: rest,
                                   position: rest,
                                   isPresent: true,
-                                  rotation: Double(spec.id.hashValue % 11) * 0.015,
+                                  rotation: 0,
                                   pixelRadius: ClawConfig.nutPixelRadius(unit: spec.radius,
                                                                          pile: pileRect.size))
         }
@@ -271,9 +313,11 @@ final class ClawEngine: ObservableObject {
     }
 
     func setInput(_ value: CGFloat) {
+        let clamped = max(-1, min(1, value))
+        // Always snap the stick back, even if a grab started mid-drag.
+        joystickInput = clamped
         guard phase == .idle || phase == .returning else { return }
-        input = max(-1, min(1, value))
-        joystickInput = input
+        input = clamped
         if abs(input) > 0.25, tutorialPlan.wantsMove, !hasReportedMove {
             hasReportedMove = true
             onTutorialEvent?(.movedClaw)
@@ -329,10 +373,12 @@ final class ClawEngine: ObservableObject {
     // MARK: Grab
 
     private func startGrab() {
-        let target = nearestReachableNut()
+        let target = nearestNut()
         grabTarget = target?.id
         grabStartX = trolleyX
         grabDepth = depthToward(target)
+        descendTime = max(0.38, ClawConfig.descendDuration * Double(grabDepth))
+        ascendTime = max(0.34, ClawConfig.ascendDuration * Double(grabDepth))
         phase = .descending
         phaseAge = 0
         input = 0
@@ -352,15 +398,22 @@ final class ClawEngine: ObservableObject {
         return max(0.28, min(1, (desiredY - restY) / span))
     }
 
-    private func nearestReachableNut() -> ClawNutRuntime? {
+    private func nearestNut() -> ClawNutRuntime? {
         let remaining = nuts.filter(\.isPresent)
-        let reachable = remaining.filter { ClawPuzzle.isReachable($0.spec, among: remaining.map(\.spec)) }
+        let specs = remaining.map(\.spec)
+        let grabable = remaining.filter { ClawPuzzle.isGrabable($0.spec, among: specs) }
         let trolley = trolleyScreen
-        let reach = pileRect.width * 0.20
-        return reachable
+        let reach = pileRect.width * 0.16
+        return grabable
             .map { nut in (nut, abs(nut.position.x - trolley.x)) }
-            .filter { $0.1 < max(reach, $0.0.pixelRadius * 1.45) }
-            .min { $0.1 < $1.1 }?
+            .filter { $0.1 < max(reach, $0.0.pixelRadius * 1.35) }
+            .min { lhs, rhs in
+                if abs(lhs.1 - rhs.1) > 4 { return lhs.1 < rhs.1 }
+                let freeL = ClawPuzzle.isReachable(lhs.0.spec, among: specs)
+                let freeR = ClawPuzzle.isReachable(rhs.0.spec, among: specs)
+                if freeL != freeR { return freeL }
+                return lhs.0.position.y < rhs.0.position.y
+            }?
             .0
     }
 
@@ -399,6 +452,7 @@ final class ClawEngine: ObservableObject {
         stepTrolley(dt: dt)
         stepSwing(dt: dt)
         stepPhase(dt: dt)
+        stepCascade(dt: dt)
         stepFlights(dt: dt)
         objectWillChange.send()
     }
@@ -406,7 +460,7 @@ final class ClawEngine: ObservableObject {
     private func stepTrolley(dt: Double) {
         guard phase == .idle, entranceAge == nil else { return }
         let previous = trolleyX
-        trolleyX = max(0.04, min(0.88, trolleyX + input * ClawConfig.trolleySpeed * dt))
+        trolleyX = max(trolleyMinX, min(trolleyMaxFreeX, trolleyX + input * ClawConfig.trolleySpeed * dt))
         lastTrolleyX = previous
     }
 
@@ -430,18 +484,25 @@ final class ClawEngine: ObservableObject {
         case .idle:
             buttonPressed = false
         case .descending:
-            let t = min(1, phaseAge / ClawConfig.descendDuration)
-            trolleyY = easeIn(t) * grabDepth
-            if t >= 1 { enter(.grabbing) }
+            let t = min(1, phaseAge / descendTime)
+            trolleyY = easeInOut(t) * grabDepth
+            if t >= 1 {
+                if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
+                    grabFrom = nuts[index].position
+                    beginCascade(removing: nuts[index])
+                }
+                enter(.grabbing)
+            }
         case .grabbing:
             if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
                 heldNutID = id
-                nuts[index].position = trunkPoint
+                let u = easeOut(min(1, phaseAge / ClawConfig.grabPause))
+                nuts[index].position = lerp(grabFrom, trunkPoint, u)
             }
             if phaseAge >= ClawConfig.grabPause { enter(.ascending) }
         case .ascending:
-            let t = min(1, phaseAge / ClawConfig.ascendDuration)
-            trolleyY = grabDepth * (1 - easeOut(t))
+            let t = min(1, phaseAge / ascendTime)
+            trolleyY = grabDepth * (1 - easeInOut(t))
             if let id = heldNutID, let index = nuts.firstIndex(where: { $0.id == id }) {
                 nuts[index].position = trunkPoint
             }
@@ -450,11 +511,13 @@ final class ClawEngine: ObservableObject {
                     enter(.returning)
                 } else {
                     carryFromX = trolleyX
+                    let span = abs(binUnitX - carryFromX)
+                    carryTime = max(0.38, Double(span) / 0.82)
                     enter(.carrying)
                 }
             }
         case .carrying:
-            let t = min(1, phaseAge / ClawConfig.carryDuration)
+            let t = min(1, phaseAge / carryTime)
             let binX = binUnitX
             trolleyX = carryFromX + (binX - carryFromX) * easeInOut(t)
             trolleyY = 0
@@ -471,9 +534,13 @@ final class ClawEngine: ObservableObject {
                 return
             }
             let t = min(1, phaseAge / dropFlightTime)
-            nuts[index].position = ballistic(from: dropFrom, to: dropTo, t: t, duration: dropFlightTime)
-            nuts[index].rotation += dt * 1.8
-            if t >= 1 {
+            if t < 1 {
+                nuts[index].position = dropFall(t)
+            } else {
+                nuts[index].position = dropTo
+            }
+            nuts[index].rotation += dt * 0.6
+            if phaseAge >= dropFlightTime + ClawConfig.dropSettle {
                 finishDrop(index: index)
             }
         case .spitBack:
@@ -486,14 +553,15 @@ final class ClawEngine: ObservableObject {
             nuts[index].rotation += dt * 2.6
             if t >= 1 {
                 nuts[index].position = spitTo
+                nuts[index].rest = spitTo
                 nuts[index].isPresent = true
                 heldNutID = nil
                 enter(.returning)
             }
         case .returning:
-            let t = min(1, phaseAge / ClawConfig.returnDuration)
-            let target = grabStartX
-            trolleyX += (target - trolleyX) * min(1, t)
+            let t = min(1, phaseAge / returnTime)
+            let target = min(trolleyMaxFreeX, max(trolleyMinX, grabStartX))
+            trolleyX = returnFromX + (target - returnFromX) * easeInOut(t)
             trolleyY = 0
             if t >= 1 {
                 trolleyX = target
@@ -508,17 +576,27 @@ final class ClawEngine: ObservableObject {
 
     private func finishDrop(index: Int) {
         let nut = nuts[index].spec
-        let correct = currentAnswer.map { AnswerValue(nut.text) == $0 } ?? false
+        let matchesValue = currentAnswer.map { AnswerValue(nut.text) == $0 } ?? false
+        let correct: Bool
+        if let targetID = currentTargetNutID,
+           nuts.contains(where: { $0.id == targetID }) {
+            correct = nut.id == targetID
+        } else {
+            correct = matchesValue
+        }
         if correct {
             nuts[index].isPresent = false
             heldNutID = nil
+            commitCascade()
             onGrabResolved?(nut, true)
             onScoreBubbleArrived?()
             enter(.returning)
         } else {
-            spitFrom = nuts[index].position
+            spitFrom = binMouth
             spitTo = nuts[index].rest
+            nuts[index].position = spitFrom
             spitFlightTime = flightTime(from: spitFrom, to: spitTo)
+            reverseCascade()
             onGrabResolved?(nut, false)
             enter(.spitBack)
         }
@@ -527,9 +605,17 @@ final class ClawEngine: ObservableObject {
     private func prepareDrop() {
         guard let id = heldNutID, let index = nuts.firstIndex(where: { $0.id == id }) else { return }
         dropFrom = nuts[index].position
-        dropTo = CGPoint(x: binRect.minX + binRect.width * 0.42,
-                         y: binRect.minY + binRect.height * 0.58)
-        dropFlightTime = flightTime(from: dropFrom, to: dropTo)
+        dropTo = binShaft
+        let fall = max(36, dropTo.y - dropFrom.y)
+        dropFlightTime = Double(sqrt(2 * fall / ClawConfig.dropGravity))
+    }
+
+    /// Released from rest above the crate: straight down, accelerating.
+    private func dropFall(_ t: Double) -> CGPoint {
+        let elapsed = CGFloat(t) * CGFloat(max(dropFlightTime, 0.01))
+        let y = dropFrom.y + 0.5 * ClawConfig.dropGravity * elapsed * elapsed
+        let x = dropFrom.x + (dropTo.x - dropFrom.x) * CGFloat(min(1, t * 1.35))
+        return CGPoint(x: x, y: min(y, dropTo.y))
     }
 
     private func flightTime(from: CGPoint, to: CGPoint) -> Double {
@@ -586,24 +672,98 @@ final class ClawEngine: ObservableObject {
     private func enter(_ next: ClawPhase) {
         phase = next
         phaseAge = 0
-        if next == .idle { buttonPressed = false }
+        if next == .idle {
+            buttonPressed = false
+            trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
+        }
+        if next == .returning {
+            returnFromX = trolleyX
+            let target = min(trolleyMaxFreeX, max(trolleyMinX, grabStartX))
+            returnTime = max(0.26, Double(abs(target - returnFromX)) / 0.95)
+        }
     }
 
     private func refreshReachableCovering() {
         var specs = nuts.map(\.spec)
         for i in specs.indices {
-            specs[i].position = ClawPoint(x: Double((nuts[i].rest.x - pileRect.minX) / max(pileRect.width, 1)),
-                                          y: Double((nuts[i].rest.y - pileRect.minY) / max(pileRect.height, 1)))
+            specs[i].position = unitPoint(nuts[i].rest)
         }
-        // Covering is already stored on the spec from generation.
         _ = specs
+    }
+
+    private func beginCascade(removing grabbed: ClawNutRuntime) {
+        let present = nuts.filter(\.isPresent).map(\.spec)
+        slides = ClawPuzzle.fallChain(removing: grabbed.spec, among: present)
+        reversingSlides = false
+        slideAge = 0
+        slideStart = [:]
+        slideEnd = [:]
+        for fall in slides {
+            guard let i = nuts.firstIndex(where: { $0.id == fall.id }) else { continue }
+            let from = nuts[i].rest
+            let to = screenPoint(fall.to)
+            slideStart[fall.id] = from
+            slideEnd[fall.id] = to
+            nuts[i].rest = to
+            nuts[i].spec.position = fall.to
+        }
+    }
+
+    private func stepCascade(dt: Double) {
+        guard !slides.isEmpty else { return }
+        slideAge += dt
+        var allDone = true
+        for (index, fall) in slides.enumerated() {
+            guard let i = nuts.firstIndex(where: { $0.id == fall.id }),
+                  heldNutID != fall.id else { continue }
+            let delay = Double(index) * ClawConfig.cascadeStagger
+            let t = min(1, max(0, (slideAge - delay) / ClawConfig.cascadeDuration))
+            if t < 1 { allDone = false }
+            let from = slideStart[fall.id] ?? nuts[i].position
+            let to = slideEnd[fall.id] ?? nuts[i].rest
+            nuts[i].position = lerp(from, to, easeInOut(t))
+        }
+        if allDone, reversingSlides {
+            slides = []
+            reversingSlides = false
+            slideStart = [:]
+            slideEnd = [:]
+        }
+    }
+
+    private func reverseCascade() {
+        guard !slides.isEmpty else { return }
+        reversingSlides = true
+        slideAge = 0
+        for fall in slides.reversed() {
+            guard let i = nuts.firstIndex(where: { $0.id == fall.id }) else { continue }
+            slideStart[fall.id] = nuts[i].position
+            let original = screenPoint(fall.from)
+            slideEnd[fall.id] = original
+            nuts[i].rest = original
+            nuts[i].spec.position = fall.from
+        }
+        slides.reverse()
+    }
+
+    private func commitCascade() {
+        slides = []
+        reversingSlides = false
+        slideStart = [:]
+        slideEnd = [:]
+    }
+
+    func unitPoint(_ screen: CGPoint) -> ClawPoint {
+        let scale = max(pileRect.width, 1)
+        return ClawPoint(x: Double((screen.x - pileRect.minX) / scale),
+                         y: Double(1 - (pileRect.maxY - screen.y) / scale))
     }
 
     private func relayoutNuts() {
         for i in nuts.indices {
             let rest = screenPoint(nuts[i].spec.position)
             nuts[i].rest = rest
-            if heldNutID != nuts[i].id {
+            if heldNutID != nuts[i].id, slideStart[nuts[i].id] == nil {
                 nuts[i].position = rest
             }
             nuts[i].pixelRadius = ClawConfig.nutPixelRadius(unit: nuts[i].spec.radius,
@@ -638,15 +798,33 @@ final class ClawEngine: ObservableObject {
         guard let currentAnswer else { return [] }
         let remaining = nuts.filter(\.isPresent)
         let specs = remaining.map(\.spec)
-        return Set(remaining.compactMap { nut in
-            guard AnswerValue(nut.spec.text) == currentAnswer else { return nil }
-            guard ClawPuzzle.isReachable(nut.spec, among: specs) else { return nil }
-            return nut.id
-        })
+        if let id = currentTargetNutID,
+           let nut = remaining.first(where: { $0.id == id }),
+           ClawPuzzle.isGrabable(nut.spec, among: specs) {
+            return [id]
+        }
+        if let match = remaining.first(where: {
+            AnswerValue($0.spec.text) == currentAnswer
+                && ClawPuzzle.isGrabable($0.spec, among: specs)
+        }) {
+            return [match.id]
+        }
+        return []
+    }
+
+    /// Centre of the open top — the chute mouth the nut must enter and leave.
+    private var binMouth: CGPoint {
+        CGPoint(x: binRect.minX + binRect.width * 0.36,
+                y: binRect.minY + binRect.height * 0.15)
+    }
+
+    /// Just below the rim, inside the shaft, where the front wall hides the nut.
+    private var binShaft: CGPoint {
+        CGPoint(x: binMouth.x, y: binRect.minY + binRect.height * 0.36)
     }
 
     private var binUnitX: CGFloat {
-        CGFloat((binRect.midX - playRect.minX) / max(playRect.width, 1))
+        CGFloat((binMouth.x - playRect.minX) / max(playRect.width, 1))
     }
 
     var geometry: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect) {
@@ -681,6 +859,10 @@ final class ClawEngine: ObservableObject {
         timer?.invalidate()
         timer = nil
 #endif
+    }
+
+    private func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
+        CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
     }
 
     private func easeIn(_ t: Double) -> CGFloat { CGFloat(t * t) }
@@ -838,13 +1020,17 @@ struct ClawPlayfield: View {
                 .blur(radius: 4)
                 .allowsHitTesting(false)
 
+            CatchBinBackView(palette: palette, isPad: isPad)
+                .frame(width: geo.bin.width, height: geo.bin.height)
+                .position(x: geo.bin.midX - geo.play.minX, y: geo.bin.midY - geo.play.minY)
+
             ForEach(engine.nuts.filter(\.isPresent).sorted(by: { $0.rest.y > $1.rest.y })) { nut in
                 NutView(nut: nut,
                         isTarget: engine.highlightedNutIDs.contains(nut.id) && engine.heldNutID != nut.id)
                     .position(x: nut.position.x - geo.play.minX, y: nut.position.y - geo.play.minY)
             }
 
-            CatchBinView(palette: palette, isPad: isPad)
+            CatchBinFrontView(palette: palette, isPad: isPad)
                 .frame(width: geo.bin.width, height: geo.bin.height)
                 .position(x: geo.bin.midX - geo.play.minX, y: geo.bin.midY - geo.play.minY)
 
@@ -955,190 +1141,98 @@ struct ClawPlayfield: View {
     }
 
     private var controlPanel: some View {
-        let lipH: CGFloat = isPad ? 38 : 30
-        let topInset: CGFloat = isPad ? 34 : 22
-        let corner: CGFloat = isPad ? 20 : 15
+        let topInset: CGFloat = isPad ? 18 : 12
+        let board = ArcadeShelfShape(topInset: topInset, bottomRadius: isPad ? 18 : 14)
 
-        return GeometryReader { proxy in
-            let board = ArcadeShelfShape(topInset: topInset, bottomRadius: 0)
-            VStack(spacing: 0) {
-                ZStack {
-                    board.fill(
-                        LinearGradient(
-                            colors: [Color(red: 0.38, green: 0.22, blue: 0.10),
-                                     Color(red: 0.62, green: 0.40, blue: 0.20),
-                                     Color(red: 0.78, green: 0.56, blue: 0.32)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+        return HStack(alignment: .center, spacing: isPad ? 16 : 10) {
+            joystick
+            Spacer(minLength: 8)
+            grabButton
+            Image(systemName: "pawprint.fill")
+                .font(.system(size: isPad ? 20 : 14, weight: .bold))
+                .foregroundStyle(palette.woodDeep.opacity(0.38))
+                .offset(y: isPad ? 8 : 6)
+        }
+        .padding(.horizontal, isPad ? 28 : 16)
+        .padding(.top, isPad ? 4 : 2)
+        .padding(.bottom, isPad ? 6 : 4)
+        .background(alignment: .bottom) {
+            ZStack {
+                board.fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
+                                 Color(red: 0.64, green: 0.42, blue: 0.22),
+                                 Color(red: 0.78, green: 0.56, blue: 0.32)],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
-                    board.fill(
-                        LinearGradient(
-                            colors: [Color.black.opacity(0.18), .clear, Color.white.opacity(0.10)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-
-                    ArcadeShelfSideEdge(topInset: topInset, side: .leading)
-                        .fill(Color(red: 0.22, green: 0.12, blue: 0.05).opacity(0.55))
-                    ArcadeShelfSideEdge(topInset: topInset, side: .trailing)
-                        .fill(Color(red: 0.46, green: 0.30, blue: 0.14).opacity(0.35))
-
-                    woodGrain
-                        .clipShape(board)
-                    woodKnots
-                        .clipShape(board)
-
-                    LinearGradient(colors: [Color.black.opacity(0.38), .clear],
-                                   startPoint: .top, endPoint: .bottom)
-                        .frame(height: isPad ? 22 : 16)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .clipShape(board)
-
-                    HStack(alignment: .center, spacing: isPad ? 18 : 12) {
-                        joystick
-                        Spacer(minLength: 0)
-                        grabButton
-                        Image(systemName: "pawprint.fill")
-                            .font(.system(size: isPad ? 22 : 16, weight: .bold))
-                            .foregroundStyle(palette.woodDeep.opacity(0.38))
-                            .offset(y: isPad ? 10 : 8)
-                    }
-                    .padding(.horizontal, isPad ? 36 : 24)
-                    .padding(.top, isPad ? 14 : 10)
-                    .padding(.bottom, isPad ? 10 : 8)
-                }
-                .frame(maxHeight: .infinity)
-
-                ZStack {
-                    UnevenRoundedRectangle(bottomLeadingRadius: corner,
-                                           bottomTrailingRadius: corner,
-                                           style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(red: 0.70, green: 0.50, blue: 0.28),
-                                         Color(red: 0.42, green: 0.24, blue: 0.10),
-                                         Color(red: 0.22, green: 0.12, blue: 0.05)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                    LinearGradient(colors: [Color.white.opacity(0.28), .clear],
-                                   startPoint: .top, endPoint: .bottom)
-                        .frame(height: 10)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                    Rectangle()
-                        .fill(Color.black.opacity(0.12))
-                        .frame(height: 1)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .padding(.top, 11)
-                }
-                .clipShape(
-                    UnevenRoundedRectangle(bottomLeadingRadius: corner,
-                                           bottomTrailingRadius: corner,
-                                           style: .continuous)
                 )
-                .frame(height: lipH)
-                .shadow(color: .black.opacity(0.40), radius: 10, y: 6)
+                ArcadeShelfSideEdge(topInset: topInset, side: .leading)
+                    .fill(Color(red: 0.22, green: 0.12, blue: 0.05).opacity(0.45))
+                ArcadeShelfSideEdge(topInset: topInset, side: .trailing)
+                    .fill(Color(red: 0.48, green: 0.32, blue: 0.14).opacity(0.28))
+                woodGrain
+                    .clipShape(board)
+                LinearGradient(colors: [Color.black.opacity(0.28), .clear],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: 14)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .clipShape(board)
+                LinearGradient(colors: [Color.white.opacity(0.22), .clear],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: 10)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .clipShape(board)
             }
-            .shadow(color: .black.opacity(0.28), radius: 12, y: -2)
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            .padding(.top, isPad ? 34 : 26)
         }
     }
 
     private var woodGrain: some View {
         VStack(spacing: isPad ? 11 : 9) {
-            ForEach(0..<8, id: \.self) { index in
+            ForEach(0..<6, id: \.self) { index in
                 Capsule()
                     .fill(Color.black.opacity(index.isMultiple(of: 2) ? 0.06 : 0.03))
                     .frame(height: 1.2)
-                    .padding(.horizontal, CGFloat(6 + index * 3))
+                    .padding(.horizontal, CGFloat(8 + index * 4))
             }
         }
         .padding(.vertical, 10)
         .allowsHitTesting(false)
     }
 
-    private var woodKnots: some View {
-        ZStack {
-            Ellipse()
-                .stroke(palette.woodDeep.opacity(0.28), lineWidth: 2)
-                .frame(width: isPad ? 22 : 16, height: isPad ? 16 : 12)
-                .offset(x: isPad ? 78 : 54, y: isPad ? -18 : -12)
-            Ellipse()
-                .stroke(palette.woodDeep.opacity(0.20), lineWidth: 1.5)
-                .frame(width: isPad ? 16 : 12, height: isPad ? 12 : 9)
-                .offset(x: isPad ? -90 : -62, y: isPad ? 16 : 12)
-        }
-        .allowsHitTesting(false)
-    }
-
     private var joystick: some View {
-        HStack(spacing: isPad ? 10 : 6) {
-            holdButton(system: "arrowtriangle.left.fill", value: -1)
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(colors: [Color(red: 0.10, green: 0.12, blue: 0.18),
-                                                Color(red: 0.04, green: 0.05, blue: 0.08)],
-                                       center: .center, startRadius: 2, endRadius: isPad ? 50 : 40)
-                    )
-                    .frame(width: isPad ? 88 : 70, height: isPad ? 88 : 70)
-                    .overlay {
-                        Circle().stroke(Color.white.opacity(0.12), lineWidth: 1.5)
-                    }
-                    .overlay {
-                        Circle().stroke(Color.black.opacity(0.45), lineWidth: 4).blur(radius: 2)
-                            .clipShape(Circle())
-                    }
-                Capsule()
-                    .fill(LinearGradient(colors: [Color(red: 0.42, green: 0.44, blue: 0.50),
-                                                  Color(red: 0.12, green: 0.12, blue: 0.14)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .frame(width: isPad ? 15 : 12, height: isPad ? 36 : 28)
-                    .offset(x: engine.joystickInput * (isPad ? 20 : 15), y: -8)
-                Circle()
-                    .fill(RadialGradient(colors: [Color(red: 1.0, green: 0.46, blue: 0.38),
-                                                  Color(red: 0.86, green: 0.12, blue: 0.10),
-                                                  Color(red: 0.42, green: 0.04, blue: 0.04)],
-                                         center: UnitPoint(x: 0.32, y: 0.26),
-                                         startRadius: 1, endRadius: 22))
-                    .frame(width: isPad ? 42 : 34, height: isPad ? 42 : 34)
-                    .offset(x: engine.joystickInput * (isPad ? 20 : 15), y: -20)
-                    .shadow(color: .black.opacity(0.45), radius: 3, y: 2)
+        let leftLit = engine.joystickInput < -0.18
+        let rightLit = engine.joystickInput > 0.18
+        let tilt = Angle.degrees(Double(engine.joystickInput) * JoystickArt.maxTilt)
+
+        return ZStack {
+            Image("base")
+                .resizable()
+                .interpolation(.high)
+                .allowsHitTesting(false)
+
+            lightArrow(lit: leftLit, mirrored: false)
+            lightArrow(lit: rightLit, mirrored: true)
+
+            Image("poke")
+                .resizable()
+                .interpolation(.high)
+                .rotationEffect(tilt, anchor: JoystickArt.pokeAnchor)
+                .compositingGroup()
+                .mask {
+                    PokeSocketMask()
+                }
+                .allowsHitTesting(false)
+
+            GeometryReader { proxy in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(joystickDrag(width: proxy.size.width))
             }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let span: CGFloat = isPad ? 40 : 32
-                        engine.setInput(max(-1, min(1, value.translation.width / span)))
-                    }
-                    .onEnded { _ in engine.setInput(0) }
-            )
-            holdButton(system: "arrowtriangle.right.fill", value: 1)
         }
-        .padding(.horizontal, isPad ? 12 : 8)
-        .padding(.vertical, isPad ? 10 : 7)
-        .background {
-            RoundedRectangle(cornerRadius: isPad ? 22 : 16, style: .continuous)
-                .fill(
-                    LinearGradient(colors: [Color(red: 0.18, green: 0.26, blue: 0.42),
-                                            Color(red: 0.08, green: 0.12, blue: 0.22)],
-                                   startPoint: .top, endPoint: .bottom)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: isPad ? 22 : 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.14), lineWidth: 1.2)
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: isPad ? 22 : 16, style: .continuous)
-                        .stroke(Color.black.opacity(0.45), lineWidth: 5)
-                        .blur(radius: 3)
-                        .clipShape(RoundedRectangle(cornerRadius: isPad ? 22 : 16, style: .continuous))
-                }
-                .shadow(color: .black.opacity(0.35), radius: 4, y: 3)
-        }
+        .aspectRatio(JoystickArt.canvas.width / JoystickArt.canvas.height, contentMode: .fit)
+        .frame(maxHeight: isPad ? 118 : 96)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("game.claw.joystick"))
         .accessibilityAdjustableAction { direction in
@@ -1150,38 +1244,37 @@ struct ClawPlayfield: View {
         }
     }
 
-    private func holdButton(system: String, value: CGFloat) -> some View {
-        Image(systemName: system)
-            .font(.system(size: isPad ? 20 : 16, weight: .black))
-            .foregroundStyle(Color(red: 0.32, green: 0.16, blue: 0.04))
-            .frame(width: isPad ? 46 : 36, height: isPad ? 46 : 36)
-            .background {
-                RoundedRectangle(cornerRadius: isPad ? 12 : 10, style: .continuous)
-                    .fill(
-                        LinearGradient(colors: [Color(red: 1.0, green: 0.88, blue: 0.34),
-                                                Color(red: 0.94, green: 0.62, blue: 0.08),
-                                                Color(red: 0.72, green: 0.40, blue: 0.04)],
-                                       startPoint: .top, endPoint: .bottom)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: isPad ? 12 : 10, style: .continuous)
-                            .stroke(Color.white.opacity(0.40), lineWidth: 1.2)
-                    }
-                    .overlay(alignment: .top) {
-                        Capsule()
-                            .fill(Color.white.opacity(0.35))
-                            .frame(height: 6)
-                            .padding(.horizontal, 8)
-                            .padding(.top, 5)
-                    }
+    private func lightArrow(lit: Bool, mirrored: Bool) -> some View {
+        Image("light arrow")
+            .resizable()
+            .interpolation(.high)
+            .mask {
+                GeometryReader { proxy in
+                    Rectangle()
+                        .frame(height: proxy.size.height * (236 / JoystickArt.canvas.height))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                }
             }
-            .shadow(color: .black.opacity(0.30), radius: 2, y: 2)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in engine.setInput(value) }
-                    .onEnded { _ in engine.setInput(0) }
-            )
-            .accessibilityHidden(true)
+            .scaleEffect(x: mirrored ? -1 : 1, y: 1, anchor: JoystickArt.flipAnchor)
+            .opacity(lit ? 1 : 0)
+            .shadow(color: Color(red: 1.0, green: 0.72, blue: 0.18).opacity(lit ? 0.85 : 0),
+                    radius: lit ? 8 : 0)
+            .allowsHitTesting(false)
+    }
+
+    private func joystickDrag(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if value.startLocation.x < width / 3 {
+                    engine.setInput(-1)
+                } else if value.startLocation.x > width * 2 / 3 {
+                    engine.setInput(1)
+                } else {
+                    let span: CGFloat = isPad ? 40 : 32
+                    engine.setInput(max(-1, min(1, value.translation.width / span)))
+                }
+            }
+            .onEnded { _ in engine.setInput(0) }
     }
 
     private var grabButton: some View {
@@ -1193,14 +1286,14 @@ struct ClawPlayfield: View {
                                                 palette.woodDeep,
                                                 Color(red: 0.16, green: 0.08, blue: 0.03)],
                                        center: UnitPoint(x: 0.38, y: 0.30),
-                                       startRadius: 8, endRadius: isPad ? 78 : 64)
+                                       startRadius: 6, endRadius: isPad ? 40 : 32)
                     )
-                    .frame(width: isPad ? 148 : 122, height: isPad ? 148 : 122)
+                    .frame(width: isPad ? 70 : 56, height: isPad ? 70 : 56)
                     .overlay {
-                        Circle().stroke(palette.woodLight.opacity(0.45), lineWidth: 3)
+                        Circle().stroke(palette.woodLight.opacity(0.45), lineWidth: 2)
                     }
                     .overlay {
-                        Circle().stroke(Color.black.opacity(0.35), lineWidth: 2).padding(7)
+                        Circle().stroke(Color.black.opacity(0.35), lineWidth: 1.5).padding(4)
                     }
                 Circle()
                     .fill(
@@ -1208,24 +1301,45 @@ struct ClawPlayfield: View {
                                                 palette.button,
                                                 palette.buttonDeep],
                                        center: UnitPoint(x: 0.38, y: 0.28),
-                                       startRadius: 4, endRadius: isPad ? 80 : 64)
+                                       startRadius: 3, endRadius: isPad ? 36 : 28)
                     )
-                    .frame(width: isPad ? 124 : 100, height: isPad ? 124 : 100)
+                    .frame(width: isPad ? 56 : 44, height: isPad ? 56 : 44)
                 Circle()
-                    .stroke(.white.opacity(0.42), lineWidth: 3)
-                    .frame(width: isPad ? 110 : 88, height: isPad ? 110 : 88)
+                    .stroke(.white.opacity(0.42), lineWidth: 2)
+                    .frame(width: isPad ? 48 : 38, height: isPad ? 48 : 38)
                 Text("game.claw.grab")
-                    .font(.system(size: isPad ? 32 : 26, weight: .black, design: .rounded))
+                    .font(.system(size: isPad ? 16 : 13, weight: .black, design: .rounded))
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.4), radius: 1, y: 1)
             }
             .scaleEffect(engine.buttonPressed ? 0.94 : 1)
-            .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
+            .shadow(color: .black.opacity(0.4), radius: 8, y: 5)
         }
         .buttonStyle(.plain)
         .disabled(!engine.acceptsGrab)
         .accessibilityIdentifier("claw-grab")
         .accessibilityLabel(Text("game.claw.grab"))
+    }
+}
+
+private enum JoystickArt {
+    static let canvas = CGSize(width: 387, height: 244)
+    static let maxTilt: Double = 24
+    /// Socket lip — the visible stem pivots here so the foot stays in the ring.
+    static let pokeAnchor = UnitPoint(x: 207 / 387, y: 124 / 244)
+    /// Midpoint of the baked-in arrows on `base`, used to mirror the light.
+    static let flipAnchor = UnitPoint(x: 201 / 387, y: 0.5)
+}
+
+/// Circular clip at the inner ring; hides everything below the socket lip.
+private struct PokeSocketMask: Shape {
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / JoystickArt.canvas.width
+        let sy = rect.height / JoystickArt.canvas.height
+        var path = Path()
+        path.addRect(CGRect(x: 0, y: 0, width: rect.width, height: 99 * sy))
+        path.addEllipse(in: CGRect(x: 182 * sx, y: 74 * sy, width: 50 * sx, height: 50 * sy))
+        return path
     }
 }
 
@@ -1291,42 +1405,52 @@ struct NutView: View {
     var isTarget = false
 
     var body: some View {
-        let size = max(28, nut.pixelRadius * 2.0)
-        let gold = nut.spec.isGold
+        let visualWidth = max(18, nut.pixelRadius * 2.0 * ClawConfig.nutPackScale)
+        let visualHeight = visualWidth * ClawConfig.nutContentAspect
+        let imageWidth = visualWidth / ClawConfig.nutContentWidthFraction
+        let imageHeight = imageWidth / ClawConfig.nutCanvasAspect
+        let textSize = min(ClawConfig.nutMaxTextSize, visualWidth * 0.34)
         ZStack {
-            walnutLobe(size: size, gold: gold)
-                .offset(x: -size * 0.12)
-            walnutLobe(size: size, gold: gold)
-                .offset(x: size * 0.12)
-            Capsule()
-                .fill(Color(red: 0.26, green: 0.13, blue: 0.04).opacity(0.55))
-                .frame(width: size * 0.10, height: size * 0.78)
             Ellipse()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: size * 0.22, height: size * 0.12)
-                .offset(x: -size * 0.22, y: -size * 0.22)
+                .fill(Color.black.opacity(0.42))
+                .frame(width: visualWidth * 0.86, height: visualHeight * 0.30)
+                .offset(y: visualHeight * 0.40)
+                .blur(radius: 3.8)
+
+            nutImage(width: imageWidth, height: imageHeight)
+                .overlay {
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.12),
+                                 .clear,
+                                 Color.black.opacity(0.34)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(width: visualWidth, height: visualHeight)
+                    .mask(Ellipse())
+                }
+
             Text(verbatim: nut.spec.text)
-                .font(.system(size: max(10, size * 0.42), weight: .black, design: .rounded))
-                .foregroundStyle(Color(red: 0.10, green: 0.05, blue: 0.02))
-                .minimumScaleFactor(0.32)
+                .font(.system(size: textSize, weight: .black, design: .rounded))
+                .foregroundStyle(Color(red: 0.14, green: 0.07, blue: 0.03))
+                .shadow(color: .white.opacity(0.45), radius: 0.8)
+                .minimumScaleFactor(0.35)
                 .lineLimit(1)
-                .padding(.horizontal, 2)
+                .frame(maxWidth: visualWidth * 0.70)
         }
-        .frame(width: size, height: size)
-        .rotationEffect(.radians(nut.rotation))
-        .shadow(color: .black.opacity(0.28), radius: 2, y: 1.5)
+        .frame(width: visualWidth, height: visualHeight)
         .overlay {
             if isTarget {
                 Ellipse()
                     .stroke(Color(red: 1.0, green: 0.84, blue: 0.12), lineWidth: 3.5)
-                    .scaleEffect(1.14)
+                    .scaleEffect(1.10)
                 Ellipse()
                     .stroke(Color(red: 1.0, green: 0.92, blue: 0.35).opacity(0.85), lineWidth: 2)
-                    .scaleEffect(1.22)
+                    .scaleEffect(1.18)
                     .blur(radius: 0.6)
                 Ellipse()
-                    .fill(Color(red: 1.0, green: 0.82, blue: 0.18).opacity(0.20))
-                    .scaleEffect(1.20)
+                    .fill(Color(red: 1.0, green: 0.82, blue: 0.18).opacity(0.18))
+                    .scaleEffect(1.14)
                     .blur(radius: 4)
             }
         }
@@ -1334,26 +1458,17 @@ struct NutView: View {
         .accessibilityHidden(true)
     }
 
-    private func walnutLobe(size: CGFloat, gold: Bool) -> some View {
-        Ellipse()
-            .fill(
-                RadialGradient(
-                    colors: gold
-                        ? [Color(red: 1.0, green: 0.94, blue: 0.55),
-                           Color(red: 0.90, green: 0.66, blue: 0.16),
-                           Color(red: 0.52, green: 0.30, blue: 0.05)]
-                        : [Color(red: 0.93, green: 0.74, blue: 0.46),
-                           Color(red: 0.70, green: 0.44, blue: 0.20),
-                           Color(red: 0.34, green: 0.18, blue: 0.06)],
-                    center: UnitPoint(x: 0.32, y: 0.28),
-                    startRadius: 1,
-                    endRadius: size * 0.62
-                )
-            )
-            .overlay {
-                Ellipse().stroke(Color(red: 0.28, green: 0.14, blue: 0.04).opacity(0.45), lineWidth: 1.1)
-            }
-            .frame(width: size * 0.72, height: size * 0.96)
+    private func nutImage(width: CGFloat, height: CGFloat) -> some View {
+        Image(ClawConfig.nutImageName)
+            .resizable()
+            .interpolation(.high)
+            .frame(width: width, height: height)
+            .fixedSize()
+            .brightness(nut.spec.isGold ? 0.16 : 0.13)
+            .saturation(nut.spec.isGold ? 1.05 : 0.82)
+            .colorMultiply(nut.spec.isGold
+                           ? Color(red: 1.0, green: 0.90, blue: 0.55)
+                           : Color(red: 1.0, green: 0.93, blue: 0.82))
     }
 }
 
@@ -1697,7 +1812,7 @@ private struct SanctuaryScene: View {
     }
 }
 
-private struct CatchBinView: View {
+private struct CatchBinBackView: View {
     let palette: ClawPalette
     let isPad: Bool
 
@@ -1707,7 +1822,6 @@ private struct CatchBinView: View {
             let h = proxy.size.height
             let depth = w * 0.42
             ZStack(alignment: .bottomLeading) {
-                // Far side wall, receding to the right.
                 Path { path in
                     path.move(to: CGPoint(x: w - depth, y: h * 0.18))
                     path.addLine(to: CGPoint(x: w, y: h * 0.08))
@@ -1718,7 +1832,6 @@ private struct CatchBinView: View {
                 .fill(LinearGradient(colors: [palette.wood, palette.woodDeep],
                                      startPoint: .top, endPoint: .bottom))
 
-                // Interior of the open top, seen from the side.
                 Path { path in
                     path.move(to: CGPoint(x: 4, y: h * 0.22))
                     path.addLine(to: CGPoint(x: w - depth - 2, y: h * 0.18))
@@ -1732,7 +1845,30 @@ private struct CatchBinView: View {
                                    startPoint: .top, endPoint: .bottom)
                 )
 
-                // Front face continues into the cabinet so the chute has no floor.
+                Path { path in
+                    path.move(to: CGPoint(x: 1, y: h * 0.22))
+                    path.addLine(to: CGPoint(x: w - depth, y: h * 0.18))
+                    path.addLine(to: CGPoint(x: w - 1, y: h * 0.08))
+                    path.addLine(to: CGPoint(x: depth * 0.42, y: h * 0.12))
+                    path.closeSubpath()
+                }
+                .stroke(Color(red: 0.32, green: 0.52, blue: 0.86), lineWidth: isPad ? 5 : 3.5)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct CatchBinFrontView: View {
+    let palette: ClawPalette
+    let isPad: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            let depth = w * 0.42
+            ZStack(alignment: .bottomLeading) {
                 Path { path in
                     path.move(to: CGPoint(x: 2, y: h * 0.22))
                     path.addLine(to: CGPoint(x: w - depth, y: h * 0.18))
@@ -1746,16 +1882,6 @@ private struct CatchBinView: View {
                                             palette.woodDeep],
                                    startPoint: .top, endPoint: .bottom)
                 )
-
-                // Blue metal rim along the open top.
-                Path { path in
-                    path.move(to: CGPoint(x: 1, y: h * 0.22))
-                    path.addLine(to: CGPoint(x: w - depth, y: h * 0.18))
-                    path.addLine(to: CGPoint(x: w - 1, y: h * 0.08))
-                    path.addLine(to: CGPoint(x: depth * 0.42, y: h * 0.12))
-                    path.closeSubpath()
-                }
-                .stroke(Color(red: 0.32, green: 0.52, blue: 0.86), lineWidth: isPad ? 5 : 3.5)
 
                 Image(systemName: "pawprint.fill")
                     .font(.system(size: min(w * 0.42, isPad ? 28 : 20), weight: .bold))
