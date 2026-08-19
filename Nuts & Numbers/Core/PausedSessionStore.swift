@@ -35,6 +35,12 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     public let heartFishProgress: Int?
     public let heartFishTarget: Int?
     public let isHeartFishAvailable: Bool?
+    /// Seconds left on the claw clock. Missing on sessions saved before the
+    /// claw game, which resume with a fresh full timer.
+    public let remainingTime: Double?
+    /// Seed that rebuilds the exact sum list and nut pile. Missing on older
+    /// records, which get a new pile for the remaining rounds.
+    public let puzzleSeed: UInt64?
 
     public init(boardID: String,
                 roundNumber: Int,
@@ -49,7 +55,9 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
                 hasBonusFishPower: Bool? = nil,
                 heartFishProgress: Int? = nil,
                 heartFishTarget: Int? = nil,
-                isHeartFishAvailable: Bool? = nil) {
+                isHeartFishAvailable: Bool? = nil,
+                remainingTime: Double? = nil,
+                puzzleSeed: UInt64? = nil) {
         self.boardID = boardID
         self.roundNumber = roundNumber
         self.cards = cards
@@ -64,6 +72,8 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
         self.heartFishProgress = heartFishProgress
         self.heartFishTarget = heartFishTarget
         self.isHeartFishAvailable = isHeartFishAvailable
+        self.remainingTime = remainingTime
+        self.puzzleSeed = puzzleSeed
     }
 
     /// A record is only usable if it describes a session that can still be
@@ -79,6 +89,7 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
             && (correctStreak ?? 0) >= 0
             && (heartFishProgress ?? 0) >= 0
             && (heartFishTarget ?? GameConfig.heartFishCorrectAnswers) >= 1
+            && (remainingTime ?? 1) > 0
     }
 }
 

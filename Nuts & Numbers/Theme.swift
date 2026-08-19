@@ -132,6 +132,10 @@ enum CharacterCatalog {
     /// the menu and the motion trail behind a portrait all carry the colours
     /// the player is actually looking at.
     static let all: [AnimalCharacter] = [
+        AnimalCharacter(id: "elephant", name: "Elephant", emoji: "🐘", slot: 3,
+                        primaryRGB: (0.36, 0.58, 0.78), deepRGB: (0.19, 0.38, 0.58),
+                        skyRGB: (0.90, 0.94, 0.97), tintRGB: (0.81, 0.89, 0.96),
+                        sideAspectRatio: 1.606),
         AnimalCharacter(id: "octopus", name: "Octopus", emoji: "🐙", slot: 1,
                         primaryRGB: (0.62, 0.40, 0.87), deepRGB: (0.35, 0.18, 0.60),
                         skyRGB: (0.93, 0.88, 0.99), tintRGB: (0.88, 0.79, 0.98),
@@ -140,10 +144,6 @@ enum CharacterCatalog {
                         primaryRGB: (0.90, 0.27, 0.10), deepRGB: (0.62, 0.13, 0.03),
                         skyRGB: (1.00, 0.90, 0.87), tintRGB: (1.00, 0.82, 0.77),
                         sideAspectRatio: 1.071),
-        AnimalCharacter(id: "elephant", name: "Elephant", emoji: "🐘", slot: 3,
-                        primaryRGB: (0.36, 0.58, 0.78), deepRGB: (0.19, 0.38, 0.58),
-                        skyRGB: (0.90, 0.94, 0.97), tintRGB: (0.81, 0.89, 0.96),
-                        sideAspectRatio: 1.606),
         AnimalCharacter(id: "bear", name: "Bear", emoji: "🐻", slot: 4,
                         primaryRGB: (0.72, 0.44, 0.16), deepRGB: (0.42, 0.20, 0.06),
                         skyRGB: (0.99, 0.94, 0.88), tintRGB: (0.98, 0.89, 0.79),

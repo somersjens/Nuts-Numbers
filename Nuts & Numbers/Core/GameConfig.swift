@@ -128,13 +128,22 @@ nonisolated public enum GameConfig {
     /// The second half of the catalog is Premium-exclusive: `nil` means the
     /// character cannot be earned with cards at all, no matter the total.
     public static let characterUnlockRequirements: [Int?] = [
-        0,          // octopus — from the start
-        500,        // crab
-        1_500,      // elephant
+        0,          // elephant — from the start
+        500,        // octopus
+        1_500,      // crab
         3_000,      // bear
         5_000,      // fox
         nil, nil, nil, nil, nil   // frog, penguin, bunny, dog, lion — Premium
     ]
+
+    // MARK: Claw machine
+
+    /// Seconds on the clock for each nut the board asks the player to collect.
+    public static let clawSecondsPerCard = 10.0
+    /// Extra nuts that are never the right answer for any sum in the level.
+    public static let clawDistractorRatio = 0.20
+    /// Share of the real answer nuts that pay double when collected correctly.
+    public static let clawGoldRatio = 0.10
 
     // MARK: Level progress
 

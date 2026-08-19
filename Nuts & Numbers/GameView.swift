@@ -97,6 +97,7 @@ struct GameView: View {
     /// A completed board gets one last moment in the reef before its result
     /// card appears. Other endings (no lives, or leaving) remain immediate.
     @State private var playsLevelCompletion = false
+    @State private var playsTimeOutFinale = false
     @State private var showsResult = false
     /// Whether pressing Start will run the walkthrough. Armed from the menu for
     /// a brand-new player, and toggled by the cap button on the start card.
@@ -145,6 +146,7 @@ struct GameView: View {
                            onPlayAgain: {
                                showsResult = false
                                playsLevelCompletion = false
+                               playsTimeOutFinale = false
                                Task { await model.restart() }
                            },
                            onExit: leave)
@@ -196,10 +198,13 @@ struct GameView: View {
             guard isOver else {
                 showsResult = false
                 playsLevelCompletion = false
+                playsTimeOutFinale = false
                 return
             }
             if model.result.reason == .roundsCompleted {
                 playsLevelCompletion = true
+            } else if model.result.reason == .outOfTime {
+                playsTimeOutFinale = true
             } else {
                 showsResult = true
             }
@@ -268,51 +273,51 @@ struct GameView: View {
         // clear of the home indicator.
         // The HUD keeps a floor under it, so it still clears the status bar on
         // the very first frame, before the insets have been sampled.
-        let topInset = max(screenInsets.top, isPad ? 24 : 16)
+        let topInset = max(screenInsets.top, isPad ? 24 : 54)
 
         return ZStack(alignment: .top) {
-            ReefPlayfield(round: model.round,
+            ClawPlayfield(round: model.round,
+                          puzzle: model.clawPuzzle,
+                          collectedAnswers: max(0, model.roundNumber - 1),
                           maximumRounds: model.maximumRounds,
                           character: character,
                           isPad: isPad,
                           isLive: model.acceptsInput,
                           isRunning: isReefRunning,
-                          playsFishEntrance: playsFishEntrance,
-                          hasBonusFishPower: model.hasBonusFishPower,
-                          isHeartFishAvailable: model.isHeartFishAvailable,
-                          heartFishRestoresWholeLife: model.heartFishGivesWholeLife,
+                          playsEntrance: playsFishEntrance,
                           isStreakBoostActive: model.isStreakBoostActive,
                           playsLevelCompletion: playsLevelCompletion,
+                          playsTimeOutFinale: playsTimeOutFinale,
                           reduceMotion: reduceMotion,
-                          tutorialPlan: tutorial.plan,
-                          topReserve: topInset + (isPad ? 54 : 42),
+                          tutorialPlan: tutorial.clawPlan,
+                          topReserve: topInset + (isPad ? 8 : 6),
                           bottomReserve: screenInsets.bottom,
                           scoreTarget: scoreIconCenter,
-                          onHit: { model.select(optionID: $0) },
+                          onGrab: { nut, isCorrect in
+                              model.resolveGrab(nut: nut, isCorrect: isCorrect)
+                          },
                           onScoreBubbleArrived: model.scoreBubbleArrived,
-                          onBonusFishCaught: model.catchBonusFish,
-                          onHeartFishCaught: model.catchHeartFish,
-                          onHeartFishMissed: model.missHeartFish,
-                          onFishEntranceComplete: finishFishEntrance,
+                          onEntranceComplete: finishFishEntrance,
                           onLevelCompletionFinished: finishLevelCompletion,
-                          onTutorialEvent: tutorial.handle)
+                          onTimeOutFinished: finishTimeOutFinale,
+                          onTutorialEvent: tutorial.handleClaw)
 
             hud
-                .padding(.leading, max(isPad ? 28 : 16, screenInsets.leading + 12))
-                .padding(.trailing, max(isPad ? 28 : 16, screenInsets.trailing + 12))
-                .padding(.top, topInset + (isPad ? 12 : 6))
-                .opacity(playsLevelCompletion ? 0 : 1)
-                .animation(.easeOut(duration: 0.22), value: playsLevelCompletion)
-                .allowsHitTesting(!playsLevelCompletion)
+                .padding(.leading, max(isPad ? 8 : 4, screenInsets.leading + 2))
+                .padding(.trailing, max(isPad ? 8 : 4, screenInsets.trailing + 2))
+                .padding(.top, topInset + (isPad ? 8 : 6))
+                .opacity(playsLevelCompletion || playsTimeOutFinale ? 0 : 1)
+                .animation(.easeOut(duration: 0.22), value: playsLevelCompletion || playsTimeOutFinale)
+                .allowsHitTesting(!playsLevelCompletion && !playsTimeOutFinale)
 
             // The walkthrough speaks from just under the HUD, clear of both the
             // sum on the coral and the water the first steps ask the player to
             // cross. It never takes a touch: the reef stays fully steerable
             // while a step is being read.
-            if let message = tutorial.message, !playsLevelCompletion {
+            if let message = tutorial.message, !playsLevelCompletion, !playsTimeOutFinale {
                 TutorialMessageCard(text: message, theme: character, isPad: isPad)
                     .padding(.horizontal, max(isPad ? 28 : 14, screenInsets.leading + 12))
-                    .padding(.top, topInset + (isPad ? 66 : 50))
+                    .padding(.top, topInset + (isPad ? 150 : 128))
                     // Scales up in place rather than sliding down: a card that
                     // travelled would cross the HUD on its way in.
                     .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
@@ -324,7 +329,7 @@ struct GameView: View {
                 StreakBoostBanner(character: character, isPad: isPad)
                     // Steps down below the walkthrough's own card when one is
                     // on screen — the streak starts on a tutorial step.
-                    .padding(.top, topInset + (isPad ? 70 : 52)
+                    .padding(.top, topInset + (isPad ? 150 : 128)
                              + (tutorial.message == nil ? 0 : (isPad ? 100 : 78)))
                     .transition(.scale(scale: 0.65).combined(with: .opacity))
                     .allowsHitTesting(false)
@@ -365,26 +370,36 @@ struct GameView: View {
         }
     }
 
-    // MARK: - HUD
-
-    private var hud: some View {
-        ZStack {
-            progressCounter
-
-            HStack(spacing: 10) {
-                pauseButton
-                Spacer(minLength: 0)
-                LivesView(lives: model.livesRemaining,
-                          character: character,
-                          isPad: isPad,
-                          glyphSize: hudSymbolSize,
-                          rowHeight: hudControlSize)
-            }
+    private func finishTimeOutFinale() {
+        guard playsTimeOutFinale else { return }
+        withAnimation(.spring(response: 0.48, dampingFraction: 0.84)) {
+            showsResult = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            playsTimeOutFinale = false
         }
     }
 
-    /// Pausing freezes the reef in place and puts the level card over it. The
-    /// player can continue immediately or leave for the main menu from there.
+    // MARK: - HUD
+
+    private var hud: some View {
+        HStack(alignment: .top, spacing: isPad ? 12 : 8) {
+            VStack(alignment: .leading, spacing: isPad ? 10 : 8) {
+                pauseButton
+                ClawStatusPlaque(score: model.cards,
+                                 lives: model.livesRemaining,
+                                 isPad: isPad)
+            }
+
+            Spacer(minLength: 0)
+
+            ClawTimerBadge(remaining: model.remainingTime,
+                           total: model.timeLimit,
+                           isPad: isPad,
+                           size: hudTimerSize)
+        }
+    }
+
     private var pauseButton: some View {
         Button {
             AppAudio.shared.playMenuTap()
@@ -392,64 +407,159 @@ struct GameView: View {
             showsPauseCard = true
             showsIntro = true
         } label: {
-            // Inverted against the rest of the HUD: the disc carries the theme
-            // colour and the bars are punched clean out of it, so the playing
-            // field shows through where the glyph used to be.
-            Circle()
-                .fill(character.deepColor)
-                .frame(width: hudControlSize, height: hudControlSize)
+            RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
+                                            Color(red: 0.22, green: 0.12, blue: 0.05)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: hudPauseSize, height: hudPauseSize)
                 .overlay {
                     Image(systemName: "pause.fill")
                         .font(.system(size: pauseGlyphSize, weight: .bold))
-                        .blendMode(.destinationOut)
+                        .foregroundStyle(Color(red: 1.0, green: 0.90, blue: 0.62))
                 }
-                .compositingGroup()
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
+                        .stroke(
+                            LinearGradient(colors: [Color(red: 0.82, green: 0.62, blue: 0.36),
+                                                    Color(red: 0.32, green: 0.18, blue: 0.08)],
+                                           startPoint: .top, endPoint: .bottom),
+                            lineWidth: 2
+                        )
+                }
+                .shadow(color: .black.opacity(0.35), radius: 3, y: 2)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("pause")
         .accessibilityLabel(Text("game.pause"))
     }
 
-    /// The bubble and hearts nearly fill the pause button's height, like the
-    /// reference HUD, while the pause bars keep the breathing room of the disc.
-    private var hudControlSize: CGFloat { isPad ? 44 : 34 }
-    private var hudSymbolSize: CGFloat { isPad ? 34 : 26 }
-    private var pauseGlyphSize: CGFloat { isPad ? 22 : 16 }
-    private var hudNumberSize: CGFloat { isPad ? 32 : 24 }
-
-    /// Just the bubbles banked this session. What the board holds is quoted on
-    /// the start card and again on the result card, so the playing field does
-    /// not have to carry it too.
-    private var progressCounter: some View {
-        HStack(alignment: .center, spacing: isPad ? 7 : 5) {
-            Text(verbatim: LN(model.cards))
-                .font(.system(size: hudNumberSize, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .contentTransition(.numericText(value: Double(model.cards)))
-            CurrencyIcon(size: hudSymbolSize)
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: ScoreIconCenterPreferenceKey.self,
-                            value: CGPoint(x: proxy.frame(in: .global).midX,
-                                           y: proxy.frame(in: .global).midY)
-                        )
-                    }
-                }
-        }
-        .frame(height: hudControlSize, alignment: .center)
-        .foregroundStyle(character.deepColor)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.cards)
-        .accessibilityIdentifier("progress")
-        .accessibilityLabel(Text(L("game.bubblesCollected \(model.cards)")))
-    }
+    private var hudTimerSize: CGFloat { isPad ? 76 : 58 }
+    private var hudPauseSize: CGFloat { isPad ? 56 : 46 }
+    private var pauseGlyphSize: CGFloat { isPad ? 22 : 18 }
 
     /// The reef only ticks while the level is actually being played: never
     /// behind the start card or the result card, and never while the app is in
     /// the background.
     private var isReefRunning: Bool {
-        !showsIntro && (!model.isGameOver || playsLevelCompletion) && scenePhase == .active
+        !showsIntro && (!model.isGameOver || playsLevelCompletion || playsTimeOutFinale)
+            && scenePhase == .active
+    }
+}
+
+private struct ClawStatusPlaque: View {
+    let score: Int
+    let lives: Double
+    let isPad: Bool
+
+    private var livesText: String {
+        lives == lives.rounded()
+            ? LN(Int(lives))
+            : String(format: "%.1f", locale: LanguageManager.shared.locale, lives)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: isPad ? 6 : 4) {
+            HStack(spacing: isPad ? 8 : 6) {
+                CurrencyIcon(size: isPad ? 26 : 20)
+                    .foregroundStyle(Color(red: 1.0, green: 0.90, blue: 0.55))
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: ScoreIconCenterPreferenceKey.self,
+                                value: CGPoint(x: proxy.frame(in: .global).midX,
+                                               y: proxy.frame(in: .global).midY)
+                            )
+                        }
+                    }
+                Text(verbatim: LN(score))
+                    .font(.system(size: isPad ? 26 : 20, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .contentTransition(.numericText(value: Double(score)))
+            }
+            HStack(spacing: isPad ? 8 : 6) {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: isPad ? 20 : 16, weight: .bold))
+                    .foregroundStyle(Color(red: 0.90, green: 0.22, blue: 0.24))
+                Text(verbatim: livesText)
+                    .font(.system(size: isPad ? 22 : 18, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, isPad ? 12 : 9)
+        .padding(.vertical, isPad ? 8 : 6)
+        .background {
+            RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [Color(red: 0.40, green: 0.24, blue: 0.11),
+                                            Color(red: 0.18, green: 0.10, blue: 0.05)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
+                        .stroke(Color(red: 0.76, green: 0.56, blue: 0.32).opacity(0.65), lineWidth: 1.4)
+                }
+        }
+        .shadow(color: .black.opacity(0.28), radius: 4, y: 2)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: score)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: lives)
+        .accessibilityIdentifier("progress")
+        .accessibilityLabel(Text(L("game.bubblesCollected \(score)")))
+        .accessibilityValue(Text(L("game.livesRemaining \(livesText)")))
+    }
+}
+
+private struct ClawTimerBadge: View {
+    let remaining: Double
+    let total: Double
+    let isPad: Bool
+    let size: CGFloat
+
+    private var progress: Double {
+        guard total > 0 else { return 0 }
+        return min(1, max(0, remaining / total))
+    }
+
+    private var seconds: Int { max(0, Int(remaining.rounded(.up))) }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
+                                            Color(red: 0.16, green: 0.09, blue: 0.04)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+            Circle()
+                .stroke(
+                    LinearGradient(colors: [Color(red: 0.82, green: 0.62, blue: 0.36),
+                                            Color(red: 0.32, green: 0.18, blue: 0.08)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: isPad ? 5 : 4
+                )
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(Color(red: 0.35, green: 0.62, blue: 0.95),
+                        style: StrokeStyle(lineWidth: isPad ? 6 : 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .padding(isPad ? 6 : 5)
+            Text(verbatim: LN(seconds))
+                .font(.system(size: isPad ? 24 : 18, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 2)
+        .accessibilityIdentifier("timer")
+        .accessibilityLabel(Text(L("game.claw.timeRemaining \(seconds)")))
     }
 }
 

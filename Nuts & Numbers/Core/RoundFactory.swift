@@ -74,9 +74,15 @@ nonisolated public final class RoundFactory {
     /// Builds the round for a given 1-based round number.
     public func makeRound(number: Int) -> GameRound {
         let question = generator.next(requiredDistractors: GameConfig.distractorCount)
-        return GameRound(number: number,
-                         question: question,
-                         options: makeOptions(for: question))
+        return makeRound(number: number, question: question)
+    }
+
+    /// Lays a already-chosen question onto a round so a claw pile can reorder
+    /// the session's sums without asking the generator for new ones.
+    public func makeRound(number: Int, question: MathQuestion) -> GameRound {
+        GameRound(number: number,
+                  question: question,
+                  options: makeOptions(for: question))
     }
 
     /// One correct card plus the required number of unique wrong cards, laid

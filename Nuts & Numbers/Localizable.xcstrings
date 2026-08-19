@@ -12649,6 +12649,112 @@
         }
       }
     },
+    "game.claw.grab" : {
+      "comment" : "Label on the large physical grab button of the claw machine.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GRAB!"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PAK!"
+          }
+        }
+      }
+    },
+    "game.claw.hint" : {
+      "comment" : "Short instruction under the sum: grab the nut that matches.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grab the right nut!"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pak het juiste nootje!"
+          }
+        }
+      }
+    },
+    "game.claw.joystick" : {
+      "comment" : "VoiceOver label for the claw joystick.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move the elephant"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beweeg de olifant"
+          }
+        }
+      }
+    },
+    "game.claw.progress %lld %lld" : {
+      "comment" : "Sum index out of the board target, shown above the question.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SUM %lld / %lld"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SOM %lld / %lld"
+          }
+        }
+      }
+    },
+    "game.claw.sign.danger" : {
+      "comment" : "Small warning plaque inside the claw machine.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Watch out!" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Pas op voor gevaren!" } }
+      }
+    },
+    "game.claw.sign.home" : {
+      "comment" : "Small animal-home plaque inside the claw machine.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Animals home" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Dieren thuis" } }
+      }
+    },
+    "game.claw.timeRemaining %lld" : {
+      "comment" : "VoiceOver label for the countdown timer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld seconds left"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nog %lld seconden"
+          }
+        }
+      }
+    },
     "game.encouragement.0" : {
       "comment" : "Encouragement on the result screen, picked by how well the player did. This is the lowest band (a weak score) — kind, never disappointed. Fits on one short line.",
       "extractionState" : "manual",
@@ -108442,6 +108548,9 @@
         }
       }
     },
+    "Tap the cube to spin!" : {
+
+    },
     "topic.addition" : {
       "comment" : "Topic name, shown on the topic selector and reused inside onboarding.level.subtitle. Keep it a noun.",
       "extractionState" : "manual",
@@ -114522,6 +114631,168 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ukufundiswa"
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.1" : {
+      "comment" : "Walkthrough: move the hanging elephant with the joystick.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Push the joystick to swing the elephant left and right."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beweeg de hendel om de olifant heen en weer te laten zwengelen."
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.2" : {
+      "comment" : "Walkthrough: keep steering to line up over a nut.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold left or right to line him up over a nut."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Houd links of rechts in om hem boven een nootje te zetten."
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.3" : {
+      "comment" : "Walkthrough: grab the nut that matches the sum.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press GRAB and pick the nut that matches the sum."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Druk op PAK! en pak het nootje dat bij de som past."
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.4" : {
+      "comment" : "Walkthrough: a wrong nut is spat back and costs time.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A wrong nut is spat back. The clock keeps running!"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Een fout nootje wordt teruggespuugd. De klok blijft lopen!"
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.5" : {
+      "comment" : "Walkthrough: gold nuts are worth double if they are the right answer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Golden nuts are worth double — but only when they are the right answer."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gouden nootjes geven dubbele punten — maar alleen als het antwoord klopt."
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.6" : {
+      "comment" : "Walkthrough: gold still has to be calculated.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gold does not mean it is correct. You still have to work the sum out."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Goud betekent niet dat het goed is. Je moet nog steeds rekenen."
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.7" : {
+      "comment" : "Walkthrough: build a streak of correct grabs.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grab five right answers in a row to start a streak bonus."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pak vijf goede antwoorden achter elkaar voor een reeksbonus."
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.8" : {
+      "comment" : "Walkthrough: streak is running.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The streak is on! Every correct nut is worth extra now."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De reeks loopt! Elk goed nootje is nu extra veel waard."
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.9" : {
+      "comment" : "Walkthrough: free play.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have got it. Fill the board before the time runs out!"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zo is het. Vul het bord voordat de tijd op is!"
           }
         }
       }

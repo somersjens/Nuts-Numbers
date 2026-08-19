@@ -46,7 +46,8 @@ struct ResultView: View {
 
     private var titleKey: LocalizedStringKey {
         switch result.reason {
-        case .outOfLives:      return "game.end.gameOverTitle"
+        case .outOfLives, .outOfTime:
+            return "game.end.gameOverTitle"
         case .roundsCompleted: return "result.complete"
         case .quit:            return "result.stopped"
         }

@@ -40,6 +40,7 @@ nonisolated public enum GameState: String, Equatable, Sendable {
 
 nonisolated public enum GameOverReason: String, Equatable, Sendable {
     case outOfLives
+    case outOfTime
     case roundsCompleted
     case quit
 }
@@ -80,7 +81,12 @@ nonisolated public final class MemoryGame {
     /// Which scoreboard this session plays on, so a paused run can only ever be
     /// resumed onto the exact board it came from.
     public let board: LevelBoard
+    public let puzzleSeed: UInt64
     private let factory: RoundFactory
+    /// Every sum this board will ask, built before the first nut is shown.
+    private var plannedRounds: [GameRound] = []
+    /// The physical pile that belongs to `plannedRounds`. Nil only before start.
+    public private(set) var clawPuzzle: ClawPuzzle?
 
     // MARK: Observable state (read by the view)
 
@@ -158,10 +164,12 @@ nonisolated public final class MemoryGame {
         self.board = LevelBoard(level: level,
                                 mixedVariant: mixedVariant,
                                 mode: mode)
+        let resolvedSeed = seed ?? UInt64.random(in: 1...UInt64.max)
+        self.puzzleSeed = resolvedSeed
         self.factory = RoundFactory(level: level,
                                     mixedVariant: mixedVariant,
                                     mode: board.mode,
-                                    seed: seed)
+                                    seed: resolvedSeed)
     }
 
     // MARK: - Session lifecycle
@@ -170,9 +178,7 @@ nonisolated public final class MemoryGame {
     @discardableResult
     public func start() -> Bool {
         guard state == .intro else { return false }
-        roundNumber = 1
-        round = factory.makeRound(number: 1)
-        preparedRound = factory.makeRound(number: 2)
+        installPlan(startingAt: 1)
         state = .memorising
         return true
     }
@@ -194,15 +200,15 @@ nonisolated public final class MemoryGame {
         heartFishProgress = session.heartFishProgress ?? 0
         heartFishTarget = session.heartFishTarget ?? GameConfig.heartFishCorrectAnswers
         isHeartFishAvailable = session.isHeartFishAvailable ?? false
-        round = factory.makeRound(number: roundNumber)
-        preparedRound = factory.makeRound(number: roundNumber + 1)
+        installPlan(startingAt: session.roundNumber)
         state = .memorising
         return true
     }
 
     /// A snapshot of the session as it stands, for storing when the player
     /// leaves. Nil once the session is over — there is nothing to come back to.
-    public func pausedSession(hasBonusFishPower: Bool = false) -> PausedSession? {
+    public func pausedSession(hasBonusFishPower: Bool = false,
+                              remainingTime: Double? = nil) -> PausedSession? {
         guard state != .intro, state != .gameOver else { return nil }
         return PausedSession(boardID: board.storageID,
                              roundNumber: roundNumber,
@@ -218,7 +224,9 @@ nonisolated public final class MemoryGame {
                              hasBonusFishPower: hasBonusFishPower,
                              heartFishProgress: heartFishProgress,
                              heartFishTarget: heartFishTarget,
-                             isHeartFishAvailable: isHeartFishAvailable)
+                             isHeartFishAvailable: isHeartFishAvailable,
+                             remainingTime: remainingTime,
+                             puzzleSeed: puzzleSeed)
     }
 
     /// The tap that turns the answer cards face down and brings the question
@@ -255,47 +263,35 @@ nonisolated public final class MemoryGame {
             // disturb the feedback the view is currently showing.
             return .ignored
         }
+        return resolveAnswer(isCorrect: option.isCorrect,
+                             usesBonusFish: usesBonusFish,
+                             selectedID: optionID,
+                             correctOptionID: round.correctOption?.id ?? optionID)
+    }
 
-        // Lock input for the whole of the resolve phase, before any scoring.
-        selectedOptionID = optionID
-        state = .resolving
+    /// Resolves a grabbed nut against the standing sum. The claw scene already
+    /// knows whether the nut's value matches; this is the same scoring path a
+    /// bubble tap uses, without needing that nut to live in `round.options`.
+    @discardableResult
+    public func resolveGrab(isCorrect: Bool, isGold: Bool) -> AnswerOutcome {
+        guard state == .answering,
+              let round,
+              selectedOptionID == nil
+        else { return .ignored }
+        let selectedID = isCorrect
+            ? (round.correctOption?.id ?? UUID())
+            : UUID()
+        return resolveAnswer(isCorrect: isCorrect,
+                             usesBonusFish: isGold,
+                             selectedID: selectedID,
+                             correctOptionID: round.correctOption?.id ?? selectedID)
+    }
 
-        let outcome: AnswerOutcome
-        if option.isCorrect {
-            let streakWasActive = isStreakBoostActive
-            let fishMultiplier = usesBonusFish ? GameConfig.bonusFishMultiplier : 1
-            let streakMultiplier = streakWasActive ? GameConfig.streakMultiplier : 1
-            let earned = GameConfig.normalCardReward * fishMultiplier * streakMultiplier
-            cards += earned
-            result.correctAnswers += 1
-            result.cardsEarned += earned
-            if usesBonusFish {
-                result.doubleCardsAnswered += 1
-            }
-            result.bonusCards += earned - GameConfig.normalCardReward
-            correctStreak += 1
-            advanceHeartFishProgressIfNeeded()
-            let startedStreak = !streakWasActive && isStreakBoostActive
-            outcome = .correct(cardsEarned: earned,
-                               usedBonusFish: usesBonusFish,
-                               startedStreak: startedStreak)
-        } else {
-            let streakWasActive = isStreakBoostActive
-            result.wrongAnswers += 1
-            correctStreak = 0
-            if appliesWrongAnswerPenalty {
-                spendLifeHalves(streakWasActive
-                                ? GameConfig.streakWrongAnswerCostHalves
-                                : GameConfig.wrongAnswerCostHalves)
-            }
-            // The sum stays on the coral; `advance` puts this very round back
-            // into play instead of installing the next one.
-            repeatsRound = true
-            outcome = .wrong(correctOptionID: round.correctOption?.id ?? optionID,
-                             lostHalfLife: streakWasActive)
-        }
-        lastOutcome = outcome
-        return outcome
+    /// Ends the session because the clock ran out. Safe to call from any live
+    /// state, including mid-grab: input is already locked by the view.
+    public func expireTime() {
+        guard state != .gameOver else { return }
+        finish(reason: .outOfTime)
     }
 
     /// Restores life when the passing heart fish is caught. The return value is
@@ -372,9 +368,8 @@ nonisolated public final class MemoryGame {
         }
 
         roundNumber += 1
-        round = preparedRound ?? factory.makeRound(number: roundNumber)
-        // Build the round after next while the player is looking at this one.
-        preparedRound = factory.makeRound(number: roundNumber + 1)
+        round = plannedRound(number: roundNumber)
+        preparedRound = plannedRound(number: roundNumber + 1)
         selectedOptionID = nil
         lastOutcome = nil
         state = .memorising
@@ -388,6 +383,74 @@ nonisolated public final class MemoryGame {
     }
 
     // MARK: - Private
+
+    /// Builds the full sum list and the matching nut pile once, so a level
+    /// never sprouts new answers after the first frame.
+    nonisolated private func installPlan(startingAt number: Int) {
+        factory.reset()
+        let generated = (1...board.maximum).map { factory.makeRound(number: $0) }
+        let puzzle = ClawPuzzle.build(questions: generated.map(\.question),
+                                      seed: puzzleSeed)
+        clawPuzzle = puzzle
+        plannedRounds = puzzle.questions.enumerated().map { index, question in
+            factory.makeRound(number: index + 1, question: question)
+        }
+        let start = min(max(1, number), plannedRounds.count)
+        roundNumber = start
+        round = plannedRound(number: start)
+        preparedRound = plannedRound(number: start + 1)
+    }
+
+    private func plannedRound(number: Int) -> GameRound? {
+        guard number >= 1, number <= plannedRounds.count else { return nil }
+        return plannedRounds[number - 1]
+    }
+
+    private func resolveAnswer(isCorrect: Bool,
+                               usesBonusFish: Bool,
+                               selectedID: UUID,
+                               correctOptionID: UUID) -> AnswerOutcome {
+        // Lock input for the whole of the resolve phase, before any scoring.
+        selectedOptionID = selectedID
+        state = .resolving
+
+        let outcome: AnswerOutcome
+        if isCorrect {
+            let streakWasActive = isStreakBoostActive
+            let fishMultiplier = usesBonusFish ? GameConfig.bonusFishMultiplier : 1
+            let streakMultiplier = streakWasActive ? GameConfig.streakMultiplier : 1
+            let earned = GameConfig.normalCardReward * fishMultiplier * streakMultiplier
+            cards += earned
+            result.correctAnswers += 1
+            result.cardsEarned += earned
+            if usesBonusFish {
+                result.doubleCardsAnswered += 1
+            }
+            result.bonusCards += earned - GameConfig.normalCardReward
+            correctStreak += 1
+            advanceHeartFishProgressIfNeeded()
+            let startedStreak = !streakWasActive && isStreakBoostActive
+            outcome = .correct(cardsEarned: earned,
+                               usedBonusFish: usesBonusFish,
+                               startedStreak: startedStreak)
+        } else {
+            let streakWasActive = isStreakBoostActive
+            result.wrongAnswers += 1
+            correctStreak = 0
+            if appliesWrongAnswerPenalty {
+                spendLifeHalves(streakWasActive
+                                ? GameConfig.streakWrongAnswerCostHalves
+                                : GameConfig.wrongAnswerCostHalves)
+            }
+            // The sum stays standing; `advance` puts this very round back
+            // into play instead of installing the next one.
+            repeatsRound = true
+            outcome = .wrong(correctOptionID: correctOptionID,
+                             lostHalfLife: streakWasActive)
+        }
+        lastOutcome = outcome
+        return outcome
+    }
 
     private func spendLifeHalves(_ halves: Int) {
         let wasFull = lifeHalves == GameConfig.startingLifeHalves

@@ -46,6 +46,9 @@ final class GameViewModel: ObservableObject {
     /// Changes each time the streak boost starts, allowing the view to replay
     /// its bubble-style announcement even after an earlier streak was broken.
     @Published private(set) var streakAnnouncementID = 0
+    @Published private(set) var remainingTime: Double = 0
+    @Published private(set) var timeLimit: Double = 1
+    @Published private(set) var clawPuzzle: ClawPuzzle?
 
     /// Set by the tutorial, which needs to know about every answer the moment
     /// the engine accepts it — that is what moves its script on.
@@ -62,6 +65,7 @@ final class GameViewModel: ObservableObject {
     /// The rules award cards immediately, while the HUD waits until the
     /// matching currency bubble physically reaches it.
     private var pendingScoreRewards: [Int] = []
+    private var clockTimer: Timer?
 
     var maximumRounds: Int { engine.maximumRounds }
     var acceptsInput: Bool { state == .answering && !isPaused }
@@ -71,6 +75,9 @@ final class GameViewModel: ObservableObject {
         self.engine = MemoryGame(level: request.level,
                             mixedVariant: request.mixedVariant,
                             mode: request.mode)
+        let limit = Double(request.board.maximum) * GameConfig.clawSecondsPerCard
+        _timeLimit = Published(initialValue: limit)
+        _remainingTime = Published(initialValue: limit)
     }
 
     // MARK: - Lifecycle
@@ -80,7 +87,14 @@ final class GameViewModel: ObservableObject {
     /// does not belong on the frame that responds to Start.
     func prepare() {
         guard engine.state == .intro, preparationTask == nil else { return }
-        startPreparation(pausedSession: PausedSessionStore.shared.session(request.board))
+        let paused = PausedSessionStore.shared.session(request.board)
+        startPreparation(pausedSession: paused)
+        Task { [weak self] in
+            guard let self, let prepared = await self.preparationTask?.value else { return }
+            guard self.engine.state == .intro else { return }
+            self.clawPuzzle = prepared.engine.clawPuzzle
+            self.configureTimer(from: prepared.pausedSession)
+        }
     }
 
     private func startPreparation(pausedSession: PausedSession?) {
@@ -88,10 +102,12 @@ final class GameViewModel: ObservableObject {
         let level = request.level
         let mixedVariant = request.mixedVariant
         let mode = request.mode
+        let seed = pausedSession?.puzzleSeed
         preparationTask = Task.detached(priority: .userInitiated) {
             let prepared = MemoryGame(level: level,
                                       mixedVariant: mixedVariant,
-                                      mode: mode)
+                                      mode: mode,
+                                      seed: seed)
             if let pausedSession {
                 prepared.resume(from: pausedSession)
             } else {
@@ -112,6 +128,9 @@ final class GameViewModel: ObservableObject {
         engine = prepared.engine
         preparationTask = nil
         isPaused = false
+        engine.appliesWrongAnswerPenalty = false
+        configureTimer(from: prepared.pausedSession)
+        startClock()
         prepareHaptics()
         PlaytimeTracker.shared.challengeStarted()
         AppAudio.shared.setGameplayActive(true, questionText: nil)
@@ -149,6 +168,7 @@ final class GameViewModel: ObservableObject {
         PlaytimeTracker.shared.challengeEnded()
         AppAudio.shared.setGameplayActive(false, questionText: nil)
         AppAudio.shared.setGameplayRate(1)
+        stopClock()
         generation &+= 1
         preparationTask?.cancel()
         preparationTask = nil
@@ -162,6 +182,7 @@ final class GameViewModel: ObservableObject {
     func pause() {
         guard engine.state != .gameOver else { return }
         isPaused = true
+        stopClock()
         savePausedSessionIfNeeded()
         PlaytimeTracker.shared.challengeEnded()
         AppAudio.shared.setGameplayActive(false, questionText: nil)
@@ -173,6 +194,7 @@ final class GameViewModel: ObservableObject {
     func resume() {
         guard engine.state != .intro, engine.state != .gameOver else { return }
         isPaused = false
+        startClock()
         prepareHaptics()
         PlaytimeTracker.shared.challengeStarted()
         AppAudio.shared.setGameplayActive(true, questionText: nil)
@@ -200,7 +222,8 @@ final class GameViewModel: ObservableObject {
     /// player would restart from zero anyway.
     private func savePausedSessionIfNeeded() {
         guard !hasRecordedResult,
-              let paused = engine.pausedSession(hasBonusFishPower: hasBonusFishPower)
+              let paused = engine.pausedSession(hasBonusFishPower: hasBonusFishPower,
+                                                remainingTime: remainingTime)
         else { return }
         guard paused.cards > 0 else {
             PausedSessionStore.shared.clear(request.board)
@@ -225,10 +248,13 @@ final class GameViewModel: ObservableObject {
         preparationTask = nil
         hasRecordedResult = false
         isPaused = false
+        engine.appliesWrongAnswerPenalty = false
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
         hasBonusFishPower = false
         streakAnnouncementID = 0
+        configureTimer(from: nil)
+        startClock()
         AppAudio.shared.playSessionStart()
         openRound()
         announceRound()
@@ -314,6 +340,68 @@ final class GameViewModel: ObservableObject {
         return true
     }
 
+    /// Forwards a nut the elephant dropped in the bin. Gold nuts pay the same
+    /// double reward the 2× fish used to, without telling the player the
+    /// number is right.
+    func resolveGrab(nut: ClawNut, isCorrect: Bool) {
+        let outcome = engine.resolveGrab(isCorrect: isCorrect, isGold: nut.isGold)
+        guard outcome != .ignored else { return }
+        PlaytimeTracker.shared.registerInteraction()
+
+        let token = generation
+        let delay: Double
+        switch outcome {
+        case .correct(let cardsEarned, let usedBonusFish, let startedStreak):
+            pendingScoreRewards.append(cardsEarned)
+            sync()
+            onAnswerResolved?(true, startedStreak)
+            AppAudio.shared.playCorrect()
+            if usedBonusFish {
+                AppAudio.shared.playDoubleScore()
+            }
+            if startedStreak {
+                streakAnnouncementID &+= 1
+                AppAudio.shared.playDoubleScore()
+            }
+            haptic(.success)
+            delay = GameConfig.nextRoundDelay.correct
+        case .wrong(_, let lostHalfLife):
+            sync()
+            onAnswerResolved?(false, false)
+            AppAudio.shared.playWrong()
+            if engine.appliesWrongAnswerPenalty {
+                if lostHalfLife {
+                    AppAudio.shared.playHalfLife()
+                } else {
+                    AppAudio.shared.playLifeLost()
+                }
+            }
+            haptic(.error)
+            delay = GameConfig.nextRoundDelay.wrong
+        case .ignored:
+            return
+        }
+
+        schedule(after: delay, token: token) { [weak self] in
+            guard let self else { return }
+            guard self.engine.finishResolving() else { return }
+            if self.trailerOwnsRounds {
+                self.engine.trailerResumeAnswering()
+                self.sync()
+                return
+            }
+            let previousRoundID = self.engine.round?.id
+            self.engine.advance()
+            if self.engine.state == .gameOver {
+                self.finishSession()
+            } else if self.engine.round?.id != previousRoundID {
+                self.announceRound()
+                self.openRound()
+            }
+            self.sync()
+        }
+    }
+
     /// Called by the reef at the exact frame a collected currency bubble lands
     /// on the HUD icon.
     func scoreBubbleArrived() {
@@ -379,6 +467,7 @@ final class GameViewModel: ObservableObject {
 
     private func finishSession() {
         AppAudio.shared.setGameplayRate(1)
+        stopClock()
         recordResultIfNeeded()
         // Hide replay generation under the reef finale/result card too.
         startPreparation(pausedSession: nil)
@@ -452,8 +541,43 @@ final class GameViewModel: ObservableObject {
         correctStreak = engine.correctStreak
         isStreakBoostActive = engine.isStreakBoostActive
         isHeartFishAvailable = engine.isHeartFishAvailable
+        clawPuzzle = engine.clawPuzzle
         AppAudio.shared.setGameplayRate(isStreakBoostActive
                                         ? Float(GameConfig.streakSpeedMultiplier) : 1)
+    }
+
+    // MARK: - Clock
+
+    private func configureTimer(from session: PausedSession?) {
+        timeLimit = Double(request.board.maximum) * GameConfig.clawSecondsPerCard
+        remainingTime = session?.remainingTime ?? timeLimit
+    }
+
+    private func startClock() {
+        stopClock()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tickClock() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        clockTimer = timer
+    }
+
+    private func stopClock() {
+        clockTimer?.invalidate()
+        clockTimer = nil
+    }
+
+    private func tickClock() {
+        guard !isPaused,
+              engine.state != .intro,
+              engine.state != .gameOver else { return }
+        remainingTime = max(0, remainingTime - 0.1)
+        if remainingTime <= 0 {
+            remainingTime = 0
+            engine.expireTime()
+            finishSession()
+            sync()
+        }
     }
 
     // MARK: - Promo trailer

@@ -47,6 +47,7 @@ enum TutorialStep: Int, CaseIterable, Identifiable {
 
     /// The message shown on screen for this step.
     var messageKey: String { "tutorial.step.\(rawValue)" }
+    var clawMessageKey: String { "tutorial.claw.step.\(rawValue)" }
 
     var next: TutorialStep? { TutorialStep(rawValue: rawValue + 1) }
 
@@ -118,7 +119,12 @@ final class TutorialController: ObservableObject {
 
     /// The line currently on screen, in the player's own language.
     var message: String? {
-        step.map { L(key: $0.messageKey) }
+        step.map { L(key: $0.clawMessageKey) }
+    }
+
+    /// What the claw machine should allow while a step is being taught.
+    var clawPlan: ClawTutorialPlan {
+        Self.clawPlan(for: step)
     }
 
     // MARK: Lifecycle
@@ -180,6 +186,16 @@ final class TutorialController: ObservableObject {
         }
     }
 
+    func handleClaw(_ event: ClawTutorialEvent) {
+        guard let step else { return }
+        switch event {
+        case .movedClaw:
+            if step == .tapToSwim || step == .dragToSwim { advance() }
+        case .pressedGrab:
+            break
+        }
+    }
+
     /// Reported by the session for every answer it accepts.
     private func answerResolved(isCorrect: Bool, startedStreak: Bool) {
         guard let step else { return }
@@ -213,9 +229,9 @@ final class TutorialController: ObservableObject {
         generation &+= 1
         let token = generation
 
-        // Only the "try it once" step is free: everywhere else a wrong answer
-        // costs exactly what it costs in a real game.
-        model?.setWrongAnswerPenalty(step != .collectCorrect)
+        // Wrong nuts cost time on the clock, not lives: the return animation
+        // is the penalty, and the existing hearts stay as HUD chrome.
+        model?.setWrongAnswerPenalty(false)
         if step == .heartFish {
             model?.setHeartFishRestoresWholeLife(true)
             model?.makeHeartFishAvailable()
@@ -224,6 +240,13 @@ final class TutorialController: ObservableObject {
         withAnimation(.spring(response: 0.44, dampingFraction: 0.86)) {
             self.step = step
             self.plan = Self.plan(for: step)
+        }
+
+        if step == .heartFish || step == .bonusFish {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.4) { [weak self] in
+                guard let self, self.generation == token, self.step == step else { return }
+                self.advance()
+            }
         }
 
         if step == .freePlay {
@@ -272,6 +295,22 @@ final class TutorialController: ObservableObject {
         case .freePlay:
             // Nothing shaped any more: full waves, both helper fish back on
             // their own schedule. Only the message is still the tutorial's.
+            break
+        }
+        return plan
+    }
+
+    private static func clawPlan(for step: TutorialStep?) -> ClawTutorialPlan {
+        guard let step else { return ClawTutorialPlan() }
+        var plan = ClawTutorialPlan()
+        plan.isActive = true
+        switch step {
+        case .tapToSwim, .dragToSwim:
+            plan.wantsMove = true
+            plan.suppressesGrab = true
+        case .heartFish, .bonusFish:
+            plan.suppressesGrab = true
+        default:
             break
         }
         return plan
