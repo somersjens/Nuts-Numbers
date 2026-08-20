@@ -89,8 +89,9 @@ struct AnimalCharacter: Identifiable, Equatable {
     let id: String
     let name: String
     let emoji: String
-    /// Position in the catalog, 1-based. It is also the suffix of both artwork
-    /// assets, so a character can never be paired with someone else's picture.
+    /// Position in the catalog, 1-based. It is also the suffix of the standard
+    /// front and side artwork assets. The elephant uses its bespoke full-body
+    /// `1_main` portrait everywhere outside the claw game.
     let slot: Int
 
     // Colour components (0–1).
@@ -116,7 +117,7 @@ struct AnimalCharacter: Identifiable, Equatable {
     /// Facing the player: menus, cards, the shop and every portrait slot.
     /// All ten assets are square and optically equalised, so one square frame
     /// renders any character at the same apparent size.
-    var imageName: String { "front_\(slot)" }
+    var imageName: String { id == "elephant" ? "1_main" : "front_\(slot)" }
     var artwork: Image {
 #if canImport(UIKit)
         Image(uiImage: CharacterArtworkCache.front(named: imageName))
