@@ -283,6 +283,7 @@ struct GameView: View {
                           playsTimeOutFinale: playsTimeOutFinale,
                           reduceMotion: reduceMotion,
                           tutorialPlan: tutorial.clawPlan,
+                          score: model.cards,
                           topReserve: topInset + (isPad ? 8 : 6),
                           bottomReserve: screenInsets.bottom,
                           scoreTarget: scoreIconCenter,
@@ -310,7 +311,7 @@ struct GameView: View {
             if let message = tutorial.message, !playsLevelCompletion, !playsTimeOutFinale {
                 TutorialMessageCard(text: message, theme: character, isPad: isPad)
                     .padding(.horizontal, max(isPad ? 28 : 14, screenInsets.leading + 12))
-                    .padding(.top, topInset + (isPad ? 150 : 128))
+                    .padding(.top, topInset + (isPad ? 88 : 72))
                     // Scales up in place rather than sliding down: a card that
                     // travelled would cross the HUD on its way in.
                     .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
@@ -350,15 +351,8 @@ struct GameView: View {
 
     private var hud: some View {
         HStack(alignment: .top, spacing: isPad ? 12 : 8) {
-            VStack(alignment: .leading, spacing: isPad ? 10 : 8) {
-                pauseButton
-                ClawStatusPlaque(score: model.cards,
-                                 lives: model.livesRemaining,
-                                 isPad: isPad)
-            }
-
+            pauseButton
             Spacer(minLength: 0)
-
             ClawTimerBadge(clock: model.clock,
                            isPad: isPad,
                            size: hudTimerSize)
@@ -413,72 +407,6 @@ struct GameView: View {
     }
 }
 
-private struct ClawStatusPlaque: View {
-    let score: Int
-    let lives: Double
-    let isPad: Bool
-
-    private var livesText: String {
-        lives == lives.rounded()
-            ? LN(Int(lives))
-            : String(format: "%.1f", locale: LanguageManager.shared.locale, lives)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: isPad ? 6 : 4) {
-            HStack(spacing: isPad ? 8 : 6) {
-                CurrencyIcon(size: isPad ? 26 : 20)
-                    .foregroundStyle(Color(red: 1.0, green: 0.90, blue: 0.55))
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: ScoreIconCenterPreferenceKey.self,
-                                value: CGPoint(x: proxy.frame(in: .global).midX,
-                                               y: proxy.frame(in: .global).midY)
-                            )
-                        }
-                    }
-                Text(verbatim: LN(score))
-                    .font(.system(size: isPad ? 26 : 20, weight: .heavy, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .contentTransition(.numericText(value: Double(score)))
-            }
-            HStack(spacing: isPad ? 8 : 6) {
-                Image(systemName: "heart.fill")
-                    .font(.system(size: isPad ? 20 : 16, weight: .bold))
-                    .foregroundStyle(Color(red: 0.90, green: 0.22, blue: 0.24))
-                Text(verbatim: livesText)
-                    .font(.system(size: isPad ? 22 : 18, weight: .heavy, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, isPad ? 12 : 9)
-        .padding(.vertical, isPad ? 8 : 6)
-        .background {
-            RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
-                .fill(
-                    LinearGradient(colors: [Color(red: 0.40, green: 0.24, blue: 0.11),
-                                            Color(red: 0.18, green: 0.10, blue: 0.05)],
-                                   startPoint: .top, endPoint: .bottom)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
-                        .stroke(Color(red: 0.76, green: 0.56, blue: 0.32).opacity(0.65), lineWidth: 1.4)
-                }
-        }
-        .shadow(color: .black.opacity(0.28), radius: 4, y: 2)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: score)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: lives)
-        .accessibilityIdentifier("progress")
-        .accessibilityLabel(Text(L("game.bubblesCollected \(score)")))
-        .accessibilityValue(Text(L("game.livesRemaining \(livesText)")))
-    }
-}
-
 private struct ClawTimerBadge: View {
     @ObservedObject var clock: GameClock
     let isPad: Bool
@@ -527,14 +455,6 @@ private struct ClawTimerBadge: View {
         .shadow(color: .black.opacity(0.35), radius: 3, y: 2)
         .accessibilityIdentifier("timer")
         .accessibilityLabel(Text(L("game.claw.timeRemaining \(seconds)")))
-    }
-}
-
-private struct ScoreIconCenterPreferenceKey: PreferenceKey {
-    static var defaultValue: CGPoint? = nil
-
-    static func reduce(value: inout CGPoint?, nextValue: () -> CGPoint?) {
-        value = nextValue() ?? value
     }
 }
 

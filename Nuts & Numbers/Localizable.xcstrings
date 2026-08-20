@@ -12650,19 +12650,19 @@
       }
     },
     "game.claw.grab" : {
-      "comment" : "Label on the large physical grab button of the claw machine.",
+      "comment" : "Label on the large physical grab button of the claw machine. Keep it short; longer translations shrink to fit the cap.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "GRAB!"
+            "value" : "Grab!"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PAK!"
+            "value" : "Pak!"
           }
         }
       }
@@ -114684,7 +114684,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Druk op PAK! en pak het nootje dat bij de som past."
+            "value" : "Druk op Pak! en pak het nootje dat bij de som past."
           }
         }
       }

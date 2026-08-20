@@ -89,6 +89,10 @@ enum ClawArtworkCache {
     static let joystickBase: UIImage = prepared(named: "base")
     static let poke: UIImage = prepared(named: "poke")
     static let lightArrow: UIImage = prepared(named: "light arrow")
+    static let grabHousing: UIImage = prepared(named: "button3")
+    static let grabCap: UIImage = prepared(named: "button2")
+    static let grabLip: UIImage = prepared(named: "button1")
+    static let scorePad: UIImage = prepared(named: "score_pad")
 
     static func prewarm() {
         _ = nut
@@ -96,6 +100,10 @@ enum ClawArtworkCache {
         _ = joystickBase
         _ = poke
         _ = lightArrow
+        _ = grabHousing
+        _ = grabCap
+        _ = grabLip
+        _ = scorePad
     }
 
     private static func prepared(named name: String) -> UIImage {
@@ -208,6 +216,7 @@ final class ClawEngine: ObservableObject {
     var promptPulse = 0.0
     private(set) var highlightedNutIDs: Set<UUID> = []
     private var lastHighCadence = true
+    private var buttonPressAge: Double?
 
     var onGrabResolved: ((ClawNut, Bool) -> Void)?
     var onScoreBubbleArrived: (() -> Void)?
@@ -274,7 +283,7 @@ final class ClawEngine: ObservableObject {
         self.isPad = isPad
         let post: CGFloat = isPad ? 38 : 26
         let headerH: CGFloat = isPad ? 64 : 52
-        let panelH: CGFloat = isPad ? 132 : 110
+        let panelH: CGFloat = isPad ? 145 : 121
         let top = topReserve + 2
         let headerW = min(size.width - post * 2 - (isPad ? 200 : 150), size.width * 0.50)
         headerRect = CGRect(x: (size.width - headerW) / 2, y: top, width: headerW, height: headerH)
@@ -370,6 +379,7 @@ final class ClawEngine: ObservableObject {
         guard acceptsGrab else { return }
         onTutorialEvent?(.pressedGrab)
         buttonPressed = true
+        buttonPressAge = 0
         startGrab()
     }
 
@@ -498,6 +508,7 @@ final class ClawEngine: ObservableObject {
         stepPhase(dt: dt)
         stepCascade(dt: dt)
         stepFlights(dt: dt)
+        stepButtonPress(dt: dt)
         applyCadence()
         objectWillChange.send()
     }
@@ -724,13 +735,23 @@ final class ClawEngine: ObservableObject {
         phase = next
         phaseAge = 0
         if next == .idle {
-            buttonPressed = false
             trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
         }
         if next == .returning {
             returnFromX = trolleyX
             let target = min(trolleyMaxFreeX, max(trolleyMinX, grabStartX))
             returnTime = max(0.26, Double(abs(target - returnFromX)) / 0.95)
+        }
+    }
+
+    private func stepButtonPress(dt: Double) {
+        guard let age = buttonPressAge else { return }
+        let next = age + dt
+        if next >= 0.28 {
+            buttonPressed = false
+            buttonPressAge = nil
+        } else {
+            buttonPressAge = next
         }
     }
 
@@ -971,6 +992,7 @@ struct ClawPlayfield: View {
     let playsTimeOutFinale: Bool
     let reduceMotion: Bool
     var tutorialPlan = ClawTutorialPlan()
+    let score: Int
     let topReserve: CGFloat
     let bottomReserve: CGFloat
     let scoreTarget: CGPoint?
@@ -1270,19 +1292,16 @@ struct ClawPlayfield: View {
         let topInset: CGFloat = isPad ? 18 : 12
         let board = ArcadeShelfShape(topInset: topInset, bottomRadius: isPad ? 18 : 14)
 
-        return HStack(alignment: .center, spacing: isPad ? 16 : 10) {
+        return HStack(alignment: .center, spacing: isPad ? 12 : 8) {
             joystick
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
+            ClawPanelScore(score: score, isPad: isPad)
+            Spacer(minLength: 6)
             grabButton
-            Image(systemName: "pawprint.fill")
-                .font(.system(size: isPad ? 20 : 14, weight: .bold))
-                .foregroundStyle(palette.woodDeep.opacity(0.38))
-                .offset(y: isPad ? 8 : 6)
-                .allowsHitTesting(false)
         }
-        .padding(.horizontal, isPad ? 28 : 16)
-        .padding(.top, isPad ? 4 : 2)
-        .padding(.bottom, isPad ? 6 : 4)
+        .padding(.horizontal, isPad ? 32 : 20)
+        .padding(.top, isPad ? 8 : 6)
+        .padding(.bottom, isPad ? 10 : 8)
         .background(alignment: .bottom) {
             ZStack {
                 board.fill(
@@ -1311,7 +1330,7 @@ struct ClawPlayfield: View {
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .clipShape(board)
             }
-            .padding(.top, isPad ? 34 : 26)
+            .padding(.top, isPad ? 38 : 29)
             .allowsHitTesting(false)
         }
     }
@@ -1368,46 +1387,244 @@ struct ClawPlayfield: View {
     }
 
     private var grabButton: some View {
-        Button(action: engine.pressGrab) {
+        let side: CGFloat = isPad ? 110 : 86
+        let travel = side * (GrabButtonArt.pressTravel / GrabButtonArt.canvas)
+        let faceOffset = side * (GrabButtonArt.labelCenterY - 0.5)
+
+        return Button(action: engine.pressGrab) {
             ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(colors: [Color(red: 0.62, green: 0.42, blue: 0.22),
-                                                palette.woodDeep,
-                                                Color(red: 0.16, green: 0.08, blue: 0.03)],
-                                       center: UnitPoint(x: 0.38, y: 0.30),
-                                       startRadius: 6, endRadius: isPad ? 40 : 32)
-                    )
-                    .frame(width: isPad ? 70 : 56, height: isPad ? 70 : 56)
-                    .overlay {
-                        Circle().stroke(palette.woodLight.opacity(0.45), lineWidth: 2)
-                    }
-                    .overlay {
-                        Circle().stroke(Color.black.opacity(0.35), lineWidth: 1.5).padding(4)
-                    }
-                Circle()
-                    .fill(
-                        RadialGradient(colors: [Color(red: 1.0, green: 0.38, blue: 0.32),
-                                                palette.button,
-                                                palette.buttonDeep],
-                                       center: UnitPoint(x: 0.38, y: 0.28),
-                                       startRadius: 3, endRadius: isPad ? 36 : 28)
-                    )
-                    .frame(width: isPad ? 56 : 44, height: isPad ? 56 : 44)
-                Circle()
-                    .stroke(.white.opacity(0.42), lineWidth: 2)
-                    .frame(width: isPad ? 48 : 38, height: isPad ? 48 : 38)
-                Text("game.claw.grab")
-                    .font(.system(size: isPad ? 16 : 13, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.4), radius: 1, y: 1)
+                grabHousingImage
+                    .resizable()
+                    .interpolation(.high)
+
+                ZStack {
+                    grabCapImage
+                        .resizable()
+                        .interpolation(.high)
+                    Text("game.claw.grab")
+                        .font(.system(size: isPad ? 22 : 17, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.45), radius: 1, y: 1)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.32)
+                        .allowsTightening(true)
+                        .multilineTextAlignment(.center)
+                        .frame(width: side * 0.54)
+                        .offset(y: faceOffset)
+                }
+                .offset(y: engine.buttonPressed ? travel : 0)
+
+                grabLipImage
+                    .resizable()
+                    .interpolation(.high)
             }
-            .scaleEffect(engine.buttonPressed ? 0.94 : 1)
+            .frame(width: side, height: side)
+            .contentShape(Circle())
+            .animation(engine.buttonPressed
+                           ? .easeIn(duration: 0.08)
+                           : .easeOut(duration: 0.24),
+                       value: engine.buttonPressed)
         }
         .buttonStyle(.plain)
-        .disabled(!engine.acceptsGrab)
         .accessibilityIdentifier("claw-grab")
         .accessibilityLabel(Text("game.claw.grab"))
+    }
+
+    private var grabHousingImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.grabHousing)
+#else
+        Image("button3")
+#endif
+    }
+
+    private var grabCapImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.grabCap)
+#else
+        Image("button2")
+#endif
+    }
+
+    private var grabLipImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.grabLip)
+#else
+        Image("button1")
+#endif
+    }
+}
+
+private enum GrabButtonArt {
+    static let canvas: CGFloat = 1254
+    /// Cap travel into the housing, in canvas pixels.
+    static let pressTravel: CGFloat = 88
+    /// Centre of the red top face, as a fraction of the square canvas.
+    static let labelCenterY: CGFloat = 470 / 1254
+}
+
+private struct ClawPanelScore: View {
+    let score: Int
+    let isPad: Bool
+
+    private var digits: [Int] {
+        let clamped = min(99, max(0, score))
+        return [clamped / 10, clamped % 10]
+    }
+
+    var body: some View {
+        ZStack {
+            scorePadImage
+                .resizable()
+                .interpolation(.high)
+            GeometryReader { proxy in
+                let sx = proxy.size.width / ScorePadArt.canvas.width
+                let sy = proxy.size.height / ScorePadArt.canvas.height
+                let well = CGRect(x: ScorePadArt.well.minX * sx,
+                                  y: ScorePadArt.well.minY * sy,
+                                  width: ScorePadArt.well.width * sx,
+                                  height: ScorePadArt.well.height * sy)
+                HStack(spacing: well.width * 0.10) {
+                    ForEach(Array(digits.enumerated()), id: \.offset) { _, digit in
+                        SevenSegmentDigit(value: digit)
+                    }
+                }
+                .frame(width: well.width, height: well.height * 0.78, alignment: .center)
+                .position(x: well.midX, y: well.midY)
+            }
+        }
+        .aspectRatio(ScorePadArt.canvas.width / ScorePadArt.canvas.height, contentMode: .fit)
+        .frame(maxHeight: isPad ? 118 : 96)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ScoreIconCenterPreferenceKey.self,
+                    value: CGPoint(x: proxy.frame(in: .global).midX,
+                                   y: proxy.frame(in: .global).midY)
+                )
+            }
+        }
+        .accessibilityIdentifier("progress")
+        .accessibilityLabel(Text(L("game.bubblesCollected \(score)")))
+        .allowsHitTesting(false)
+    }
+
+    private var scorePadImage: Image {
+#if canImport(UIKit)
+        Image(uiImage: ClawArtworkCache.scorePad)
+#else
+        Image("score_pad")
+#endif
+    }
+}
+
+private enum ScorePadArt {
+    static let canvas = CGSize(width: 387, height: 244)
+    /// Recessed LED face on `score_pad`.
+    static let well = CGRect(x: 136, y: 104, width: 112, height: 76)
+}
+
+/// Classic 7-segment digit with unlit ghost segments and a warm gold glow.
+private struct SevenSegmentDigit: View {
+    var value: Int?
+
+    private static let gold = Color(red: 1.0, green: 0.86, blue: 0.38)
+    private static let core = Color(red: 1.0, green: 0.96, blue: 0.62)
+    private static let dim = Color(red: 0.16, green: 0.17, blue: 0.18).opacity(0.9)
+
+    var body: some View {
+        GeometryReader { proxy in
+            let lit = Self.bits(value)
+            ZStack {
+                SevenSegmentShape(on: Array(repeating: true, count: 7))
+                    .fill(Self.dim)
+                SevenSegmentShape(on: lit)
+                    .fill(Self.core)
+                    .shadow(color: Self.gold.opacity(0.95), radius: max(2, proxy.size.height * 0.10))
+                    .shadow(color: Color(red: 1.0, green: 0.55, blue: 0.12).opacity(0.75),
+                            radius: max(3, proxy.size.height * 0.22))
+            }
+        }
+        .aspectRatio(0.58, contentMode: .fit)
+    }
+
+    private static func bits(_ value: Int?) -> [Bool] {
+        switch value {
+        case 0: return [true, true, true, true, true, true, false]
+        case 1: return [false, true, true, false, false, false, false]
+        case 2: return [true, true, false, true, true, false, true]
+        case 3: return [true, true, true, true, false, false, true]
+        case 4: return [false, true, true, false, false, true, true]
+        case 5: return [true, false, true, true, false, true, true]
+        case 6: return [true, false, true, true, true, true, true]
+        case 7: return [true, true, true, false, false, false, false]
+        case 8: return [true, true, true, true, true, true, true]
+        case 9: return [true, true, true, true, false, true, true]
+        default: return Array(repeating: false, count: 7)
+        }
+    }
+}
+
+/// Segments a–g as short trapezoids, in order: A B C D E F G.
+private struct SevenSegmentShape: Shape {
+    var on: [Bool]
+
+    func path(in rect: CGRect) -> Path {
+        let t = min(rect.width, rect.height) * 0.16
+        let g = t * 0.18
+        let x0 = rect.minX
+        let x1 = rect.maxX
+        let y0 = rect.minY
+        let y1 = rect.maxY
+        let ym = rect.midY
+        let hx = t * 0.55
+
+        func hBar(y: CGFloat, left: CGFloat, right: CGFloat) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: left + g + hx, y: y))
+            p.addLine(to: CGPoint(x: right - g - hx, y: y))
+            p.addLine(to: CGPoint(x: right - g, y: y + t / 2))
+            p.addLine(to: CGPoint(x: right - g - hx, y: y + t))
+            p.addLine(to: CGPoint(x: left + g + hx, y: y + t))
+            p.addLine(to: CGPoint(x: left + g, y: y + t / 2))
+            p.closeSubpath()
+            return p
+        }
+
+        func vBar(x: CGFloat, top: CGFloat, bottom: CGFloat) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: x + t / 2, y: top + g))
+            p.addLine(to: CGPoint(x: x + t, y: top + g + hx))
+            p.addLine(to: CGPoint(x: x + t, y: bottom - g - hx))
+            p.addLine(to: CGPoint(x: x + t / 2, y: bottom - g))
+            p.addLine(to: CGPoint(x: x, y: bottom - g - hx))
+            p.addLine(to: CGPoint(x: x, y: top + g + hx))
+            p.closeSubpath()
+            return p
+        }
+
+        var path = Path()
+        let segs: [Path] = [
+            hBar(y: y0, left: x0, right: x1),
+            vBar(x: x1 - t, top: y0, bottom: ym),
+            vBar(x: x1 - t, top: ym, bottom: y1),
+            hBar(y: y1 - t, left: x0, right: x1),
+            vBar(x: x0, top: ym, bottom: y1),
+            vBar(x: x0, top: y0, bottom: ym),
+            hBar(y: ym - t / 2, left: x0, right: x1)
+        ]
+        for (index, segment) in segs.enumerated() where index < on.count && on[index] {
+            path.addPath(segment)
+        }
+        return path
+    }
+}
+
+struct ScoreIconCenterPreferenceKey: PreferenceKey {
+    static var defaultValue: CGPoint? = nil
+
+    static func reduce(value: inout CGPoint?, nextValue: () -> CGPoint?) {
+        value = nextValue() ?? value
     }
 }
 
