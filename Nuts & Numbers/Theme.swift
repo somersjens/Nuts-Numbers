@@ -61,6 +61,27 @@ enum CharacterArtworkCache {
         lock.unlock()
         return image
     }
+
+    /// Grid cells are ~44pt. Uploading the full portrait sprite for every
+    /// character on the collection sheet is wasted GPU bandwidth.
+    static func thumbnail(named name: String, side: CGFloat) -> UIImage {
+        let key = "\(name)-\(Int((side * 2).rounded()))"
+        lock.lock()
+        if let cached = thumbnails[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+        let source = front(named: name)
+        let pixels = max(1, side * UIScreen.main.scale)
+        let sized = source.preparingThumbnail(of: CGSize(width: pixels, height: pixels)) ?? source
+        lock.lock()
+        thumbnails[key] = sized
+        lock.unlock()
+        return sized
+    }
+
+    private static var thumbnails: [String: UIImage] = [:]
 }
 #endif
 
@@ -101,6 +122,16 @@ struct AnimalCharacter: Identifiable, Equatable {
         Image(uiImage: CharacterArtworkCache.front(named: imageName))
 #else
         Image(imageName)
+#endif
+    }
+
+    /// Sized for catalog cells so the collection sheet does not upload ten
+    /// full-resolution portraits at 44pt.
+    func cellArtwork(side: CGFloat) -> Image {
+#if canImport(UIKit)
+        Image(uiImage: CharacterArtworkCache.thumbnail(named: imageName, side: side))
+#else
+        artwork
 #endif
     }
 

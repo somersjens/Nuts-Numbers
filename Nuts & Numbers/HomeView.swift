@@ -286,6 +286,7 @@ struct HomeView: View {
             Task(priority: .utility) {
                 await Task.yield()
                 CharacterArtworkCache.prewarm()
+                ClawArtworkCache.prewarm()
             }
 #endif
         }

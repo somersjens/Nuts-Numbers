@@ -17,6 +17,28 @@ import Combine
 import UIKit
 #endif
 
+/// Owns the on-screen countdown so a 10 Hz tick does not invalidate `GameView`.
+/// `@ObservedObject` on the session model rebuilds the whole reef on every
+/// published change; isolating the clock keeps that cost on the small badge.
+@MainActor
+final class GameClock: ObservableObject {
+    @Published private(set) var remaining: Double = 0
+    @Published private(set) var total: Double = 1
+
+    func configure(total: Double, remaining: Double) {
+        self.total = max(1, total)
+        self.remaining = remaining
+    }
+
+    func advance(by dt: Double) {
+        remaining = max(0, remaining - dt)
+    }
+
+    func expire() {
+        remaining = 0
+    }
+}
+
 @MainActor
 final class GameViewModel: ObservableObject {
     private let request: GameSessionRequest
@@ -46,9 +68,8 @@ final class GameViewModel: ObservableObject {
     /// Changes each time the streak boost starts, allowing the view to replay
     /// its bubble-style announcement even after an earlier streak was broken.
     @Published private(set) var streakAnnouncementID = 0
-    @Published private(set) var remainingTime: Double = 0
-    @Published private(set) var timeLimit: Double = 1
     @Published private(set) var clawPuzzle: ClawPuzzle?
+    let clock = GameClock()
 
     /// Set by the tutorial, which needs to know about every answer the moment
     /// the engine accepts it — that is what moves its script on.
@@ -69,6 +90,8 @@ final class GameViewModel: ObservableObject {
 
     var maximumRounds: Int { engine.maximumRounds }
     var acceptsInput: Bool { state == .answering && !isPaused }
+    var remainingTime: Double { clock.remaining }
+    var timeLimit: Double { clock.total }
 
     init(request: GameSessionRequest) {
         self.request = request
@@ -76,8 +99,7 @@ final class GameViewModel: ObservableObject {
                             mixedVariant: request.mixedVariant,
                             mode: request.mode)
         let limit = Double(request.board.maximum) * GameConfig.clawSecondsPerCard
-        _timeLimit = Published(initialValue: limit)
-        _remainingTime = Published(initialValue: limit)
+        clock.configure(total: limit, remaining: limit)
     }
 
     // MARK: - Lifecycle
@@ -538,8 +560,8 @@ final class GameViewModel: ObservableObject {
     // MARK: - Clock
 
     private func configureTimer(from session: PausedSession?) {
-        timeLimit = Double(request.board.maximum) * GameConfig.clawSecondsPerCard
-        remainingTime = session?.remainingTime ?? timeLimit
+        let limit = Double(request.board.maximum) * GameConfig.clawSecondsPerCard
+        clock.configure(total: limit, remaining: session?.remainingTime ?? limit)
     }
 
     private func startClock() {
@@ -560,9 +582,9 @@ final class GameViewModel: ObservableObject {
         guard !isPaused,
               engine.state != .intro,
               engine.state != .gameOver else { return }
-        remainingTime = max(0, remainingTime - 0.1)
-        if remainingTime <= 0 {
-            remainingTime = 0
+        clock.advance(by: 0.1)
+        if clock.remaining <= 0 {
+            clock.expire()
             engine.expireTime()
             finishSession()
             sync()

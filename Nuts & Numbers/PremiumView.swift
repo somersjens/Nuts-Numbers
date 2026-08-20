@@ -154,6 +154,7 @@ struct PremiumView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(height: isPad ? 280 : 220)
+            .animation(.easeInOut(duration: 0.25), value: previewCharacterID)
 
             Text(character.localizedName)
                 .font(.system(size: 30 * scale, weight: .heavy, design: .rounded))
@@ -162,7 +163,6 @@ struct PremiumView: View {
             availabilityBadge(for: character)
         }
         .padding(.top, 44)
-        .animation(.easeInOut(duration: 0.25), value: previewCharacterID)
     }
 
     @ViewBuilder
@@ -297,7 +297,7 @@ struct PremiumView: View {
         } label: {
             VStack(spacing: 5 * scale) {
                 ZStack(alignment: .topTrailing) {
-                    animal.artwork
+                    animal.cellArtwork(side: artworkSlotSize)
                         .resizable()
                         .scaledToFit()
                         .frame(width: artworkSlotSize, height: artworkSlotSize)
@@ -479,36 +479,14 @@ struct PremiumView: View {
                                 )
                             )
 
-                        ZStack {
-                            ForEach(0..<16, id: \.self) { index in
-                                let angle = Double(index) * (.pi * 2 / 16)
-                                let radiusVariation: CGFloat = index.isMultiple(of: 2) ? 0.92 : 1.04
-                                Group {
-                                    if index.isMultiple(of: 4) {
-                                        CurrencyIcon(size: CGFloat(11 + (index % 3) * 3) * scale)
-                                    } else {
-                                        Image(systemName: "sparkle")
-                                            .font(.system(
-                                                size: CGFloat(11 + (index % 3) * 3) * scale,
-                                                weight: .bold
-                                            ))
-                                    }
-                                }
-                                    .foregroundStyle(
-                                        index.isMultiple(of: 4) ? animal.deepColor : animal.color
-                                    )
-                                    // Cancel the ring's rotation on each glyph so
-                                    // the cards and sparkles keep orbiting but stay
-                                    // upright rather than tumbling.
-                                    .rotationEffect(.degrees(-unlockBurstRotation))
-                                    .offset(
-                                        x: CGFloat(cos(angle)) * particleRadius * radiusVariation,
-                                        y: CGFloat(sin(angle)) * particleRadius * radiusVariation
-                                    )
-                                    .scaleEffect(unlockGlow ? (unlockPulse ? 1.08 : 0.78) : 0.12)
-                                    .opacity(unlockGlow ? (unlockPulse ? 1 : 0.68) : 0)
-                            }
-                        }
+                        UnlockBurstRing(
+                            color: animal.color,
+                            deepColor: animal.deepColor,
+                            radius: particleRadius,
+                            glow: unlockGlow,
+                            pulse: unlockPulse,
+                            scale: scale
+                        )
                         .rotationEffect(.degrees(unlockBurstRotation))
 
                         animal.artwork
@@ -518,7 +496,7 @@ struct PremiumView: View {
                             .scaleEffect(unlockCharacterScale)
                             .rotationEffect(.degrees(unlockCharacterRotation))
                             .offset(y: unlockCharacterFloating ? -7 * scale : 7 * scale)
-                            .shadow(color: animal.deepColor.opacity(0.35), radius: 18, y: 9)
+                            .shadow(color: animal.deepColor.opacity(0.28), radius: 8, y: 6)
                     }
                     .frame(width: stageSize, height: stageSize)
                     .clipped()
@@ -637,6 +615,53 @@ struct PremiumView: View {
         }
     }
 
+}
+
+private struct UnlockBurstRing: View {
+    let color: Color
+    let deepColor: Color
+    let radius: CGFloat
+    let glow: Bool
+    let pulse: Bool
+    let scale: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let opacity = glow ? (pulse ? 1.0 : 0.68) : 0.0
+            let sizeScale = glow ? (pulse ? 1.08 : 0.78) : 0.12
+            guard opacity > 0.01 else { return }
+            for index in 0..<12 {
+                let angle = Double(index) * (.pi * 2 / 12)
+                let radiusVariation: CGFloat = index.isMultiple(of: 2) ? 0.92 : 1.04
+                let point = CGPoint(
+                    x: center.x + CGFloat(cos(angle)) * radius * radiusVariation,
+                    y: center.y + CGFloat(sin(angle)) * radius * radiusVariation
+                )
+                let glyph = CGFloat(11 + (index % 3) * 3) * scale * sizeScale
+                let rect = CGRect(x: point.x - glyph / 2,
+                                  y: point.y - glyph / 2,
+                                  width: glyph,
+                                  height: glyph)
+                if index.isMultiple(of: 4) {
+                    context.fill(Path(ellipseIn: rect),
+                                 with: .color(deepColor.opacity(opacity)))
+                    let inner = rect.insetBy(dx: glyph * 0.28, dy: glyph * 0.28)
+                    context.fill(Path(ellipseIn: inner),
+                                 with: .color(Color.white.opacity(0.55 * opacity)))
+                } else {
+                    var star = Path()
+                    star.move(to: CGPoint(x: rect.midX, y: rect.minY))
+                    star.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+                    star.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+                    star.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+                    star.closeSubpath()
+                    context.fill(star, with: .color(color.opacity(opacity)))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 private extension View {

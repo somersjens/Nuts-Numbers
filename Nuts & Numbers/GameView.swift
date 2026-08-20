@@ -123,12 +123,7 @@ struct GameView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [character.skyColor, character.tintColor],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
-
-            // The level's own wallpaper, exactly as the original game had it.
-            LevelWallpaper(level: request.level, tint: character.color)
+            character.tintColor
                 .ignoresSafeArea()
 
             // Keep the level visible underneath every card. The result is an
@@ -364,8 +359,7 @@ struct GameView: View {
 
             Spacer(minLength: 0)
 
-            ClawTimerBadge(remaining: model.remainingTime,
-                           total: model.timeLimit,
+            ClawTimerBadge(clock: model.clock,
                            isPad: isPad,
                            size: hudTimerSize)
         }
@@ -486,10 +480,12 @@ private struct ClawStatusPlaque: View {
 }
 
 private struct ClawTimerBadge: View {
-    let remaining: Double
-    let total: Double
+    @ObservedObject var clock: GameClock
     let isPad: Bool
     let size: CGFloat
+
+    private var remaining: Double { clock.remaining }
+    private var total: Double { clock.total }
 
     private var progress: Double {
         guard total > 0 else { return 0 }

@@ -82,20 +82,29 @@ private struct AmbientLightShafts: View {
             let width = proxy.size.width
 
             ZStack(alignment: .topLeading) {
-                shaft(width: width * 0.34)
+                shaft(width: width * 0.42)
                     .rotationEffect(.degrees(-12), anchor: .top)
-                    .offset(x: width * (drifted ? 0.175 : 0.125))
-                    .animation(sway(Self.leftSway), value: drifted)
+                    .offset(x: width * (paused ? 0.15 : (drifted ? 0.175 : 0.125)))
+                    .animation(paused ? nil : sway(Self.leftSway), value: drifted)
 
-                shaft(width: width * 0.22)
+                shaft(width: width * 0.28)
                     .rotationEffect(.degrees(-8), anchor: .top)
-                    .offset(x: width * (drifted ? 0.71 : 0.65))
-                    .animation(sway(Self.rightSway), value: drifted)
+                    .offset(x: width * (paused ? 0.68 : (drifted ? 0.71 : 0.65)))
+                    .animation(paused ? nil : sway(Self.rightSway), value: drifted)
             }
         }
         .onAppear {
             guard !paused else { return }
             drifted = true
+        }
+        .onChange(of: paused) { _, isPaused in
+            if isPaused {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { drifted = drifted }
+            } else {
+                drifted = true
+            }
         }
     }
 
@@ -107,14 +116,15 @@ private struct AmbientLightShafts: View {
         LinearGradient(
             stops: [
                 .init(color: .white.opacity(0), location: 0),
-                .init(color: .white.opacity(0.9), location: 0.18),
+                .init(color: .white.opacity(0.45), location: 0.10),
+                .init(color: .white.opacity(0.7), location: 0.18),
+                .init(color: .white.opacity(0.22), location: 0.55),
                 .init(color: .white.opacity(0), location: 1)
             ],
             startPoint: .top,
             endPoint: .bottom
         )
         .frame(width: width)
-        .blur(radius: 28)
     }
 }
 
