@@ -299,7 +299,9 @@ struct GameView: View {
             hud
                 .padding(.leading, max(isPad ? 8 : 4, screenInsets.leading + 2))
                 .padding(.trailing, max(isPad ? 8 : 4, screenInsets.trailing + 2))
-                .padding(.top, topInset + (isPad ? 8 : 6))
+                // Centre the mounted pause and timer controls on the prompt
+                // plaque's horizontal axis, regardless of their outer sizes.
+                .padding(.top, topInset - (isPad ? 13 : 10))
                 .opacity(playsLevelCompletion || playsTimeOutFinale ? 0 : 1)
                 .animation(.easeOut(duration: 0.22), value: playsLevelCompletion || playsTimeOutFinale)
                 .allowsHitTesting(!playsLevelCompletion && !playsTimeOutFinale)
@@ -352,6 +354,7 @@ struct GameView: View {
     private var hud: some View {
         HStack(alignment: .top, spacing: isPad ? 12 : 8) {
             pauseButton
+                .padding(.top, isPad ? 10 : 6)
             Spacer(minLength: 0)
             ClawTimerBadge(clock: model.clock,
                            isPad: isPad,
@@ -366,28 +369,55 @@ struct GameView: View {
             showsPauseCard = true
             showsIntro = true
         } label: {
-            RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
-                .fill(
-                    LinearGradient(colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
-                                            Color(red: 0.22, green: 0.12, blue: 0.05)],
-                                   startPoint: .top, endPoint: .bottom)
-                )
-                .frame(width: hudPauseSize, height: hudPauseSize)
-                .overlay {
-                    Image(systemName: "pause.fill")
-                        .font(.system(size: pauseGlyphSize, weight: .bold))
-                        .foregroundStyle(Color(red: 1.0, green: 0.90, blue: 0.62))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
-                        .stroke(
-                            LinearGradient(colors: [Color(red: 0.82, green: 0.62, blue: 0.36),
-                                                    Color(red: 0.32, green: 0.18, blue: 0.08)],
-                                           startPoint: .top, endPoint: .bottom),
-                            lineWidth: 2
-                        )
-                }
-                .shadow(color: .black.opacity(0.35), radius: 3, y: 2)
+            ZStack {
+                RoundedRectangle(cornerRadius: isPad ? 7 : 5, style: .continuous)
+                    .fill(Color(red: 0.34, green: 0.18, blue: 0.07))
+                    .frame(width: hudPauseMountSize * 0.32,
+                           height: hudPauseMountSize * 0.38)
+                    .offset(y: hudPauseMountSize * 0.43)
+
+                RoundedRectangle(cornerRadius: isPad ? 18 : 14, style: .continuous)
+                    .fill(
+                        LinearGradient(colors: [Color(red: 0.82, green: 0.61, blue: 0.34),
+                                                Color(red: 0.55, green: 0.33, blue: 0.14),
+                                                Color(red: 0.30, green: 0.16, blue: 0.06)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
+                    .frame(width: hudPauseMountSize, height: hudPauseMountSize)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: isPad ? 18 : 14, style: .continuous)
+                            .strokeBorder(Color(red: 0.24, green: 0.12, blue: 0.04),
+                                          lineWidth: isPad ? 3 : 2)
+                    }
+                    .overlay {
+                        CabinetMountFasteners(size: isPad ? 5 : 4,
+                                              inset: isPad ? 8 : 6)
+                    }
+
+                RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
+                    .fill(
+                        LinearGradient(colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
+                                                Color(red: 0.22, green: 0.12, blue: 0.05)],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
+                    .frame(width: hudPauseSize, height: hudPauseSize)
+                    .overlay {
+                        Image(systemName: "pause.fill")
+                            .font(.system(size: pauseGlyphSize, weight: .bold))
+                            .foregroundStyle(Color(red: 1.0, green: 0.90, blue: 0.62))
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
+                            .stroke(
+                                LinearGradient(colors: [Color(red: 0.92, green: 0.72, blue: 0.43),
+                                                        Color(red: 0.26, green: 0.13, blue: 0.05)],
+                                               startPoint: .top, endPoint: .bottom),
+                                lineWidth: 2
+                            )
+                    }
+            }
+            .frame(width: hudPauseMountSize, height: hudPauseMountSize)
+            .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("pause")
@@ -396,6 +426,7 @@ struct GameView: View {
 
     private var hudTimerSize: CGFloat { isPad ? 76 : 58 }
     private var hudPauseSize: CGFloat { isPad ? 56 : 46 }
+    private var hudPauseMountSize: CGFloat { isPad ? 72 : 58 }
     private var pauseGlyphSize: CGFloat { isPad ? 22 : 18 }
 
     /// The reef only ticks while the level is actually being played: never
@@ -423,38 +454,101 @@ private struct ClawTimerBadge: View {
     private var seconds: Int { max(0, Int(remaining.rounded(.up))) }
 
     var body: some View {
-        ZStack {
+        let mountSize = size + (isPad ? 16 : 12)
+        return ZStack {
+            RoundedRectangle(cornerRadius: isPad ? 7 : 5, style: .continuous)
+                .fill(Color(red: 0.34, green: 0.18, blue: 0.07))
+                .frame(width: mountSize * 0.28, height: mountSize * 0.34)
+                .offset(y: mountSize * 0.43)
+
             Circle()
                 .fill(
-                    LinearGradient(colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
-                                            Color(red: 0.16, green: 0.09, blue: 0.04)],
-                                   startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: [Color(red: 0.84, green: 0.63, blue: 0.36),
+                                            Color(red: 0.50, green: 0.29, blue: 0.12),
+                                            Color(red: 0.27, green: 0.13, blue: 0.04)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
                 )
-            Circle()
-                .stroke(
-                    LinearGradient(colors: [Color(red: 0.82, green: 0.62, blue: 0.36),
-                                            Color(red: 0.32, green: 0.18, blue: 0.08)],
-                                   startPoint: .top, endPoint: .bottom),
-                    lineWidth: isPad ? 5 : 4
-                )
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(Color(red: 0.35, green: 0.62, blue: 0.95),
-                        style: StrokeStyle(lineWidth: isPad ? 6 : 5, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .padding(isPad ? 6 : 5)
-            Text(verbatim: LN(seconds))
-                .font(.system(size: isPad ? 24 : 18, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.white)
-                .minimumScaleFactor(0.5)
-                .lineLimit(1)
-                .padding(.horizontal, 6)
+                .frame(width: mountSize, height: mountSize)
+                .overlay {
+                    Circle()
+                        .strokeBorder(Color(red: 0.22, green: 0.11, blue: 0.04),
+                                      lineWidth: isPad ? 3 : 2)
+                }
+                .overlay {
+                    CabinetMountFasteners(size: isPad ? 5 : 4,
+                                          inset: isPad ? 7 : 6)
+                        .clipShape(Circle())
+                }
+
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
+                                                Color(red: 0.16, green: 0.09, blue: 0.04)],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
+                Circle()
+                    .stroke(
+                        LinearGradient(colors: [Color(red: 0.92, green: 0.72, blue: 0.43),
+                                                Color(red: 0.28, green: 0.14, blue: 0.05)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: isPad ? 5 : 4
+                    )
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(Color(red: 0.35, green: 0.62, blue: 0.95),
+                            style: StrokeStyle(lineWidth: isPad ? 6 : 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(isPad ? 6 : 5)
+                Text(verbatim: LN(seconds))
+                    .font(.system(size: isPad ? 24 : 18, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+            }
+            .frame(width: size, height: size)
         }
-        .frame(width: size, height: size)
-        .shadow(color: .black.opacity(0.35), radius: 3, y: 2)
+        .frame(width: mountSize, height: mountSize)
+        .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
         .accessibilityIdentifier("timer")
         .accessibilityLabel(Text(L("game.claw.timeRemaining \(seconds)")))
+    }
+}
+
+private struct CabinetMountFasteners: View {
+    let size: CGFloat
+    let inset: CGFloat
+
+    var body: some View {
+        VStack {
+            row
+            Spacer(minLength: 0)
+            row
+        }
+        .padding(inset)
+        .allowsHitTesting(false)
+    }
+
+    private var row: some View {
+        HStack {
+            fastener
+            Spacer(minLength: 0)
+            fastener
+        }
+    }
+
+    private var fastener: some View {
+        Circle()
+            .fill(Color(red: 0.20, green: 0.11, blue: 0.05))
+            .frame(width: size, height: size)
+            .overlay {
+                Capsule()
+                    .fill(Color(red: 0.86, green: 0.66, blue: 0.38).opacity(0.72))
+                    .frame(width: size * 0.66, height: 1)
+                    .rotationEffect(.degrees(-18))
+            }
     }
 }
 

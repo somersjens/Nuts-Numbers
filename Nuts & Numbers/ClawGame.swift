@@ -29,8 +29,8 @@ enum ClawConfig {
     /// Extra band above the arcade panel (covers the bottom nut row) that stays
     /// on the poke / grab instead of the screen-half steer.
     static func controlSafetyMargin(isPad: Bool) -> CGFloat { isPad ? 108 : 84 }
-    static func pokeSafetyWidth(isPad: Bool) -> CGFloat { isPad ? 248 : 200 }
-    static func grabSafetyWidth(isPad: Bool) -> CGFloat { isPad ? 168 : 132 }
+    static func pokeSafetyWidth(isPad: Bool) -> CGFloat { isPad ? 430 : 200 }
+    static func grabSafetyWidth(isPad: Bool) -> CGFloat { isPad ? 300 : 132 }
 
     /// Full-depth lower; kept gentle so the whole grab loop can breathe.
     static let descendDuration = 0.58
@@ -283,7 +283,13 @@ final class ClawEngine: ObservableObject {
         self.isPad = isPad
         let post: CGFloat = isPad ? 38 : 26
         let headerH: CGFloat = isPad ? 64 : 52
-        let panelH: CGFloat = isPad ? 145 : 121
+        let shortSide = min(size.width, size.height)
+        // The controls are authored as deep, perspective canvases. Giving the
+        // shelf a width-led height keeps their feet on the wood instead of
+        // shrinking the whole assembly into a thin toolbar on iPad.
+        let panelH: CGFloat = isPad
+            ? min(210, max(164, shortSide * 0.20))
+            : min(132, max(112, shortSide * 0.31))
         let top = topReserve + 2
         let headerW = min(size.width - post * 2 - (isPad ? 200 : 150), size.width * 0.50)
         headerRect = CGRect(x: (size.width - headerW) / 2, y: top, width: headerW, height: headerH)
@@ -291,7 +297,7 @@ final class ClawEngine: ObservableObject {
                            y: size.height - panelH - max(bottomReserve * 0.12, 2),
                            width: size.width,
                            height: panelH + max(bottomReserve * 0.12, 2))
-        let cabinetOverlap = panelH * 0.30
+        let cabinetOverlap = panelH * 0.28
         playRect = CGRect(x: post,
                           y: headerRect.maxY + 8,
                           width: size.width - post * 2,
@@ -302,10 +308,13 @@ final class ClawEngine: ObservableObject {
                          y: playRect.maxY - binH,
                          width: binW,
                          height: binH)
-        let pileLeft = playRect.minX + playRect.width * 0.015
+        // Keep the pile clear of the inner left bezel. Removing the old right
+        // gap at the same time preserves its exact scale and only translates
+        // the mound toward the collection bin.
+        let pileLeft = playRect.minX + playRect.width * 0.035
         pileRect = CGRect(x: pileLeft,
                           y: playRect.minY + playRect.height * 0.22,
-                          width: max(40, binRect.minX - pileLeft - playRect.width * 0.02),
+                          width: max(40, binRect.minX - pileLeft),
                           height: playRect.height * 0.76)
         trolleyMinX = 0.06
         let pileRight = CGFloat((pileRect.maxX - playRect.minX) / max(playRect.width, 1))
@@ -1145,7 +1154,7 @@ struct ClawPlayfield: View {
     /// Bottom-left band, including the lowest nuts: poke left / right, never
     /// "left half of the screen".
     private func pokeSafetyZone(size: CGSize, top: CGFloat) -> some View {
-        let width = ClawConfig.pokeSafetyWidth(isPad: isPad)
+        let width = min(ClawConfig.pokeSafetyWidth(isPad: isPad), size.width * 0.48)
         let height = max(0, size.height - top)
         return Color.clear
             .frame(width: width, height: height)
@@ -1157,7 +1166,7 @@ struct ClawPlayfield: View {
 
     /// Bottom-right band: treat as the grab button, not screen-right.
     private func grabSafetyZone(size: CGSize, top: CGFloat) -> some View {
-        let width = ClawConfig.grabSafetyWidth(isPad: isPad)
+        let width = min(ClawConfig.grabSafetyWidth(isPad: isPad), size.width * 0.48)
         let height = max(0, size.height - top)
         return Color.clear
             .frame(width: width, height: height)
@@ -1256,12 +1265,26 @@ struct ClawPlayfield: View {
         .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .strokeBorder(palette.woodDeep.opacity(0.92),
+                              lineWidth: isPad ? 16 : 11)
+            RoundedRectangle(cornerRadius: corner - (isPad ? 3 : 2), style: .continuous)
+                .inset(by: isPad ? 4 : 3)
                 .strokeBorder(
                     LinearGradient(colors: [palette.woodLight, palette.wood, palette.woodDeep],
                                    startPoint: .top, endPoint: .bottom),
                     lineWidth: isPad ? 10 : 7
                 )
+            RoundedRectangle(cornerRadius: corner - (isPad ? 7 : 5), style: .continuous)
+                .inset(by: isPad ? 10 : 7)
+                .strokeBorder(.black.opacity(0.20), lineWidth: isPad ? 3 : 2)
         }
+        .overlay(alignment: .bottom) {
+            CabinetGlassSill(palette: palette, isPad: isPad)
+                .frame(height: isPad ? 38 : 28)
+                .padding(.horizontal, isPad ? 8 : 5)
+                .offset(y: isPad ? 13 : 10)
+        }
+        .shadow(color: .black.opacity(0.30), radius: isPad ? 7 : 4, y: 3)
         .position(x: geo.play.midX, y: geo.play.midY)
     }
 
@@ -1289,49 +1312,85 @@ struct ClawPlayfield: View {
     }
 
     private var controlPanel: some View {
-        let topInset: CGFloat = isPad ? 18 : 12
-        let board = ArcadeShelfShape(topInset: topInset, bottomRadius: isPad ? 18 : 14)
+        GeometryReader { proxy in
+            let layout = ArcadeControlLayout(size: proxy.size, isPad: isPad)
+            let board = ArcadeShelfShape(topInset: layout.topInset,
+                                         bottomRadius: isPad ? 22 : 15)
 
-        return HStack(alignment: .center, spacing: isPad ? 12 : 8) {
-            joystick
-            Spacer(minLength: 6)
-            ClawPanelScore(score: score, isPad: isPad)
-            Spacer(minLength: 6)
-            grabButton
-        }
-        .padding(.horizontal, isPad ? 32 : 20)
-        .padding(.top, isPad ? 8 : 6)
-        .padding(.bottom, isPad ? 10 : 8)
-        .background(alignment: .bottom) {
-            ZStack {
-                board.fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
-                                 Color(red: 0.64, green: 0.42, blue: 0.22),
-                                 Color(red: 0.78, green: 0.56, blue: 0.32)],
-                        startPoint: .top,
-                        endPoint: .bottom
+            ZStack(alignment: .topLeading) {
+                ZStack {
+                    board.fill(
+                        LinearGradient(
+                            colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
+                                     Color(red: 0.64, green: 0.42, blue: 0.22),
+                                     Color(red: 0.78, green: 0.56, blue: 0.32)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                )
-                ArcadeShelfSideEdge(topInset: topInset, side: .leading)
-                    .fill(Color(red: 0.22, green: 0.12, blue: 0.05).opacity(0.45))
-                ArcadeShelfSideEdge(topInset: topInset, side: .trailing)
-                    .fill(Color(red: 0.48, green: 0.32, blue: 0.14).opacity(0.28))
-                woodGrain
-                    .clipShape(board)
-                LinearGradient(colors: [Color.black.opacity(0.28), .clear],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 14)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .clipShape(board)
-                LinearGradient(colors: [Color.white.opacity(0.22), .clear],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 10)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .clipShape(board)
+                    ArcadeShelfSideEdge(topInset: layout.topInset, side: .leading,
+                                        thickness: isPad ? 16 : 11)
+                        .fill(Color(red: 0.22, green: 0.12, blue: 0.05).opacity(0.45))
+                    ArcadeShelfSideEdge(topInset: layout.topInset, side: .trailing,
+                                        thickness: isPad ? 16 : 11)
+                        .fill(Color(red: 0.48, green: 0.32, blue: 0.14).opacity(0.28))
+                    woodGrain
+                        .clipShape(board)
+                    LinearGradient(colors: [Color.black.opacity(0.42), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: isPad ? 22 : 15)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .clipShape(board)
+                    LinearGradient(colors: [.clear,
+                                            Color.black.opacity(0.18),
+                                            Color.white.opacity(0.20)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: isPad ? 15 : 10)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .clipShape(board)
+
+                    // Thick rear console edge: the dark top is the glass seal,
+                    // the warmer face is the wooden lip below it.
+                    RoundedRectangle(cornerRadius: isPad ? 5 : 3, style: .continuous)
+                        .fill(
+                            LinearGradient(colors: [Color(red: 0.20, green: 0.10, blue: 0.035),
+                                                    Color(red: 0.48, green: 0.27, blue: 0.10),
+                                                    Color(red: 0.70, green: 0.46, blue: 0.21),
+                                                    Color(red: 0.31, green: 0.15, blue: 0.045)],
+                                           startPoint: .top, endPoint: .bottom)
+                        )
+                        .frame(height: isPad ? 18 : 13)
+                        .padding(.horizontal, layout.topInset)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .overlay(alignment: .top) {
+                            Rectangle()
+                                .fill(.black.opacity(0.30))
+                                .frame(height: isPad ? 3 : 2)
+                                .padding(.horizontal, layout.topInset + 2)
+                        }
+                        .shadow(color: .black.opacity(0.42), radius: 3, y: 4)
+                }
+                .frame(width: proxy.size.width, height: layout.shelfHeight)
+                .position(x: proxy.size.width / 2,
+                          y: layout.shelfTop + layout.shelfHeight / 2)
+                .allowsHitTesting(false)
+
+                joystick
+                    .frame(width: layout.joystickWidth,
+                           height: layout.joystickHeight)
+                    .position(x: layout.joystickCenter.x,
+                              y: layout.joystickCenter.y)
+
+                ClawPanelScore(score: score, isPad: isPad)
+                    .frame(width: layout.scoreWidth,
+                           height: layout.scoreHeight)
+                    .position(x: layout.scoreCenter.x,
+                              y: layout.scoreCenter.y)
+
+                grabButton(side: layout.grabSide)
+                    .position(x: layout.grabCenter.x,
+                              y: layout.grabCenter.y)
             }
-            .padding(.top, isPad ? 38 : 29)
-            .allowsHitTesting(false)
         }
     }
 
@@ -1352,7 +1411,6 @@ struct ClawPlayfield: View {
         ClawJoystickChrome(input: engine.joystickInput)
             .equatable()
             .aspectRatio(JoystickArt.canvas.width / JoystickArt.canvas.height, contentMode: .fit)
-            .frame(maxHeight: isPad ? 118 : 96)
             .overlay {
                 GeometryReader { proxy in
                     Color.clear
@@ -1386,8 +1444,7 @@ struct ClawPlayfield: View {
             .onEnded { _ in engine.setInput(0) }
     }
 
-    private var grabButton: some View {
-        let side: CGFloat = isPad ? 110 : 86
+    private func grabButton(side: CGFloat) -> some View {
         let travel = side * (GrabButtonArt.pressTravel / GrabButtonArt.canvas)
         let faceOffset = side * (GrabButtonArt.labelCenterY - 0.5)
 
@@ -1402,7 +1459,7 @@ struct ClawPlayfield: View {
                         .resizable()
                         .interpolation(.high)
                     Text("game.claw.grab")
-                        .font(.system(size: isPad ? 22 : 17, weight: .black, design: .rounded))
+                        .font(.system(size: side * 0.20, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.45), radius: 1, y: 1)
                         .lineLimit(1)
@@ -1455,6 +1512,47 @@ struct ClawPlayfield: View {
     }
 }
 
+/// Optical layout for the three authored control canvases. The reference art
+/// is composed on a 1024-point cabinet; `stageWidth` preserves those ratios on
+/// portrait screens and keeps the group centred instead of stretching it on a
+/// wide iPad. Positions are based on the visible artwork, not equal HStack
+/// cells (the score pad intentionally has large transparent side margins).
+private struct ArcadeControlLayout {
+    let size: CGSize
+    let isPad: Bool
+
+    var stageWidth: CGFloat {
+        min(size.width, size.height * (isPad ? 5.0 : 5.3))
+    }
+
+    var stageOriginX: CGFloat { (size.width - stageWidth) / 2 }
+    var shelfTop: CGFloat { size.height * (isPad ? 0.27 : 0.25) }
+    var shelfHeight: CGFloat { max(1, size.height - shelfTop) }
+    var topInset: CGFloat {
+        min(isPad ? 82 : 36, max(isPad ? 44 : 18, size.width * 0.075))
+    }
+
+    var joystickWidth: CGFloat { stageWidth * 0.38 }
+    var joystickHeight: CGFloat {
+        joystickWidth * JoystickArt.canvas.height / JoystickArt.canvas.width
+    }
+    var scoreWidth: CGFloat { stageWidth * 0.285 }
+    var scoreHeight: CGFloat {
+        scoreWidth * ScorePadArt.canvas.height / ScorePadArt.canvas.width
+    }
+    var grabSide: CGFloat { stageWidth * 0.265 }
+
+    var joystickCenter: CGPoint {
+        CGPoint(x: stageOriginX + stageWidth * 0.27, y: size.height * 0.50)
+    }
+    var scoreCenter: CGPoint {
+        CGPoint(x: stageOriginX + stageWidth * 0.568, y: size.height * 0.53)
+    }
+    var grabCenter: CGPoint {
+        CGPoint(x: stageOriginX + stageWidth * 0.79, y: size.height * 0.55)
+    }
+}
+
 private enum GrabButtonArt {
     static let canvas: CGFloat = 1254
     /// Cap travel into the housing, in canvas pixels.
@@ -1494,7 +1592,6 @@ private struct ClawPanelScore: View {
             }
         }
         .aspectRatio(ScorePadArt.canvas.width / ScorePadArt.canvas.height, contentMode: .fit)
-        .frame(maxHeight: isPad ? 118 : 96)
         .background {
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -1645,6 +1742,87 @@ private struct PokeSocketMask: Shape {
         var path = Path()
         path.addRect(CGRect(x: 0, y: 0, width: rect.width, height: 99 * sy))
         path.addEllipse(in: CGRect(x: 182 * sx, y: 74 * sy, width: 50 * sx, height: 50 * sy))
+        return path
+    }
+}
+
+/// The lower glass seal and wooden threshold. It overlaps the control shelf by
+/// a few points so the play chamber and console read as one cabinet instead of
+/// two rectangles touching edge-to-edge.
+private struct CabinetGlassSill: View, Equatable {
+    let palette: ClawPalette
+    let isPad: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let height = proxy.size.height
+            ZStack {
+                CabinetSillShape(bevel: height * 0.20)
+                    .fill(
+                        LinearGradient(colors: [Color(red: 0.18, green: 0.09, blue: 0.03),
+                                                palette.woodDeep,
+                                                palette.wood,
+                                                Color(red: 0.67, green: 0.43, blue: 0.19),
+                                                Color(red: 0.29, green: 0.14, blue: 0.04)],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
+                CabinetSillShape(bevel: height * 0.20)
+                    .stroke(.black.opacity(0.46), lineWidth: isPad ? 3 : 2)
+                Rectangle()
+                    .fill(.black.opacity(0.52))
+                    .frame(height: isPad ? 5 : 4)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.horizontal, height * 0.22)
+                Rectangle()
+                    .fill(.white.opacity(0.17))
+                    .frame(height: isPad ? 2 : 1)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.horizontal, height * 0.30)
+                    .padding(.top, isPad ? 6 : 5)
+                LinearGradient(colors: [.clear, .black.opacity(0.26)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: height * 0.48)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .clipShape(CabinetSillShape(bevel: height * 0.20))
+                HStack {
+                    fastener
+                    Spacer()
+                    fastener
+                }
+                .padding(.horizontal, height * 0.62)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var fastener: some View {
+        Circle()
+            .fill(palette.woodDeep.opacity(0.75))
+            .frame(width: isPad ? 7 : 5, height: isPad ? 7 : 5)
+            .overlay {
+                Capsule()
+                    .fill(palette.woodLight.opacity(0.7))
+                    .frame(width: isPad ? 4 : 3, height: 1)
+                    .rotationEffect(.degrees(-18))
+            }
+    }
+}
+
+private struct CabinetSillShape: Shape {
+    let bevel: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let b = min(bevel, min(rect.width, rect.height) * 0.30)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + b, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - b, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + b))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - b * 0.45))
+        path.addLine(to: CGPoint(x: rect.maxX - b * 0.55, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + b * 0.55, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - b * 0.45))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + b))
+        path.closeSubpath()
         return path
     }
 }
