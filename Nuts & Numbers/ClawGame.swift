@@ -83,9 +83,9 @@ enum ClawConfig {
     static let nutContentWidthFraction: CGFloat = 0.7142
     /// Visual walnut height divided by visual width.
     static let nutContentAspect: CGFloat = 0.7575
-    /// Draw the shell a little larger than the grid cell so the irregular
-    /// outline kisses its neighbours instead of leaving a dark gap.
-    static let nutPackScale: CGFloat = 1.08
+    /// Five shells fill one row. Only their irregular tips cross the cell
+    /// boundary, so the bodies no longer pile visibly over one another.
+    static let nutPackScale: CGFloat = 1.02
     /// Cap on the printed answer. Longer values keep this size as a ceiling
     /// and shrink to fit the shell.
     static let nutMaxTextSize: CGFloat = 17
@@ -96,17 +96,48 @@ enum ClawConfig {
 /// Keeping the landmarks here makes the nut drop and both elephant finales aim
 /// at the actual illustrated opening instead of at the old procedural crate.
 private enum CatchBinArtwork {
-    static let imageName = "background"
-    static let canvasAspect: CGFloat = 557.0 / 1494.0
+    static let imageName = "NIEUWE_BAK"
+    static let sourceWidth: CGFloat = 557.0
+    static let sourceHeight: CGFloat = 1795.0
+    /// The authored artwork ends here; the remaining source rows are clear.
+    static let fullVisibleSourceHeight: CGFloat = 1638.0
+    /// Each lower score target removes one authored vertical section.
+    static let heightStep: CGFloat = 301.0
+    /// Landmarks were measured on the previous 1494 px canvas. The unchanged
+    /// opening sits 93 px higher in the newly supplied source.
+    static let previousSourceHeight: CGFloat = 1494.0
+    static let landmarkShiftY: CGFloat = 93.0
     static let visibleMinX: CGFloat = 45.0 / 557.0
     static let visibleMaxX: CGFloat = 495.0 / 557.0
-    /// Bottom of the wooden wall at the left-hand contact point. The metal
-    /// column continues lower, but is allowed to pass behind the control deck.
-    static let floorContactY: CGFloat = 1235.0 / 1494.0
     static let mouthX: CGFloat = 0.43
     static let mouthY: CGFloat = 0.215
     static let hiddenY: CGFloat = 0.37
     static let frontRimYAtMouth: CGFloat = 0.278
+
+    static func visibleSourceHeight(for maximumPoints: Int) -> CGFloat {
+        switch maximumPoints {
+        case 50...: return fullVisibleSourceHeight
+        case 30...: return fullVisibleSourceHeight - heightStep
+        default: return fullVisibleSourceHeight - heightStep * 2
+        }
+    }
+
+    static func scale(in rect: CGRect) -> CGFloat {
+        rect.width / sourceWidth
+    }
+
+    static func sourceY(for landmark: CGFloat) -> CGFloat {
+        previousSourceHeight * landmark - landmarkShiftY
+    }
+
+    static func y(_ landmark: CGFloat, in rect: CGRect) -> CGFloat {
+        rect.minY + scale(in: rect) * sourceY(for: landmark)
+    }
+
+    static func point(x: CGFloat, y: CGFloat, in rect: CGRect) -> CGPoint {
+        CGPoint(x: rect.minX + rect.width * x,
+                y: self.y(y, in: rect))
+    }
 }
 
 #if canImport(UIKit)
@@ -341,7 +372,8 @@ final class ClawEngine: ObservableObject {
     func layout(size: CGSize,
                 topReserve: CGFloat,
                 bottomReserve: CGFloat,
-                isPad: Bool) {
+                isPad: Bool,
+                maximumPoints: Int) {
         self.size = size
         self.isPad = isPad
         let post: CGFloat = isPad ? 38 : 26
@@ -369,14 +401,20 @@ final class ClawEngine: ObservableObject {
         // right edge on-screen and let it overlap the pile's old right edge.
         // The wooden lower-left corner is anchored to the savanna floor; the
         // longer metal column is intentionally allowed behind the control deck.
-        let binH = min(playRect.height * 0.56,
-                       playRect.width * 0.42 / CatchBinArtwork.canvasAspect)
-        let binW = binH * CatchBinArtwork.canvasAspect
+        let previousAspect = CatchBinArtwork.sourceWidth
+            / CatchBinArtwork.previousSourceHeight
+        let binW = min(playRect.height * 0.56 * previousAspect,
+                       playRect.width * 0.42)
+        let binScale = binW / CatchBinArtwork.sourceWidth
+        let binSourceHeight = CatchBinArtwork.visibleSourceHeight(for: maximumPoints)
+        let binH = binSourceHeight * binScale
         let pileLeft = playRect.minX + playRect.width * 0.035
         let pileRight = playRect.maxX - playRect.width * 0.19
         let visibleRight = size.width - (isPad ? 6 : 1)
-        binRect = CGRect(x: visibleRight - binW * CatchBinArtwork.visibleMaxX,
-                         y: playRect.maxY - binH * CatchBinArtwork.floorContactY,
+        binRect = CGRect(x: visibleRight
+                            - binW * CatchBinArtwork.visibleMaxX
+                            + binW * 0.10,
+                         y: playRect.maxY - binH,
                          width: binW,
                          height: binH)
         pileRect = CGRect(x: pileLeft,
@@ -1088,14 +1126,15 @@ final class ClawEngine: ObservableObject {
 
     /// Centre of the open top — the chute mouth the nut must enter and leave.
     private var binMouth: CGPoint {
-        CGPoint(x: binRect.minX + binRect.width * CatchBinArtwork.mouthX,
-                y: binRect.minY + binRect.height * CatchBinArtwork.mouthY)
+        CatchBinArtwork.point(x: CatchBinArtwork.mouthX,
+                              y: CatchBinArtwork.mouthY,
+                              in: binRect)
     }
 
     /// Just below the rim, inside the shaft, where the front wall hides the nut.
     private var binShaft: CGPoint {
         CGPoint(x: binMouth.x,
-                y: binRect.minY + binRect.height * CatchBinArtwork.hiddenY)
+                y: CatchBinArtwork.y(CatchBinArtwork.hiddenY, in: binRect))
     }
 
     private var binUnitX: CGFloat {
@@ -1229,6 +1268,8 @@ struct ClawPlayfield: View {
                     .frame(width: geo.bin.width, height: geo.bin.height)
                     .position(x: geo.bin.midX, y: geo.bin.midY)
 
+                binLowerContinuation(geo: geo, size: size)
+
                 if !engine.phase.heldNutIsForeground {
                     ClawNutPile(
                         nuts: engine.nuts,
@@ -1245,6 +1286,8 @@ struct ClawPlayfield: View {
                     .equatable()
                     .frame(width: geo.bin.width, height: geo.bin.height)
                     .position(x: geo.bin.midX, y: geo.bin.midY)
+
+                foregroundSillContinuation(geo: geo)
 
                 // The mound itself belongs fully in the foreground. A released
                 // walnut still uses the separate held layer above so it alone
@@ -1324,7 +1367,8 @@ struct ClawPlayfield: View {
                 engine.layout(size: size,
                               topReserve: topReserve,
                               bottomReserve: bottomReserve,
-                              isPad: isPad)
+                              isPad: isPad,
+                              maximumPoints: maximumRounds)
                 engine.install(puzzle: puzzle,
                                collected: collectedAnswers,
                                question: round?.question,
@@ -1349,7 +1393,8 @@ struct ClawPlayfield: View {
                 engine.layout(size: newSize,
                               topReserve: topReserve,
                               bottomReserve: bottomReserve,
-                              isPad: isPad)
+                              isPad: isPad,
+                              maximumPoints: maximumRounds)
             }
         }
         .onChange(of: round?.id) { _, _ in
@@ -1539,6 +1584,41 @@ struct ClawPlayfield: View {
             .equatable()
             .frame(width: geo.bin.width, height: geo.bin.height)
             .position(x: geo.bin.midX, y: geo.bin.midY)
+            .allowsHitTesting(false)
+    }
+
+    /// Repeat the final metal run below the authored bin. The control shelf is
+    /// composited later and hides it everywhere except the open lower-right
+    /// chamfer, where it closes the otherwise empty strip beside the button.
+    private func binLowerContinuation(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect),
+        size: CGSize
+    ) -> some View {
+        let height = max(0, size.height - geo.bin.maxY + 1)
+        return CatchBinLowerContinuationView(
+            sourceEndY: CatchBinArtwork.visibleSourceHeight(for: maximumRounds)
+        )
+        .frame(width: geo.bin.width, height: height)
+        .position(x: geo.bin.midX, y: geo.bin.maxY - 1 + height / 2)
+        .allowsHitTesting(false)
+    }
+
+    /// Redraw only the right-hand part of the chamber threshold above the bin.
+    /// The original full-width threshold remains behind it, so both pieces join
+    /// into one uninterrupted inner line.
+    private func foregroundSillContinuation(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
+    ) -> some View {
+        let height: CGFloat = isPad ? 38 : 28
+        let offset: CGFloat = isPad ? 13 : 10
+        let left = max(geo.play.minX, geo.bin.minX)
+        let width = max(0, geo.play.maxX - left)
+        return CabinetGlassSill(palette: palette, isPad: isPad)
+            .frame(width: geo.play.width, height: height)
+            .frame(width: width, height: height, alignment: .trailing)
+            .clipped()
+            .position(x: left + width / 2,
+                      y: geo.play.maxY - height / 2 + offset)
             .allowsHitTesting(false)
     }
 
@@ -2305,8 +2385,9 @@ private struct ClawElephantView: View {
             let approach = min(1, max(0,
                 (phaseAge - ClawConfig.celebrationRelease) / approachDuration
             ))
-            let mouth = CGPoint(x: bin.minX + bin.width * CatchBinArtwork.mouthX,
-                                y: bin.minY + bin.height * CatchBinArtwork.mouthY)
+            let mouth = CatchBinArtwork.point(x: CatchBinArtwork.mouthX,
+                                              y: CatchBinArtwork.mouthY,
+                                              in: bin)
             let approachScale: CGFloat = reduceMotion ? 0.68 : 0.62
             let mouthOffset = CGSize(
                 width: mouth.x - origin.x,
@@ -2314,7 +2395,7 @@ private struct ClawElephantView: View {
             )
             let insideOffset = CGSize(
                 width: mouth.x - origin.x,
-                height: bin.minY + bin.height * CatchBinArtwork.hiddenY - origin.y
+                height: CatchBinArtwork.y(CatchBinArtwork.hiddenY, in: bin) - origin.y
             )
             let plungeDuration = ClawConfig.completionDuration - ClawConfig.celebrationMouthArrival
 
@@ -2382,8 +2463,7 @@ private struct ClawElephantView: View {
             return BodyMotion(
                 offset: CGSize(
                     width: (mouthX - origin.x) * CGFloat(eased),
-                    height: (bin.minY
-                             + bin.height * CatchBinArtwork.hiddenY
+                    height: (CatchBinArtwork.y(CatchBinArtwork.hiddenY, in: bin)
                              - origin.y) * CGFloat(raw * raw)
                 ),
                 attachmentRotation: .radians(Double(swing * CGFloat(1 - eased))),
@@ -5598,20 +5678,99 @@ private struct SanctuaryLivingDetails: View {
     }
 }
 
+/// Draw the newly supplied tall bin at its natural width-led scale. Shorter
+/// score targets clip the lower run of the same asset; 50-point boards show
+/// every visible source row without stretching the opening or metalwork.
+private struct CatchBinArtworkView: View, Equatable {
+    var body: some View {
+        GeometryReader { proxy in
+            let fullHeight = proxy.size.width
+                * CatchBinArtwork.sourceHeight
+                / CatchBinArtwork.sourceWidth
+            Image(CatchBinArtwork.imageName)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: proxy.size.width, height: fullHeight)
+                .frame(width: proxy.size.width,
+                       height: proxy.size.height,
+                       alignment: .top)
+                .clipped()
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// A narrow, vertically repeating crop of the bin's lower metal column. Each
+/// alternate copy is mirrored so adjacent source edges meet without a seam.
+private struct CatchBinLowerContinuationView: View, Equatable {
+    let sourceEndY: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let sourceSliceHeight = min(240, max(1, sourceEndY))
+            let sliceHeight = max(
+                1,
+                sourceSliceHeight * proxy.size.width / CatchBinArtwork.sourceWidth
+            )
+            let copyCount = max(1, Int(ceil(proxy.size.height / sliceHeight)))
+
+            VStack(spacing: 0) {
+                ForEach(0..<copyCount, id: \.self) { index in
+                    CatchBinSourceSlice(
+                        sourceY: sourceEndY - sourceSliceHeight,
+                        sourceHeight: sourceSliceHeight
+                    )
+                    .frame(height: sliceHeight)
+                    .scaleEffect(y: index.isMultiple(of: 2) ? -1 : 1)
+                }
+            }
+            .frame(width: proxy.size.width,
+                   height: proxy.size.height,
+                   alignment: .top)
+            .clipped()
+            .mask {
+                HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: proxy.size.width * 0.53)
+                    Rectangle().fill(.white)
+                }
+            }
+        }
+    }
+}
+
+private struct CatchBinSourceSlice: View, Equatable {
+    let sourceY: CGFloat
+    let sourceHeight: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let scale = proxy.size.width / CatchBinArtwork.sourceWidth
+            let fullHeight = CatchBinArtwork.sourceHeight * scale
+            Image(CatchBinArtwork.imageName)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: proxy.size.width, height: fullHeight)
+                .offset(y: -sourceY * scale)
+                .frame(width: proxy.size.width,
+                       height: sourceHeight * scale,
+                       alignment: .top)
+                .clipped()
+        }
+        .clipped()
+        .allowsHitTesting(false)
+    }
+}
+
 private struct CatchBinBackView: View, Equatable {
     var body: some View {
-        Image(CatchBinArtwork.imageName)
-            .resizable()
-            .interpolation(.high)
-            .allowsHitTesting(false)
+        CatchBinArtworkView()
     }
 }
 
 private struct CatchBinFrontView: View, Equatable {
     var body: some View {
-        Image(CatchBinArtwork.imageName)
-            .resizable()
-            .interpolation(.high)
+        CatchBinArtworkView()
             .mask(CatchBinForegroundMask())
             .allowsHitTesting(false)
     }
@@ -5647,7 +5806,7 @@ private struct CatchBinForegroundMask: Shape {
 
     private func point(_ point: CGPoint, in rect: CGRect) -> CGPoint {
         CGPoint(x: rect.minX + rect.width * point.x,
-                y: rect.minY + rect.height * point.y)
+                y: CatchBinArtwork.y(point.y, in: rect))
     }
 }
 
@@ -5660,8 +5819,8 @@ private struct CatchBinDiveVisibilityMask: Shape {
     let bin: CGRect
 
     func path(in rect: CGRect) -> Path {
-        let rimY = bin.minY - play.minY
-            + bin.height * CatchBinArtwork.frontRimYAtMouth
+        let rimY = CatchBinArtwork.y(CatchBinArtwork.frontRimYAtMouth, in: bin)
+            - play.minY
         let visibleMinX = bin.minX - play.minX
             + bin.width * CatchBinArtwork.visibleMinX
         let visibleMaxX = bin.minX - play.minX
