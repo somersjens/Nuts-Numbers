@@ -3,13 +3,13 @@
 //  Number Reef
 //
 //  The guided first game. A new player is walked through the reef one step at a
-//  time: swimming, collecting the right answer, what a wrong one costs, the two
-//  helper fish, and the streak bonus — after which the level simply carries on
+//  time: swimming, collecting the right answer, the score helper fish, and the
+//  streak bonus — after which the level simply carries on
 //  as an ordinary session.
 //
 //  The tutorial never re-implements a rule. Each step only *shapes* what the
 //  reef releases (`ReefTutorialPlan`) and listens for the one thing that step is
-//  waiting for; scoring, lives and rounds keep running through `MemoryGame`
+//  waiting for; scoring and rounds keep running through `MemoryGame`
 //  exactly as they do in a normal game. That is what makes the tutorial a real
 //  session rather than a scripted demo: the bubbles the player collects here
 //  count, and the level continues from where the last step leaves it.
@@ -28,20 +28,20 @@ enum TutorialStep: Int, CaseIterable, Identifiable {
     case tapToSwim = 1
     /// The same, held and dragged, with the marker at the top of the water.
     case dragToSwim
-    /// Two bubbles, one of them right. A wrong touch costs nothing here.
+    /// Two bubbles, one of them right.
     case collectCorrect
-    /// Only wrong answers. Touching one costs a whole life and clears the water.
-    case wrongCostsLife
-    /// A heart fish, which hands a whole life back.
-    case heartFish
     /// A 2x fish, which doubles the next answer.
-    case bonusFish
+    case bonusFish = 6
     /// Five right answers in a row, one bubble at a time, to reach the streak.
     case buildStreak
     /// The streak is running: two bubbles at the boosted tempo.
     case superBonusRunning
     /// Normal play resumes; the last message clears itself after a few seconds.
     case freePlay
+    /// Claw-only: collect once more while the score display is pointed out.
+    case clawRaiseScore
+    /// Claw-only: explain the level clock before it starts counting down.
+    case clawTimer
 
     var id: Int { rawValue }
 
@@ -49,11 +49,20 @@ enum TutorialStep: Int, CaseIterable, Identifiable {
     var messageKey: String { "tutorial.step.\(rawValue)" }
     var clawMessageKey: String { "tutorial.claw.step.\(rawValue)" }
 
-    var next: TutorialStep? { TutorialStep(rawValue: rawValue + 1) }
+    var next: TutorialStep? {
+        let order: [TutorialStep] = [
+            .tapToSwim, .dragToSwim, .collectCorrect, .bonusFish,
+            .buildStreak, .superBonusRunning, .freePlay
+        ]
+        guard let index = order.firstIndex(of: self), index + 1 < order.count else { return nil }
+        return order[index + 1]
+    }
 
     /// How long the closing message stays before the tutorial hands the level
     /// back to the player.
     static let freePlayMessageDuration = 5.0
+    /// Give the player enough time to read the clock rule before play becomes timed.
+    static let clawTimerMessageDuration = 5.0
 }
 
 // MARK: - What the reef should release
@@ -87,7 +96,8 @@ struct ReefTutorialPlan: Equatable {
     var burstsWaveOnWrong = false
     /// Puts a 2x fish in the water, and puts it back whenever it is missed.
     var wantsBonusFish = false
-    /// The same for the heart fish.
+    /// Compatibility input for the retired reef renderer. No tutorial step sets
+    /// it, so a life fish can no longer be requested by the game.
     var wantsHeartFish = false
 }
 
@@ -111,6 +121,9 @@ final class TutorialController: ObservableObject {
     /// The session being taught. Weak, so the controller can never keep a
     /// finished game alive.
     private weak var model: GameViewModel?
+    /// The shared controller still describes the legacy reef walkthrough too.
+    /// Once a claw control event arrives, use the shorter machine-specific path.
+    private var usesClawScript = false
     /// Invalidates the pending close of the last message when the run is left,
     /// restarted or finished first.
     private var generation = 0
@@ -132,7 +145,9 @@ final class TutorialController: ObservableObject {
     /// Starts the walkthrough on a session that has just opened its first round.
     func begin(model: GameViewModel) {
         guard step == nil else { return }
+        usesClawScript = false
         self.model = model
+        model.setTutorialClockPaused(true)
         model.onAnswerResolved = { [weak self] isCorrect, startedStreak in
             self?.answerResolved(isCorrect: isCorrect, startedStreak: startedStreak)
         }
@@ -160,14 +175,13 @@ final class TutorialController: ObservableObject {
     func cancel() {
         guard step != nil else { return }
         generation &+= 1
-        release()
+        release(resumeClock: false)
         step = nil
         plan = ReefTutorialPlan()
     }
 
-    private func release() {
-        model?.setWrongAnswerPenalty(true)
-        model?.setHeartFishRestoresWholeLife(false)
+    private func release(resumeClock: Bool = true) {
+        model?.setTutorialClockPaused(false, resumeClock: resumeClock)
         model?.onAnswerResolved = nil
     }
 
@@ -180,7 +194,7 @@ final class TutorialController: ObservableObject {
         case .reachedSwimTarget:
             if step == .tapToSwim || step == .dragToSwim { advance() }
         case .caughtHeartFish:
-            if step == .heartFish { advance() }
+            break
         case .caughtBonusFish:
             if step == .bonusFish { advance() }
         }
@@ -188,9 +202,17 @@ final class TutorialController: ObservableObject {
 
     func handleClaw(_ event: ClawTutorialEvent) {
         guard let step else { return }
+        usesClawScript = true
         switch event {
         case .movedClaw:
-            if step == .tapToSwim || step == .dragToSwim { advance() }
+            if step == .tapToSwim {
+                // The claw machine has one steering gesture. The old second
+                // movement step repeated the same lesson, so continue straight
+                // to choosing an answer once the player has moved the handle.
+                enter(.collectCorrect)
+            } else if step == .dragToSwim {
+                advance()
+            }
         case .pressedGrab:
             break
         }
@@ -201,9 +223,13 @@ final class TutorialController: ObservableObject {
         guard let step else { return }
         switch step {
         case .collectCorrect:
-            if isCorrect { advance() }
-        case .wrongCostsLife:
-            if !isCorrect { advance() }
+            if isCorrect {
+                // The first nut teaches the grab. The next one is collected
+                // while the score display itself is called out.
+                usesClawScript ? enter(.clawRaiseScore) : advance()
+            }
+        case .clawRaiseScore:
+            if isCorrect { enter(.clawTimer) }
         case .buildStreak:
             // True on the answer that starts the boost, which is the fifth in
             // a row — the whole point of this step.
@@ -233,20 +259,15 @@ final class TutorialController: ObservableObject {
         generation &+= 1
         let token = generation
 
-        // Wrong nuts cost time on the clock, not lives: the return animation
-        // is the penalty, and the existing hearts stay as HUD chrome.
-        model?.setWrongAnswerPenalty(false)
-        if step == .heartFish {
-            model?.setHeartFishRestoresWholeLife(true)
-            model?.makeHeartFishAvailable()
-        }
+        // A tutorial transition can happen while the joystick's DragGesture is
+        // still delivering samples. Animating the entire plan in that gesture
+        // transaction moves hit regions and produces out-of-order animation
+        // samples. The message/hints animate internally; their geometry stays
+        // fixed here.
+        self.step = step
+        self.plan = Self.plan(for: step)
 
-        withAnimation(.spring(response: 0.44, dampingFraction: 0.86)) {
-            self.step = step
-            self.plan = Self.plan(for: step)
-        }
-
-        if step == .heartFish || step == .bonusFish {
+        if step == .bonusFish {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.4) { [weak self] in
                 guard let self, self.generation == token, self.step == step else { return }
                 self.advance()
@@ -258,6 +279,17 @@ final class TutorialController: ObservableObject {
                 deadline: .now() + TutorialStep.freePlayMessageDuration
             ) { [weak self] in
                 guard let self, self.generation == token else { return }
+                self.finish()
+            }
+        }
+
+        if step == .clawTimer {
+            // The clock remains frozen throughout this final explanation. The
+            // tutorial releases it only after the full reading beat has passed.
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + TutorialStep.clawTimerMessageDuration
+            ) { [weak self] in
+                guard let self, self.generation == token, self.step == step else { return }
                 self.finish()
             }
         }
@@ -280,15 +312,6 @@ final class TutorialController: ObservableObject {
             plan.suppressesAnswers = true
         case .collectCorrect:
             plan.answers = .init(correct: 1, wrong: 1)
-        case .wrongCostsLife:
-            // Every wrong answer this question has. A round carries one right
-            // answer and `GameConfig.distractorCount` wrong ones, and the same
-            // number may never be in the water twice.
-            plan.answers = .init(correct: 0, wrong: GameConfig.distractorCount)
-            plan.burstsWaveOnWrong = true
-        case .heartFish:
-            plan.suppressesAnswers = true
-            plan.wantsHeartFish = true
         case .bonusFish:
             plan.suppressesAnswers = true
             plan.wantsBonusFish = true
@@ -300,6 +323,10 @@ final class TutorialController: ObservableObject {
             // Nothing shaped any more: full waves, both helper fish back on
             // their own schedule. Only the message is still the tutorial's.
             break
+        case .clawRaiseScore, .clawTimer:
+            // These phases only exist in the claw machine. The reef never
+            // enters them, so its release plan stays otherwise unchanged.
+            break
         }
         return plan
     }
@@ -309,11 +336,29 @@ final class TutorialController: ObservableObject {
         var plan = ClawTutorialPlan()
         plan.isActive = true
         switch step {
-        case .tapToSwim, .dragToSwim:
+        case .tapToSwim:
             plan.wantsMove = true
             plan.suppressesGrab = true
-        case .heartFish, .bonusFish:
+            plan.highlightsJoystick = true
+        case .dragToSwim:
+            // Kept for the reef walkthrough; the claw path skips this step.
+            plan.wantsMove = true
             plan.suppressesGrab = true
+            plan.highlightsJoystick = true
+        case .collectCorrect:
+            plan.highlightsCorrectNut = true
+            plan.highlightsJoystick = true
+            plan.highlightsGrab = true
+        case .bonusFish:
+            plan.suppressesGrab = true
+        case .clawRaiseScore:
+            plan.highlightsCorrectNut = true
+            plan.highlightsJoystick = true
+            plan.highlightsGrab = true
+            plan.highlightsScore = true
+        case .clawTimer:
+            plan.suppressesGrab = true
+            plan.highlightsTimer = true
         default:
             break
         }
@@ -457,9 +502,9 @@ struct TutorialSwipeHint: View {
     }
 }
 
-// MARK: - "Only at the start" notice
+// MARK: - "Before the first point" notice
 
-/// Shown when the tutorial is asked for on a game that is already under way.
+/// Shown when the tutorial is asked for after the first point was earned.
 /// Same card, same button as everything else the level screen puts up.
 struct TutorialNoticeCard: View {
     let theme: AnimalCharacter

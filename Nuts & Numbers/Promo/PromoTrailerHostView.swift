@@ -106,8 +106,8 @@ struct PromoTrailerHostView: View {
             isRunning: true,
             playsFishEntrance: false,
             hasBonusFishPower: model.hasBonusFishPower,
-            isHeartFishAvailable: model.isHeartFishAvailable,
-            heartFishRestoresWholeLife: model.heartFishGivesWholeLife,
+            isHeartFishAvailable: false,
+            heartFishRestoresWholeLife: false,
             isStreakBoostActive: model.isStreakBoostActive,
             playsLevelCompletion: director.playsLevelCompletion,
             reduceMotion: false,
@@ -124,8 +124,8 @@ struct PromoTrailerHostView: View {
             },
             onScoreBubbleArrived: model.scoreBubbleArrived,
             onBonusFishCaught: model.catchBonusFish,
-            onHeartFishCaught: model.catchHeartFish,
-            onHeartFishMissed: model.missHeartFish,
+            onHeartFishCaught: { false },
+            onHeartFishMissed: {},
             onFishEntranceComplete: {},
             onLevelCompletionFinished: {
                 director.handleLevelCompletionFinished()
@@ -173,11 +173,6 @@ struct PromoTrailerHostView: View {
                     }
                     .compositingGroup()
                 Spacer(minLength: 0)
-                LivesView(lives: model.livesRemaining,
-                          character: character,
-                          isPad: usesPadMetrics,
-                          glyphSize: hudSymbolSize,
-                          rowHeight: hudControlSize)
             }
         }
     }

@@ -23,7 +23,7 @@ final class PromoTrailerDirector: ObservableObject {
     @Published private(set) var isFinished = false
     @Published private(set) var elapsed: TimeInterval = 0
     /// When true, answer collisions are ignored so the scripted swim can pass
-    /// through distractors without spending a life or clearing the wave.
+    /// through distractors without clearing the wave.
     @Published private(set) var blocksAnswerHits = false
 
     private weak var engine: ReefEngine?
@@ -37,7 +37,6 @@ final class PromoTrailerDirector: ObservableObject {
     private var didInstallMid = false
     private var didSpawnBonus = false
     private var didSeedStreak = false
-    private var didSpawnLife = false
     private var didInstallFinal = false
     private var didTriggerCompletion = false
     private var didShowIcon = false
@@ -47,7 +46,6 @@ final class PromoTrailerDirector: ObservableObject {
     private var openingHitAt: TimeInterval?
     private var awaitingFinalInstall = false
     private var didCatchBonus = false
-    private var didCatchLife = false
     private var smoothSteerTarget: CGPoint?
     private var audioCues: [(time: TimeInterval, file: String, volume: Float)] = []
     private var finaleAt: TimeInterval?
@@ -68,9 +66,6 @@ final class PromoTrailerDirector: ObservableObject {
         model.onAnswerResolved = { [weak self] isCorrect, startedStreak in
             self?.handleAnswer(isCorrect: isCorrect, startedStreak: startedStreak)
         }
-        model.setHeartFishRestoresWholeLife(true)
-        // Whole trailer starts at 2 lives; the life-fish beat restores to 3.
-        model.trailerSetLifeHalves(4)
         engine.trailerCompletionSpeedScale = 1.2
         engine.trailerKeepCompletionStream = true
         GameSettings.characterID = "octopus"
@@ -115,7 +110,7 @@ final class PromoTrailerDirector: ObservableObject {
         let startTarget = point(x: ahead.x, y: ahead.y, in: engine)
         smoothSteerTarget = startTarget
         engine.steer(toward: startTarget)
-        // Keep rounds/lives; only reset motion to the scripted t=0 pose.
+        // Keep rounds; only reset motion to the scripted t=0 pose.
         if audioCues.isEmpty {
             cueSFX("sfx_session_start", volume: 0.16, at: 0.05)
         }
@@ -129,8 +124,6 @@ final class PromoTrailerDirector: ObservableObject {
         let size = engine.trailerPlayfieldSize
         guard size.width > 0 else { return }
         didStartOpening = true
-
-        model.trailerSetLifeHalves(4)
 
         // Start near the sea-floor spawn and climb the right corridor.
         let start = point(x: PromoTrailerScript.openingFishUnit.x,
@@ -164,7 +157,7 @@ final class PromoTrailerDirector: ObservableObject {
         updateAnswerGate(at: elapsed)
         steer(at: elapsed, engine: engine)
         assistCollectIfNeeded(at: elapsed, engine: engine, model: model)
-        assistHelpersIfNeeded(at: elapsed, engine: engine, model: model)
+        assistHelpersIfNeeded(at: elapsed, engine: engine)
 
         if !didInstallMid, openingCollected {
             installMid(engine: engine, model: model)
@@ -179,14 +172,6 @@ final class PromoTrailerDirector: ObservableObject {
         if !didSeedStreak, elapsed >= PromoTrailerScript.seedStreakAt {
             didSeedStreak = true
             model.trailerSeedCorrectStreak(4)
-        }
-
-        // Life fish after the streak hit — lives stay at 2 until catch → 3.
-        if !didSpawnLife, penultimateCollected, elapsed >= PromoTrailerScript.spawnLifeFishAt {
-            didSpawnLife = true
-            model.setHeartFishRestoresWholeLife(true)
-            model.makeHeartFishAvailable()
-            engine.trailerSpawnHeartFishFromLeft(yFraction: 0.38)
         }
 
         if awaitingFinalInstall, !didInstallFinal,
@@ -212,10 +197,6 @@ final class PromoTrailerDirector: ObservableObject {
         if !didCatchBonus, engine.trailerHasBonusAura {
             markBonusCaught()
         }
-        if !didCatchLife, didSpawnLife, model.livesRemaining >= 2.95 {
-            markLifeCaught()
-        }
-
         // Fallback icon if the completion callback never fires.
         if !didShowIcon, elapsed >= PromoTrailerScript.showIconAt {
             revealIcon()
@@ -259,7 +240,7 @@ final class PromoTrailerDirector: ObservableObject {
         backgroundBlur = 5
     }
 
-    private func assistHelpersIfNeeded(at time: TimeInterval, engine: ReefEngine, model: GameViewModel) {
+    private func assistHelpersIfNeeded(at time: TimeInterval, engine: ReefEngine) {
         if !didCatchBonus, penultimateCollected,
            time >= PromoTrailerScript.bonusAssistStart, time < PromoTrailerScript.bonusAssistEnd,
            let bonus = engine.trailerBonusFish,
@@ -269,26 +250,12 @@ final class PromoTrailerDirector: ObservableObject {
             }
             return
         }
-        if !didCatchLife, time >= PromoTrailerScript.lifeAssistStart, time < PromoTrailerScript.lifeAssistEnd,
-           let heart = engine.trailerHeartFish,
-           heart.isCarryingReward {
-            if engine.trailerTryCatchHeartFish(within: engine.trailerHelperHitRadius(length: heart.length)) {
-                markLifeCaught()
-            }
-        }
-        _ = model
     }
 
     private func markBonusCaught() {
         guard !didCatchBonus else { return }
         didCatchBonus = true
         cueSFX("sfx_double_card", volume: 0.22)
-    }
-
-    private func markLifeCaught() {
-        guard !didCatchLife else { return }
-        didCatchLife = true
-        cueSFX("sfx_character_unlock", volume: 0.18)
     }
 
     private func assistCollectIfNeeded(at time: TimeInterval, engine: ReefEngine, model: GameViewModel) {
@@ -448,8 +415,7 @@ final class PromoTrailerDirector: ObservableObject {
         }
         cameraZoom = zoom
 
-        // Never leave the anchor off-center once zoom is gone — that read as a
-        // frame shift after the life-fish beat.
+        // Never leave the anchor off-center once zoom is gone.
         if zoom <= 1.02 || playsLevelCompletion {
             cameraAnchor = .center
             return
@@ -526,12 +492,6 @@ final class PromoTrailerDirector: ObservableObject {
                   time >= PromoTrailerScript.bonusBlendStart, time < PromoTrailerScript.bonusBlendEnd,
                   let bonus = engine.trailerBonusFish, bonus.isCarryingReward {
             desired = blendToward(desired, bonus.carriedCoinPosition, engine: engine,
-                                  enter: pad ? 300 : 250,
-                                  full: pad ? 90 : 70)
-        } else if !didCatchLife,
-                  time >= PromoTrailerScript.lifeBlendStart, time < PromoTrailerScript.lifeBlendEnd,
-                  let heart = engine.trailerHeartFish, heart.isCarryingReward {
-            desired = blendToward(desired, heart.position, engine: engine,
                                   enter: pad ? 300 : 250,
                                   full: pad ? 90 : 70)
         } else if !finalCollected, time >= PromoTrailerScript.finalBlendAt,

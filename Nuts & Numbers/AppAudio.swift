@@ -157,9 +157,6 @@ final class AppAudio: NSObject, ObservableObject {
         // The thick double card appearing, and the doubled score landing.
         Effect(key: "doubleCard",    file: "sfx_double_card",    ext: "caf", volume: 0.18, lead: 0.0),
         Effect(key: "doubleScore",   file: "sfx_double_score",   ext: "caf", volume: 0.15, lead: 0.0),
-        // Half a life leaving the HUD when the flamethrower is fired.
-        Effect(key: "halfLife",      file: "sfx_half_life",      ext: "caf", volume: 0.12, lead: 0.0),
-        Effect(key: "lifeLost",      file: "sfx_life_lost",      ext: "caf", volume: 0.24, lead: 0.045),
         Effect(key: "flamethrower",  file: "sfx_flamethrower",   ext: "caf", volume: 0.31, lead: 0.045),
         Effect(key: "sessionStart",  file: "sfx_session_start",  ext: "caf", volume: 0.16, lead: 0.225),
         Effect(key: "sessionComplete", file: "sfx_level_complete", ext: "caf", volume: 0.10, lead: 0.010),
@@ -400,7 +397,8 @@ final class AppAudio: NSObject, ObservableObject {
         let frames = AVAudioFrameCount(file.length - start)
         guard frames > 0,
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
-              (try? file.read(into: buffer)) != nil else { return nil }
+              (try? file.read(into: buffer)) != nil,
+              buffer.frameLength > 0 else { return nil }
         return buffer
     }
 
@@ -683,9 +681,6 @@ final class AppAudio: NSObject, ObservableObject {
     func playDoubleCardAppear() { playEffect("doubleCard") }       // the thick special card
     func playDoubleScore()      { playEffect("doubleScore") }      // a double card paid out
     func playFlamethrower()     { playEffect("flamethrower") }     // the helper fires
-    func playHalfLife()         { playEffect("halfLife") }         // half a life spent
-    func playLifeLost()         { playEffect("lifeLost") }         // a whole life lost
-    func playLifeRestored()     { playEffect("characterUnlock") }  // heart fish caught
     func playSessionStart()     { playEffect("sessionStart") }
     func playSessionComplete()  { playEffect("sessionComplete") }
     func playHighScore()        { playEffect("highScore") }        // new personal best
@@ -712,7 +707,9 @@ final class AppAudio: NSObject, ObservableObject {
         // finished (rare — play happens well after launch) it's simply skipped;
         // no synchronous file work is ever done on this hot path.
         guard sessionOutputReady,
-              let node = effectNodes[key], let buffer = effectBuffers[key] else { return }
+              let node = effectNodes[key],
+              let buffer = effectBuffers[key],
+              buffer.frameLength > 0 else { return }
         // The node is already running (see `startEngineIfNeeded`); `.interrupts`
         // restarts it from the top with nothing to allocate — the whole trigger
         // is one buffer schedule on the audio render thread, invisible to the

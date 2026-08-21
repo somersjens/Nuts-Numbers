@@ -351,7 +351,7 @@ func L(key: String) -> String {
 /// Write a number the way the chosen language writes it.
 ///
 /// A bare `"\(total)"` always produces Western digits with no grouping, so a
-/// four-figure bubble total reads "3000" in every language instead of "3,000"
+/// four-figure nut total reads "3000" in every language instead of "3,000"
 /// or "3.000" — and would stay Western in a language that uses its own
 /// numerals. Every standalone number the player sees goes through here, so a
 /// new language gets the right shape without touching the views.

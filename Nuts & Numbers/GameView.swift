@@ -92,16 +92,15 @@ struct GameView: View {
     /// Measured from the real HUD layout so the flying currency glyph can land
     /// pixel-for-pixel over its stationary twin on every device and score width.
     @State private var scoreIconCenter: CGPoint?
-    /// A completed board gets one last moment in the reef before its result
-    /// card appears. Other endings (no lives, or leaving) remain immediate.
+    /// A completed board gets one last moment in the machine before its result
+    /// card appears. Time expiry has its own short finale.
     @State private var playsLevelCompletion = false
     @State private var playsTimeOutFinale = false
     @State private var showsResult = false
-    /// Whether pressing Start will run the walkthrough. Armed from the menu for
-    /// a brand-new player, and toggled by the cap button on the start card.
+    /// Whether pressing Start or Continue will run the walkthrough. Armed from
+    /// onboarding or toggled from the level card before the first point.
     @State private var isTutorialArmed: Bool
-    /// The "only at the start of a game" note, raised by the cap button on a
-    /// run that is already under way.
+    /// Explains why a walkthrough can no longer start after points were earned.
     @State private var showsTutorialNotice = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -219,9 +218,14 @@ struct GameView: View {
 
     private func startSession() {
         showsIntro = false
+        // Arm the clock hold before either begin() or resume() gets a chance to
+        // install its timer. The tutorial itself releases it after its final
+        // five-second explanation.
+        if isTutorialArmed { model.setTutorialClockPaused(true) }
         if showsPauseCard, model.state != .intro {
             showsPauseCard = false
             model.resume()
+            beginArmedTutorialIfPossible()
         } else {
             showsPauseCard = false
             playsFishEntrance = true
@@ -236,20 +240,25 @@ struct GameView: View {
             // The walkthrough opens on the first round, once the fish has swum
             // in and there is a reef to talk about. Disarming it here is what
             // makes the pause card offer Continue rather than Start tutorial.
-            if isTutorialArmed, model.state != .intro {
-                isTutorialArmed = false
-                tutorial.begin(model: model)
-            }
+            beginArmedTutorialIfPossible()
         }
     }
 
-    /// The cap on the start card. A run that is already under way cannot be
-    /// rewound into a lesson, so there the button explains itself instead.
+    private func beginArmedTutorialIfPossible() {
+        guard isTutorialArmed, model.cards == 0, model.state != .intro else { return }
+        isTutorialArmed = false
+        tutorial.begin(model: model)
+    }
+
+    /// The cap on the start card. The lesson may still be added to an active
+    /// run until its first point has been earned.
     private func toggleTutorial() {
         AppAudio.shared.playMenuTap()
-        guard model.state == .intro,
-              PausedSessionStore.shared.session(request.board) == nil,
-              !showsPauseCard else {
+        let savedPoints = PausedSessionStore.shared.session(request.board)?.cards ?? 0
+        guard !tutorial.isActive,
+              !model.isGameOver,
+              model.cards == 0,
+              savedPoints == 0 else {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
                 showsTutorialNotice = true
             }
@@ -360,7 +369,8 @@ struct GameView: View {
             ClawTimerBadge(clock: model.clock,
                            isPad: isPad,
                            size: hudTimerSize,
-                           palette: clawPalette)
+                           palette: clawPalette,
+                           highlightsTutorial: tutorial.clawPlan.highlightsTimer)
         }
     }
 
@@ -460,6 +470,7 @@ private struct ClawTimerBadge: View {
     let isPad: Bool
     let size: CGFloat
     let palette: ClawPalette
+    let highlightsTutorial: Bool
 
     private var remaining: Double { clock.remaining }
     private var total: Double { clock.total }
@@ -536,8 +547,64 @@ private struct ClawTimerBadge: View {
         }
         .frame(width: mountSize, height: mountSize)
         .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
+        .overlay {
+            if highlightsTutorial {
+                TutorialTimerFocus(color: palette.character.color,
+                                   deepColor: palette.character.deepColor,
+                                   isPad: isPad)
+            }
+        }
         .accessibilityIdentifier("timer")
         .accessibilityLabel(Text(L("game.claw.timeRemaining \(seconds)")))
+    }
+}
+
+/// Five-second focus beat around the countdown before it starts. This uses a
+/// self-contained pulse because the HUD is deliberately isolated from the claw
+/// engine's high-frequency frame clock.
+private struct TutorialTimerFocus: View {
+    let color: Color
+    let deepColor: Color
+    let isPad: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulses = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.white.opacity(0.96), lineWidth: isPad ? 5 : 3.5)
+                .scaleEffect(pulses ? 1.14 : 1.03)
+                .opacity(pulses ? 0.56 : 0.94)
+                .shadow(color: color.opacity(0.96), radius: isPad ? 16 : 11)
+
+            Circle()
+                .stroke(color,
+                        style: StrokeStyle(lineWidth: isPad ? 4 : 3,
+                                           lineCap: .round,
+                                           dash: [isPad ? 13 : 10, isPad ? 9 : 7]))
+                .scaleEffect(pulses ? 1.22 : 1.10)
+                .rotationEffect(.degrees(pulses ? 24 : 0))
+                .shadow(color: .white.opacity(0.76), radius: 4)
+
+            Image(systemName: "clock.fill")
+                .font(.system(size: isPad ? 20 : 15, weight: .black))
+                .foregroundStyle(.white)
+                .padding(isPad ? 7 : 5)
+                .background(deepColor, in: Circle())
+                .overlay(Circle().stroke(.white, lineWidth: 2))
+                .shadow(color: color.opacity(0.9), radius: 8)
+                .offset(x: -(isPad ? 37 : 29), y: isPad ? 34 : 27)
+                .scaleEffect(pulses ? 1.08 : 0.94)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.72).repeatForever(autoreverses: true)) {
+                pulses = true
+            }
+        }
     }
 }
 
@@ -688,69 +755,5 @@ struct LevelWallpaper: View {
             at: CGPoint(x: point.x, y: point.y + stackedSize * 0.55),
             anchor: .center
         )
-    }
-}
-
-// MARK: - Lives
-
-struct LivesView: View {
-    let lives: Double
-    let character: AnimalCharacter
-    let isPad: Bool
-    /// Matches the bubble in the centre of the HUD.
-    var glyphSize: CGFloat = 16
-    /// Keeps every HUD group centred on the pause button's horizontal axis.
-    var rowHeight: CGFloat = 34
-
-    private var wholeHearts: Int { Int(lives.rounded(.down)) }
-    private var hasHalf: Bool { lives - Double(wholeHearts) >= 0.5 }
-    private var capacity: Int { Int(GameConfig.startingLives.rounded(.up)) }
-
-    /// Hearts wear the character's own deep colour — the same one the counter
-    /// and the close button use — rather than a generic red.
-    private var heartColor: Color { character.deepColor }
-
-    var body: some View {
-        HStack(spacing: isPad ? 5 : 3) {
-            ForEach(0..<capacity, id: \.self) { index in
-                heart(at: index)
-            }
-        }
-        .frame(height: rowHeight, alignment: .center)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: lives)
-        .accessibilityElement()
-        .accessibilityIdentifier("lives")
-        .accessibilityLabel(Text(L("game.livesRemaining \(livesText)")))
-        .accessibilityValue(Text(verbatim: livesText))
-    }
-
-    private var livesText: String {
-        // Halves read as "2.5" — or "2,5" in Dutch; whole lives never show a
-        // decimal tail.
-        lives == lives.rounded()
-            ? "\(Int(lives))"
-            : String(format: "%.1f", locale: LanguageManager.shared.locale, lives)
-    }
-
-    /// A full, half or empty heart. The half heart is the full glyph masked to
-    /// its leading half over the empty one, so the two always align exactly.
-    private func heart(at index: Int) -> some View {
-        let size = glyphSize
-        return ZStack {
-            Image(systemName: "heart.fill")
-                .foregroundStyle(heartColor.opacity(0.22))
-            if index < wholeHearts {
-                Image(systemName: "heart.fill")
-                    .foregroundStyle(heartColor)
-            } else if index == wholeHearts && hasHalf {
-                Image(systemName: "heart.fill")
-                    .foregroundStyle(heartColor)
-                    .mask(alignment: .leading) {
-                        Rectangle().frame(width: size / 2)
-                    }
-            }
-        }
-        .font(.system(size: size, weight: .bold))
-        .frame(width: size, height: size)
     }
 }

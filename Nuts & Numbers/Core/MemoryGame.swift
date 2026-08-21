@@ -4,7 +4,7 @@
 //
 //  The session state machine. Every rule that decides what a tap does lives
 //  here, and every transition is guarded by the current state — that is what
-//  makes double taps, double scoring and double life loss impossible.
+//  makes double taps and double scoring impossible.
 //
 //  This type is deliberately free of SwiftUI and of timers: the view drives it
 //  with explicit calls and asks it what to show. That keeps it fully testable.
@@ -34,12 +34,11 @@ nonisolated public enum GameState: String, Equatable, Sendable {
     case resolving
     /// Feedback finished; the next round can be installed.
     case roundComplete
-    /// Out of lives, or the round limit was reached.
+    /// The clock expired, the board was completed, or the player left.
     case gameOver
 }
 
 nonisolated public enum GameOverReason: String, Equatable, Sendable {
-    case outOfLives
     case outOfTime
     case roundsCompleted
     case quit
@@ -48,7 +47,7 @@ nonisolated public enum GameOverReason: String, Equatable, Sendable {
 /// What resolving a tap produced, so the view knows which feedback to play.
 nonisolated public enum AnswerOutcome: Equatable, Sendable {
     case correct(cardsEarned: Int, usedBonusFish: Bool, startedStreak: Bool)
-    case wrong(correctOptionID: UUID, lostHalfLife: Bool)
+    case wrong(correctOptionID: UUID)
     /// The tap was ignored (wrong state, or the round was already answered).
     case ignored
 }
@@ -59,7 +58,7 @@ nonisolated public struct SessionResult: Equatable, Sendable {
     public var correctAnswers = 0
     public var wrongAnswers = 0
     public var cardsEarned = 0
-    /// Cards awarded over and above the normal one-bubble reward.
+    /// Cards awarded over and above the normal one-nut reward.
     public var bonusCards = 0
     /// Kept under its persisted name for save compatibility; now counts caught
     /// 2x fish whose bonus was paid out.
@@ -98,43 +97,24 @@ nonisolated public final class MemoryGame {
 
     public private(set) var roundNumber = 0
     public private(set) var cards = 0
-    /// Lives in half units. 6 == three lives.
-    public private(set) var lifeHalves = GameConfig.startingLifeHalves
     /// The option the player tapped this round, if any.
     public private(set) var selectedOptionID: UUID?
     public private(set) var lastOutcome: AnswerOutcome?
     public private(set) var result = SessionResult()
     public private(set) var correctStreak = 0
-    public private(set) var heartFishProgress = 0
-    public private(set) var heartFishTarget = GameConfig.heartFishCorrectAnswers
-    public private(set) var isHeartFishAvailable = false
 
     /// Set once the session is over; nil while playing.
     public private(set) var gameOverReason: GameOverReason?
 
-    /// A wrong answer costs a life but leaves the sum standing: the coral keeps
-    /// offering the same answers until the right one is caught. Only a correct
-    /// answer moves the session on to the next sum.
+    /// A wrong answer leaves the sum standing. Only a correct answer moves the
+    /// session on to the next sum, so the clock is the mistake's only cost.
     private var repeatsRound = false
-
-    /// The tutorial's "collect the right answer" step lets a wrong bubble be
-    /// tried without paying for it. Every other run, and every later step,
-    /// leaves this on — the rule itself is unchanged, it is only waived while
-    /// the player is being shown what the bubbles are.
-    public var appliesWrongAnswerPenalty = true
-    /// The tutorial's heart fish hands back a whole life whatever the damage,
-    /// because that is what its step promises. Normal play keeps the graded
-    /// recovery, which only reaches a whole life at the last half-heart.
-    public var heartFishRestoresWholeLife = false
 
     // MARK: Derived
 
-    public var livesRemaining: Double {
-        Double(lifeHalves) / Double(GameConfig.lifeGranularity)
-    }
-
-    /// Rounds this board can run to. Every round pays at least one bubble, so
-    /// the target is always reachable inside this many.
+    /// Number of physical answer nuts on this board. A golden answer may raise
+    /// the score faster, but the session still visits every one of these rounds
+    /// so the machine is empty when the level completes.
     public var maximumRounds: Int { board.maximum }
 
     /// Whether a tap on an answer card can be accepted right now.
@@ -183,24 +163,21 @@ nonisolated public final class MemoryGame {
         return true
     }
 
-    /// Resumes a level the player left part-way through, restoring the cards,
-    /// lives and round they stopped on. Rejected if the record is not playable.
+    /// Resumes a level the player left part-way through, restoring the cards and
+    /// round they stopped on. Rejected if the record is not playable.
     @discardableResult
     public func resume(from session: PausedSession) -> Bool {
         guard state == .intro, session.isResumable else { return false }
         roundNumber = session.roundNumber
         cards = session.cards
-        lifeHalves = session.lifeHalves
         result.correctAnswers = session.correctAnswers
         result.wrongAnswers = session.wrongAnswers
         result.doubleCardsAnswered = session.doubleCardsAnswered
         result.bonusCards = session.bonusCards
         result.cardsEarned = session.cards
         correctStreak = session.correctStreak ?? 0
-        heartFishProgress = session.heartFishProgress ?? 0
-        heartFishTarget = session.heartFishTarget ?? GameConfig.heartFishCorrectAnswers
-        isHeartFishAvailable = session.isHeartFishAvailable ?? false
-        installPlan(startingAt: session.roundNumber)
+        installPlan(startingAt: session.roundNumber,
+                    restoring: session.puzzle)
         state = .memorising
         return true
     }
@@ -213,7 +190,6 @@ nonisolated public final class MemoryGame {
         return PausedSession(boardID: board.storageID,
                              roundNumber: roundNumber,
                              cards: cards,
-                             lifeHalves: lifeHalves,
                              correctAnswers: result.correctAnswers,
                              wrongAnswers: result.wrongAnswers,
                              doubleCardsAnswered: result.doubleCardsAnswered,
@@ -222,11 +198,9 @@ nonisolated public final class MemoryGame {
                              flamethrowersUsed: 0,
                              correctStreak: correctStreak,
                              hasBonusFishPower: hasBonusFishPower,
-                             heartFishProgress: heartFishProgress,
-                             heartFishTarget: heartFishTarget,
-                             isHeartFishAvailable: isHeartFishAvailable,
                              remainingTime: remainingTime,
-                             puzzleSeed: puzzleSeed)
+                             puzzleSeed: puzzleSeed,
+                             puzzle: clawPuzzle)
     }
 
     /// The tap that turns the answer cards face down and brings the question
@@ -251,7 +225,7 @@ nonisolated public final class MemoryGame {
 
     /// Resolves a tap on an answer card. Any tap that arrives in the wrong
     /// state — a second tap on the same round, a tap during feedback, a tap on
-    /// a burned card — is ignored without touching score or lives.
+    /// a burned card — is ignored without touching the score.
     @discardableResult
     public func select(optionID: UUID, usesBonusFish: Bool = false) -> AnswerOutcome {
         guard state == .answering,
@@ -269,15 +243,17 @@ nonisolated public final class MemoryGame {
                              correctOptionID: round.correctOption?.id ?? optionID)
     }
 
-    /// Resolves a grabbed nut against the standing sum. Any shell whose printed
-    /// value matches the sum is correct — not only the nut laid for this round.
+    /// Resolves a grabbed nut against the standing sum. A claw round owns one
+    /// exact physical shell; keeping that identity intact preserves the
+    /// authored removal and cascade order for every following round.
     @discardableResult
     public func resolveGrab(nut: ClawNut) -> AnswerOutcome {
         guard state == .answering,
               let round,
               selectedOptionID == nil
         else { return .ignored }
-        let isCorrect = AnswerValue(nut.text) == AnswerValue(round.question.correctAnswer)
+        let matchesValue = AnswerValue(nut.text) == AnswerValue(round.question.correctAnswer)
+        let isCorrect = round.targetNutID.map { nut.id == $0 } ?? matchesValue
         let selectedID = isCorrect
             ? (round.targetNutID ?? round.correctOption?.id ?? nut.id)
             : nut.id
@@ -292,39 +268,6 @@ nonisolated public final class MemoryGame {
     public func expireTime() {
         guard state != .gameOver else { return }
         finish(reason: .outOfTime)
-    }
-
-    /// Restores life when the passing heart fish is caught. The return value is
-    /// the number of half-hearts restored, or zero when the catch was stale.
-    @discardableResult
-    public func catchHeartFish() -> Int {
-        guard isHeartFishAvailable,
-              lifeHalves > 0,
-              lifeHalves < GameConfig.startingLifeHalves else { return 0 }
-        let recovery = (lifeHalves == 1 || heartFishRestoresWholeLife)
-            ? GameConfig.criticalHeartFishRecoveryHalves
-            : GameConfig.heartFishRecoveryHalves
-        let previous = lifeHalves
-        lifeHalves = min(GameConfig.startingLifeHalves, lifeHalves + recovery)
-        resetHeartFishProgress()
-        return lifeHalves - previous
-    }
-
-    /// Hands the heart fish its cue directly, which is what the tutorial's
-    /// helper-fish step needs: there the fish is the lesson, not a reward the
-    /// player has to earn eight answers over.
-    public func makeHeartFishAvailable() {
-        guard state != .gameOver, lifeHalves > 0 else { return }
-        heartFishProgress = heartFishTarget
-        isHeartFishAvailable = true
-    }
-
-    /// A missed heart fish returns after four more correct answers, rather than
-    /// making the player repeat the full eight-answer charge.
-    public func missHeartFish() {
-        guard isHeartFishAvailable else { return }
-        isHeartFishAvailable = false
-        heartFishTarget = heartFishProgress + GameConfig.heartFishRetryCorrectAnswers
     }
 
     // MARK: - Round transitions
@@ -343,12 +286,8 @@ nonisolated public final class MemoryGame {
     public func advance() -> GameState {
         guard state == .roundComplete else { return state }
 
-        if lifeHalves <= 0 {
-            finish(reason: .outOfLives)
-            return state
-        }
         // A missed answer does not use up a round: the same sum comes straight
-        // back, with the life already paid for it.
+        // back while the clock continues to run.
         if repeatsRound {
             repeatsRound = false
             selectedOptionID = nil
@@ -356,12 +295,9 @@ nonisolated public final class MemoryGame {
             state = .answering
             return state
         }
-        // The board is full: this is what "level complete" means, and it is
-        // what the target quoted on the start and result cards refers to.
-        if cards >= board.maximum {
-            finish(reason: .roundsCompleted)
-            return state
-        }
+        // A gold nut can make the score reach the displayed target early. The
+        // physical level is only complete after its last assigned answer nut,
+        // otherwise golden rewards would strand shells in the machine.
         if roundNumber >= maximumRounds {
             finish(reason: .roundsCompleted)
             return state
@@ -386,11 +322,20 @@ nonisolated public final class MemoryGame {
 
     /// Builds the full sum list and the matching nut pile once, so a level
     /// never sprouts new answers after the first frame.
-    nonisolated private func installPlan(startingAt number: Int) {
-        factory.reset()
-        let generated = factory.makeSession(count: board.maximum)
-        let puzzle = ClawPuzzle.build(questions: generated.map(\.question),
-                                      seed: puzzleSeed)
+    nonisolated private func installPlan(startingAt number: Int,
+                                         restoring savedPuzzle: ClawPuzzle? = nil) {
+        let puzzle: ClawPuzzle
+        if let savedPuzzle, isValidPlan(savedPuzzle) {
+            puzzle = savedPuzzle
+        } else {
+            factory.reset()
+            let generated = factory.makeSession(count: board.maximum)
+            puzzle = ClawPuzzle.build(
+                questions: generated.map(\.question),
+                seed: puzzleSeed,
+                preservesQuestionOrder: board.mode == .order
+            )
+        }
         clawPuzzle = puzzle
         plannedRounds = puzzle.questions.enumerated().map { index, question in
             factory.makeRound(number: index + 1,
@@ -401,6 +346,16 @@ nonisolated public final class MemoryGame {
         roundNumber = start
         round = plannedRound(number: start)
         preparedRound = plannedRound(number: start + 1)
+    }
+
+    /// A persisted plan is accepted only when it still describes this exact
+    /// board and every question owns one matching, uniquely identified nut.
+    /// Invalid or legacy data falls back to deterministic seed regeneration.
+    nonisolated private func isValidPlan(_ puzzle: ClawPuzzle) -> Bool {
+        guard puzzle.seed == puzzleSeed,
+              puzzle.isPlayablePlan(expectedCount: board.maximum)
+        else { return false }
+        return true
     }
 
     private func plannedRound(number: Int) -> GameRound? {
@@ -428,46 +383,19 @@ nonisolated public final class MemoryGame {
             }
             result.bonusCards += earned - GameConfig.normalCardReward
             correctStreak += 1
-            advanceHeartFishProgressIfNeeded()
             outcome = .correct(cardsEarned: earned,
                                usedBonusFish: usesBonusFish,
                                startedStreak: false)
         } else {
             result.wrongAnswers += 1
             correctStreak = 0
-            if appliesWrongAnswerPenalty {
-                spendLifeHalves(GameConfig.wrongAnswerCostHalves)
-            }
             // The sum stays standing; `advance` puts this very round back
             // into play instead of installing the next one.
             repeatsRound = true
-            outcome = .wrong(correctOptionID: correctOptionID,
-                             lostHalfLife: false)
+            outcome = .wrong(correctOptionID: correctOptionID)
         }
         lastOutcome = outcome
         return outcome
-    }
-
-    private func spendLifeHalves(_ halves: Int) {
-        let wasFull = lifeHalves == GameConfig.startingLifeHalves
-        lifeHalves = max(0, lifeHalves - halves)
-        if wasFull && lifeHalves > 0 { resetHeartFishProgress() }
-    }
-
-    private func advanceHeartFishProgressIfNeeded() {
-        guard lifeHalves > 0,
-              lifeHalves < GameConfig.startingLifeHalves,
-              !isHeartFishAvailable else { return }
-        heartFishProgress += 1
-        if heartFishProgress >= heartFishTarget {
-            isHeartFishAvailable = true
-        }
-    }
-
-    private func resetHeartFishProgress() {
-        heartFishProgress = 0
-        heartFishTarget = GameConfig.heartFishCorrectAnswers
-        isHeartFishAvailable = false
     }
 
     private func finish(reason: GameOverReason) {
@@ -521,18 +449,6 @@ nonisolated public final class MemoryGame {
     /// golden threshold on cue. Clamped to a valid pre-boost count.
     public func trailerSeedCorrectStreak(_ value: Int) {
         correctStreak = max(0, min(value, GameConfig.streakThreshold - 1))
-    }
-
-    /// Seeds life for the teaser (e.g. start at 2 lives = 4 halves) without
-    /// inventing a parallel life system.
-    public func trailerSetLifeHalves(_ halves: Int) {
-        lifeHalves = max(1, min(GameConfig.startingLifeHalves, halves))
-    }
-
-    /// Spends life so a life-fish catch can restore a meaningful amount without
-    /// inventing a fake reward path.
-    public func trailerDamageForLifeFishDemo(halves: Int = 2) {
-        spendLifeHalves(halves)
     }
 
     /// Ends the board so the real success-curl path can run after the final

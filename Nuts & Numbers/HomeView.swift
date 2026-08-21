@@ -28,7 +28,7 @@ private struct ScoreCelebration: Identifiable {
     let topicStart: Int
     let totalStart: Int
     /// True only when this session turned an unfinished board into a maxed one.
-    /// That inserts the fern-and-crown reveal before its bubble flies away.
+    /// That inserts the fern-and-crown reveal before its nut flies away.
     let revealsMaximum: Bool
     let id = UUID()
     /// Stamped when the celebration actually becomes visible, not when it was
@@ -194,7 +194,7 @@ struct HomeView: View {
             // whatever the language reads like — while `position` and the
             // `topLeading` alignment below are both turned over by a
             // right-to-left environment. Measuring in one space and placing in
-            // its mirror is what sent the bubble to an empty patch of screen in
+            // its mirror is what sent the nut to an empty patch of screen in
             // Arabic, so placement is pinned to the space the numbers came from.
             // The cards themselves put their own direction back afterwards.
             .overlay {
@@ -210,16 +210,6 @@ struct HomeView: View {
                 .environment(\.layoutDirection, .leftToRight)
             }
 
-            if showsTutorialHint {
-                TutorialMessageCard(text: L("tutorial.step.10"),
-                                    theme: character,
-                                    isPad: isPad)
-                    .padding(.horizontal, isPad ? 26 : 16)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.top, isPad ? 18 : 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .allowsHitTesting(false)
-            }
         }
         .coordinateSpace(name: "home")
         .overlayPreferenceValue(HomeCharacterAnchorKey.self) { anchor in
@@ -237,6 +227,20 @@ struct HomeView: View {
                 }
             }
             .ignoresSafeArea()
+        }
+        // The rope is an overlay so it can hang outside the scroll content.
+        // Place the returning tutorial message after that overlay, ensuring the
+        // rope always passes behind the white card instead of across its text.
+        .overlay(alignment: .top) {
+            if showsTutorialHint {
+                TutorialMessageCard(text: L("tutorial.step.10"),
+                                    theme: character,
+                                    isPad: isPad)
+                    .padding(.horizontal, isPad ? 26 : 16)
+                    .padding(.top, isPad ? 18 : 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
         }
         .fullScreenCover(item: $selection, onDismiss: handleSessionDismissed) { item in
             GameView(request: GameSessionRequest(level: item.level,
@@ -398,11 +402,12 @@ struct HomeView: View {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .stroke(.white.opacity(0.9), lineWidth: 2)
                 }
-            // The hanging version needs the elephant's complete black socket;
-            // the icon-style crop used elsewhere deliberately cuts that off.
+            // Match the app-icon crop: the black attachment and gold housing
+            // remain above the tile, while the blue gripping arms still show
+            // that the elephant is hanging from the rope.
             CroppedCharacterPortrait(character: character,
-                                     elephantScale: 1,
-                                     elephantYOffset: 0,
+                                     elephantScale: 1.12,
+                                     elephantYOffset: -0.115,
                                      otherCharacterScale: 0.84)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
@@ -499,18 +504,17 @@ struct HomeView: View {
                 .font(.system(size: isPad ? 32 : 20, weight: .heavy, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
-            Label {
+            HStack(spacing: isPad ? 8 : 6) {
+                // The card that flies up from the level card aims here, so the
+                // reward visibly joins this topic before the totals move.
+                CurrencyIcon(size: isPad ? 22 : 14)
+                    .scaleEffect(highlightsHeaderCards ? 1.32 : 1)
+                    .rotationEffect(.degrees(highlightsHeaderCards ? -10 : 0))
+                    .reportAnchor("topicTotal")
                 CountingNumber(from: count.from,
                                to: count.to,
                                startedAt: count.at,
                                duration: Self.headerCountDuration)
-            } icon: {
-                // The card that flies up from the level card aims here, so the
-                // reward visibly joins this topic before the totals move.
-                    CurrencyIcon(size: isPad ? 22 : 14)
-                    .scaleEffect(highlightsHeaderCards ? 1.32 : 1)
-                    .rotationEffect(.degrees(highlightsHeaderCards ? -10 : 0))
-                    .reportAnchor("topicTotal")
             }
             .font(.system(size: isPad ? 24 : 15, weight: .bold))
             Spacer(minLength: 0)
@@ -1017,7 +1021,7 @@ struct HomeView: View {
         LevelCardView.scoreCountDelay + LevelCardView.scoreCountDuration + 0.1
     }
     /// Gives the springing max card, ferns and crown a clear beat on screen
-    /// before the reward bubble starts its flight to the topic total.
+    /// before the reward nut starts its flight to the topic total.
     private static let maximumRevealPause = 0.9
     private static let flightDuration = 0.62
 

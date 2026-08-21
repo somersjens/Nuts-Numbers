@@ -473,7 +473,7 @@ struct LevelCardView: View {
 
     /// During a return animation the score still starts at its old value. Keep
     /// every score-coloured detail in that old tier too; otherwise a maxed
-    /// bubble turns green before its number has actually reached the maximum.
+    /// nut turns green before its number has actually reached the maximum.
     private var displayedTier: Tier {
         guard isNewMaximumCelebration, !completionRevealed else { return tier }
         return tier(for: celebrationStart ?? best)
@@ -488,7 +488,7 @@ struct LevelCardView: View {
     }
 
     /// A level that crosses its maximum on this return stays in its ordinary
-    /// card until the bubbles have finished counting. Only then do the gold
+    /// card until the nuts have finished counting. Only then do the gold
     /// card, crown and ferns arrive together.
     private var isNewMaximumCelebration: Bool {
         celebrationStartedAt != nil && (celebrationStart ?? best) < maximum && best >= maximum
@@ -637,8 +637,8 @@ struct LevelCardView: View {
         }
     }
 
-    /// The score, with its bubble after the number — the way a count is read
-    /// aloud ("twelve bubbles"), not the way a price is written.
+    /// The score, with its nut after the number — the way a count is read
+    /// aloud ("twelve nuts"), not the way a price is written.
     private var cardChip: some View {
         HStack(spacing: 3 * cardScale) {
             CountingNumber(from: celebrationStart ?? best,
@@ -759,7 +759,7 @@ struct LevelCardView: View {
                         .font(.system(size: 12 * cardScale, weight: .bold))
                     CurrencyIcon(size: 9 * cardScale)
                         // Once the max card has been revealed, the flight must
-                        // still start on this exact bubble. Without an anchor
+                        // still start on this exact nut. Without an anchor
                         // here the standard card's disappearing glyph leaves
                         // the return animation with no source point.
                         .background {
@@ -821,7 +821,7 @@ struct LevelCardView: View {
 
     /// Ferns curl up both sides of every maxed level. Their stems sit just
     /// outside the card edge while the leaves overlap it slightly, framing the
-    /// score without narrowing the number or bubble line.
+    /// score without narrowing the number or nut line.
     private func completedFerns(color _: Color, highlight: Color) -> some View {
         HStack(spacing: 0) {
             CompletionFern(color: highlight, revealStartedAt: fernRevealStartedAt)
@@ -1233,7 +1233,7 @@ struct AlternatingCardSummary: View {
     private var opticalLineHeight: CGFloat { baseFontSize * 1.4 }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: isPad ? 8 : 6) {
             // The card glyph never takes part in the swap: holding it perfectly
             // still avoids the dip two crossfading icons would produce.
             CurrencyIcon(size: iconSize)
@@ -1277,7 +1277,7 @@ struct AlternatingCardSummary: View {
                 // and goes would make it unfindable for VoiceOver.
                 .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("card-total")
-                .accessibilityLabel(Text(L("game.bubblesCollected \(totalTo)")))
+                .accessibilityLabel(Text(L("game.nutsCollected \(totalTo)")))
 
             if let displayedPrompt {
                 promptLabel(displayedPrompt, contentScale: contentScale)

@@ -74,7 +74,9 @@ final class ProgressSync: ObservableObject {
             self?.pushPlayerNameToCloudIfChanged()
         }
 
-        cloudStore.synchronize()
+        // KVS automatically propagates changes. A forced launch-time sync can
+        // block the main thread while iCloud is settling and is unnecessary for
+        // reading the locally cached dictionary representation below.
         lastKnownPlayerName = UserDefaults.standard.string(forKey: GameSettings.playerNameKey) ?? ""
         // Let the singleton finish initializing before ProgressStore accesses it.
         DispatchQueue.main.async { [weak self] in

@@ -199,7 +199,7 @@ struct OnboardingView: View {
                     repeating: GridItem(.flexible(), spacing: 12),
                     count: usesTwoColumns ? 2 : 1
                 ),
-                spacing: usesTwoColumns ? 12 : 8
+                spacing: usesTwoColumns ? 10 : 6
             ) {
                 ForEach(MathTopic.allCases) { option in
                     Button {
@@ -218,7 +218,7 @@ struct OnboardingView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, isPad ? 26 : 16)
-                        .frame(maxWidth: .infinity, minHeight: isPad ? 72 : 54)
+                        .frame(maxWidth: .infinity, minHeight: isPad ? 58 : 46)
                         .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     .buttonStyle(OnboardingOptionStyle())
@@ -353,9 +353,12 @@ struct OnboardingView: View {
         let minimumComfortableScale: CGFloat = isPad ? 0.82 : 0.78
         let allowsTwoLines = requiredScale < minimumComfortableScale
         let scale = max(requiredScale, minimumComfortableScale)
+        // Keep the choice cards close to their two text lines. The previous
+        // fixed heights added so much air above and below every option that the
+        // third screen grew into the hanging elephant.
         let rowHeight: CGFloat = isPad
-            ? (allowsTwoLines ? 120 : 94)
-            : (allowsTwoLines ? 96 : 70)
+            ? (allowsTwoLines ? 92 : 66)
+            : (allowsTwoLines ? 80 : 52)
 
         return (scale, allowsTwoLines, rowHeight)
     }

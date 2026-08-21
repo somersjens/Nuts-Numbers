@@ -8,7 +8,7 @@
 //
 //  It never re-implements a rule: every tap is forwarded to the engine, and the
 //  engine's answer decides what happens. That is what keeps rapid tapping from
-//  scoring twice or costing two lives.
+//  scoring twice.
 //
 
 import SwiftUI
@@ -57,14 +57,12 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var round: GameRound?
     @Published private(set) var roundNumber = 0
     @Published private(set) var cards = 0
-    @Published private(set) var livesRemaining = GameConfig.startingLives
     @Published private(set) var selectedOptionID: UUID?
     @Published private(set) var isGameOver = false
     @Published private(set) var result = SessionResult()
     @Published private(set) var hasBonusFishPower = false
     @Published private(set) var correctStreak = 0
     @Published private(set) var isStreakBoostActive = false
-    @Published private(set) var isHeartFishAvailable = false
     /// Changes each time the streak boost starts, allowing the view to replay
     /// its bubble-style announcement even after an earlier streak was broken.
     @Published private(set) var streakAnnouncementID = 0
@@ -80,11 +78,15 @@ final class GameViewModel: ObservableObject {
     private var generation = 0
     private var hasRecordedResult = false
     private var isPaused = false
+    /// The walkthrough teaches every control before spending any of the
+    /// player's level time. This hold is independent from the pause card: the
+    /// machine remains interactive while the countdown stays still.
+    private var isTutorialClockPaused = false
     /// A round-resolution callback that became due while the pause card was
     /// covering the reef. It runs once on continue instead of behind the card.
     private var pendingScheduledWork: (() -> Void)?
     /// The rules award cards immediately, while the HUD waits until the
-    /// matching currency bubble physically reaches it.
+    /// matching currency nut physically reaches it.
     private var pendingScoreRewards: [Int] = []
     private var clockTimer: Timer?
 
@@ -114,6 +116,11 @@ final class GameViewModel: ObservableObject {
         Task { [weak self] in
             guard let self, let prepared = await self.preparationTask?.value else { return }
             guard self.engine.state == .intro else { return }
+            // Publish the restored progress before publishing the pile. The
+            // playfield derives its remaining nuts from this number; doing it
+            // in the opposite order briefly rendered the complete pile and
+            // then made the already-collected nuts disappear on Continue.
+            self.roundNumber = prepared.engine.roundNumber
             self.clawPuzzle = prepared.engine.clawPuzzle
             self.configureTimer(from: prepared.pausedSession)
         }
@@ -150,7 +157,6 @@ final class GameViewModel: ObservableObject {
         engine = prepared.engine
         preparationTask = nil
         isPaused = false
-        engine.appliesWrongAnswerPenalty = false
         configureTimer(from: prepared.pausedSession)
         startClock()
         prepareHaptics()
@@ -212,7 +218,7 @@ final class GameViewModel: ObservableObject {
     }
 
     /// Continues the in-memory run after its pause card. No round is rebuilt,
-    /// so the player returns to the exact question, score and remaining lives.
+    /// so the player returns to the exact question, score and remaining time.
     func resume() {
         guard engine.state != .intro, engine.state != .gameOver else { return }
         isPaused = false
@@ -269,7 +275,7 @@ final class GameViewModel: ObservableObject {
         preparationTask = nil
         hasRecordedResult = false
         isPaused = false
-        engine.appliesWrongAnswerPenalty = false
+        isTutorialClockPaused = false
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
         hasBonusFishPower = false
@@ -313,19 +319,10 @@ final class GameViewModel: ObservableObject {
             }
             haptic(.success)
             delay = GameConfig.nextRoundDelay.correct
-        case .wrong(_, let lostHalfLife):
+        case .wrong:
             sync()
             onAnswerResolved?(false, false)
             AppAudio.shared.playWrong()
-            // The tutorial's free attempt costs nothing, so it must not sound
-            // like it did: only the plain "not that one" note plays there.
-            if engine.appliesWrongAnswerPenalty {
-                if lostHalfLife {
-                    AppAudio.shared.playHalfLife()
-                } else {
-                    AppAudio.shared.playLifeLost()
-                }
-            }
             haptic(.error)
             delay = GameConfig.nextRoundDelay.wrong
         case .ignored:
@@ -377,17 +374,10 @@ final class GameViewModel: ObservableObject {
             }
             haptic(.success)
             delay = GameConfig.nextRoundDelay.correct
-        case .wrong(_, let lostHalfLife):
+        case .wrong:
             sync()
             onAnswerResolved?(false, false)
             AppAudio.shared.playWrong()
-            if engine.appliesWrongAnswerPenalty {
-                if lostHalfLife {
-                    AppAudio.shared.playHalfLife()
-                } else {
-                    AppAudio.shared.playLifeLost()
-                }
-            }
             haptic(.error)
             delay = GameConfig.nextRoundDelay.wrong
         case .ignored:
@@ -414,7 +404,7 @@ final class GameViewModel: ObservableObject {
         }
     }
 
-    /// Called by the reef at the exact frame a collected currency bubble lands
+    /// Called by the reef at the exact frame a collected currency nut lands
     /// on the HUD icon.
     func scoreBubbleArrived() {
         guard !pendingScoreRewards.isEmpty else { return }
@@ -432,47 +422,22 @@ final class GameViewModel: ObservableObject {
         haptic(.rigid)
     }
 
-    /// The heart fish is a direct life reward, not a power held for the next
-    /// answer, so the engine applies it immediately.
-    @discardableResult
-    func catchHeartFish() -> Bool {
-        let restoredHalves = engine.catchHeartFish()
-        guard restoredHalves > 0 else { return false }
-        PlaytimeTracker.shared.registerInteraction()
-        sync()
-        AppAudio.shared.playLifeRestored()
-        haptic(.success)
-        return true
-    }
-
-    func missHeartFish() {
-        engine.missHeartFish()
-        sync()
-    }
-
     // MARK: - Tutorial
 
-    /// The tutorial's free attempt: a wrong bubble may be tried once without
-    /// paying for it. The rule is untouched — only waived, and only there.
-    func setWrongAnswerPenalty(_ applies: Bool) {
-        engine.appliesWrongAnswerPenalty = applies
-    }
-
-    /// The tutorial's heart fish gives a whole life back, as its step promises.
-    func setHeartFishRestoresWholeLife(_ restores: Bool) {
-        engine.heartFishRestoresWholeLife = restores
-    }
-
-    /// Arms the heart fish directly, for the step that teaches it.
-    func makeHeartFishAvailable() {
-        engine.makeHeartFishAvailable()
-        sync()
-    }
-
-    /// Whether a caught heart fish would hand back a whole life right now, so
-    /// the swimming fish can carry a full heart rather than a half one.
-    var heartFishGivesWholeLife: Bool {
-        engine.heartFishRestoresWholeLife || livesRemaining <= 0.5
+    /// Holds or releases only the countdown while tutorial gameplay remains
+    /// interactive. Releasing after the final five-second clock explanation is
+    /// the single point at which a taught level begins spending time.
+    func setTutorialClockPaused(_ paused: Bool, resumeClock: Bool = true) {
+        guard isTutorialClockPaused != paused else { return }
+        isTutorialClockPaused = paused
+        if paused {
+            stopClock()
+        } else if resumeClock,
+                  !isPaused,
+                  engine.state != .intro,
+                  engine.state != .gameOver {
+            startClock()
+        }
     }
 
     // MARK: - Finishing
@@ -544,7 +509,6 @@ final class GameViewModel: ObservableObject {
         round = engine.round
         roundNumber = engine.roundNumber
         if pendingScoreRewards.isEmpty { cards = engine.cards }
-        livesRemaining = engine.livesRemaining
         selectedOptionID = engine.selectedOptionID
         // Publish the completed result before the game-over flag. GameView
         // uses its reason to decide whether to play the reef finale first.
@@ -552,7 +516,6 @@ final class GameViewModel: ObservableObject {
         isGameOver = engine.state == .gameOver
         correctStreak = engine.correctStreak
         isStreakBoostActive = engine.isStreakBoostActive
-        isHeartFishAvailable = engine.isHeartFishAvailable
         clawPuzzle = engine.clawPuzzle
         AppAudio.shared.setGameplayRate(1)
     }
@@ -566,6 +529,7 @@ final class GameViewModel: ObservableObject {
 
     private func startClock() {
         stopClock()
+        guard !isTutorialClockPaused else { return }
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tickClock() }
         }
@@ -580,6 +544,7 @@ final class GameViewModel: ObservableObject {
 
     private func tickClock() {
         guard !isPaused,
+              !isTutorialClockPaused,
               engine.state != .intro,
               engine.state != .gameOver else { return }
         clock.advance(by: 0.1)
@@ -605,16 +570,6 @@ final class GameViewModel: ObservableObject {
 
     func trailerSeedCorrectStreak(_ value: Int) {
         engine.trailerSeedCorrectStreak(value)
-        sync()
-    }
-
-    func trailerSetLifeHalves(_ halves: Int) {
-        engine.trailerSetLifeHalves(halves)
-        sync()
-    }
-
-    func trailerDamageForLifeFishDemo(halves: Int = 2) {
-        engine.trailerDamageForLifeFishDemo(halves: halves)
         sync()
     }
 

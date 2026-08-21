@@ -3,11 +3,11 @@
 //  Math Memory
 //
 //  Leaving a level part-way through pauses it rather than throwing it away.
-//  The cards collected so far, the lives left and the round reached are kept,
+//  The cards collected so far, the time left and the round reached are kept,
 //  so re-entering that level continues where the player stopped.
 //
 //  Only one session per level is kept, and it is cleared the moment the level
-//  is actually finished (out of lives, or the last round played).
+//  is actually finished (time expired, or the last round played).
 //
 
 import Foundation
@@ -21,7 +21,6 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     public let boardID: String
     public let roundNumber: Int
     public let cards: Int
-    public let lifeHalves: Int
     public let correctAnswers: Int
     public let wrongAnswers: Int
     public let doubleCardsAnswered: Int
@@ -31,21 +30,20 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     /// decodable and simply resume without an active streak/aura.
     public let correctStreak: Int?
     public let hasBonusFishPower: Bool?
-    /// Optional for compatibility with sessions saved before heart fish.
-    public let heartFishProgress: Int?
-    public let heartFishTarget: Int?
-    public let isHeartFishAvailable: Bool?
     /// Seconds left on the claw clock. Missing on sessions saved before the
     /// claw game, which resume with a fresh full timer.
     public let remainingTime: Double?
     /// Seed that rebuilds the exact sum list and nut pile. Missing on older
     /// records, which get a new pile for the remaining rounds.
     public let puzzleSeed: UInt64?
+    /// The immutable plan made before play starts: every sum, printed nut and
+    /// physical position. New sessions restore this snapshot directly instead
+    /// of relying on regeneration to happen to produce the same board.
+    public let puzzle: ClawPuzzle?
 
     public init(boardID: String,
                 roundNumber: Int,
                 cards: Int,
-                lifeHalves: Int,
                 correctAnswers: Int,
                 wrongAnswers: Int,
                 doubleCardsAnswered: Int,
@@ -53,15 +51,12 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
                 flamethrowersUsed: Int,
                 correctStreak: Int? = nil,
                 hasBonusFishPower: Bool? = nil,
-                heartFishProgress: Int? = nil,
-                heartFishTarget: Int? = nil,
-                isHeartFishAvailable: Bool? = nil,
                 remainingTime: Double? = nil,
-                puzzleSeed: UInt64? = nil) {
+                puzzleSeed: UInt64? = nil,
+                puzzle: ClawPuzzle? = nil) {
         self.boardID = boardID
         self.roundNumber = roundNumber
         self.cards = cards
-        self.lifeHalves = lifeHalves
         self.correctAnswers = correctAnswers
         self.wrongAnswers = wrongAnswers
         self.doubleCardsAnswered = doubleCardsAnswered
@@ -69,26 +64,20 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
         self.flamethrowersUsed = flamethrowersUsed
         self.correctStreak = correctStreak
         self.hasBonusFishPower = hasBonusFishPower
-        self.heartFishProgress = heartFishProgress
-        self.heartFishTarget = heartFishTarget
-        self.isHeartFishAvailable = isHeartFishAvailable
         self.remainingTime = remainingTime
         self.puzzleSeed = puzzleSeed
+        self.puzzle = puzzle
     }
 
     /// A record is only usable if it describes a session that can still be
-    /// played: lives left, rounds left, and counts that are not nonsense.
+    /// played: time and rounds left, and counts that are not nonsense.
     public var isResumable: Bool {
-        lifeHalves > 0
-            && roundNumber >= 1
+        roundNumber >= 1
             && roundNumber <= GameConfig.maximumRoundCeiling
-            && lifeHalves <= GameConfig.startingLifeHalves
             && cards >= 0
             && correctAnswers >= 0
             && wrongAnswers >= 0
             && (correctStreak ?? 0) >= 0
-            && (heartFishProgress ?? 0) >= 0
-            && (heartFishTarget ?? GameConfig.heartFishCorrectAnswers) >= 1
             && (remainingTime ?? 1) > 0
     }
 }

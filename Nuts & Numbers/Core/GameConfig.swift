@@ -3,7 +3,7 @@
 //  Elephant Challenge: Math Memory
 //
 //  The single source of truth for every tunable gameplay number. Nothing in the
-//  game may hardcode a life count, a probability, a duration or an unlock
+//  game may hardcode a probability, a duration or an unlock
 //  requirement — it is declared here and read from here.
 //
 
@@ -26,27 +26,13 @@ nonisolated public enum GameConfig {
     /// Wrong answers a question must supply: every bubble but the right one.
     public static var distractorCount: Int { answerBubbleCount - 1 }
 
-    // MARK: Lives
-
-    /// Lives a session starts with. Lives are tracked internally in half units.
-    public static let startingLives = 3.0
-    /// A wrong answer costs one whole life.
-    public static let wrongAnswerCost = 1.0
-
-    /// Internal granularity: lives are stored as an integer number of halves,
-    /// so no floating point rounding can ever strand the player on 0.4999
-    /// lives.
-    public static let lifeGranularity = 2
-    public static var startingLifeHalves: Int { Int(startingLives * Double(lifeGranularity)) }
-    public static var wrongAnswerCostHalves: Int { Int(wrongAnswerCost * Double(lifeGranularity)) }
-
     // MARK: Session
 
     /// A session ends when the board's own target is reached (`LevelBoard
-    /// .maximum`) or the lives run out — never on a flat round count, which is
-    /// what used to stop a 50-bubble board at around 24.
+    /// .maximum`) or its clock runs out — never on a flat round count, which is
+    /// what used to stop a 50-nut board at around 24.
     ///
-    /// Every round pays at least one bubble, so a board can always be filled
+    /// Every round pays at least one nut, so a board can always be filled
     /// within `maximum` rounds. This is the ceiling across every board, used
     /// only to sanity-check a stored session.
     public static var maximumRoundCeiling: Int { supermixLevelMaximum }
@@ -63,25 +49,10 @@ nonisolated public enum GameConfig {
     /// The reef already has an active base tempo. A streak adds a noticeable
     /// push without making the denser answer stream overwhelming.
     public static let streakSpeedMultiplier = 1.3
-    /// The first mistake while the streak boost is active breaks the streak,
-    /// but only costs half a life instead of a full one.
-    public static let streakWrongAnswerCostHalves = 1
-
     /// A 2x fish swims across the level this many times. Catching it doubles
     /// the next correct answer; a missed fish simply leaves the screen.
     public static let bonusFishCount = 1...3
     public static let bonusFishMultiplier = 2
-
-    /// Once a player has been hurt, this many correct answers earn a chance to
-    /// catch a heart fish. Missing it does not throw the work away: four more
-    /// correct answers bring it back.
-    public static let heartFishCorrectAnswers = 8
-    public static let heartFishRetryCorrectAnswers = 4
-    /// A normal catch restores half a life. At the last half-heart it restores
-    /// a whole life, giving the player a meaningful comeback without ever
-    /// exceeding the three-life starting capacity.
-    public static let heartFishRecoveryHalves = 1
-    public static let criticalHeartFishRecoveryHalves = 2
 
     // MARK: Timing (seconds)
     //
@@ -140,19 +111,19 @@ nonisolated public enum GameConfig {
 
     /// Seconds on the clock for each nut the board asks the player to collect.
     public static let clawSecondsPerCard = 10.0
-    /// Extra nuts that are never a real answer. Each printed value in the
-    /// pile is unique, so two open shells never show the same number.
-    public static let clawDistractorRatio = 0.20
+    /// Every shell in the initial pile belongs to one of the level's sums. A
+    /// zero ratio deliberately leaves no decoys behind after the final answer.
+    public static let clawDistractorRatio = 0.0
     /// Share of the real answer nuts that pay double when collected correctly.
     public static let clawGoldRatio = 0.10
 
     // MARK: Level progress
 
-    /// What a full score is worth depends on the chosen exercise. Supermix is
-    /// intentionally the only route that goes all the way to 50 bubbles.
-    public static let orderLevelMaximum = 20
-    public static let randomLevelMaximum = 30
-    public static let mixedLevelMaximum = 40
+    /// How many answer nuts fill a board depends on the chosen exercise.
+    /// Supermix remains the only route that goes all the way to 50 nuts.
+    public static let orderLevelMaximum = 25
+    public static let randomLevelMaximum = 35
+    public static let mixedLevelMaximum = 45
     public static let supermixLevelMaximum = 50
 
     /// Default used by views before they receive their concrete board.

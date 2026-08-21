@@ -12,23 +12,30 @@ import SwiftUI
 import UIKit
 #endif
 
-/// The game's currency. A player collects bubbles: in the reef, on the menu
+/// The game's currency. A player collects nuts: in the reef, on the menu
 /// totals, on the level cards and in the shop. One glyph, used everywhere, so
 /// the same thing is never drawn two ways.
 enum Currency {
-    static let icon = "bubble"
+    static let icon = "currency_nut"
 }
 
-/// The artwork used anywhere a bubble count is shown. The source PNG is
+/// The artwork used anywhere a nut count is shown. The source PNG is
 /// rendered as a template so it keeps following each character's theme color.
 struct CurrencyIcon: View {
     let size: CGFloat
+
+    /// The source artwork contains generous transparent breathing room. Keep
+    /// the requested layout footprint stable for counters and flight anchors,
+    /// while making the visible nut comfortably larger everywhere it appears.
+    private let artworkScale: CGFloat = 1.86
 
     var body: some View {
         Image(Currency.icon)
             .renderingMode(.template)
             .resizable()
             .scaledToFit()
+            .frame(width: size, height: size)
+            .scaleEffect(artworkScale)
             .frame(width: size, height: size)
     }
 }
@@ -147,22 +154,58 @@ struct AnimalCharacter: Identifiable, Equatable {
     }
 }
 
-/// Square portrait treatment used by the compact menu tile and the level
-/// start/pause card. The elephant deliberately grows past the top edge so its
-/// hanging claw is cropped like the app icon; the other catalog portraits keep
-/// their established fit.
+/// The elephant body rebuilt from the same four loose layers as the claw game.
+/// `1_bottom` contains a tiny stray remnant at the very top of its transparent
+/// canvas, so that unused area is masked before the layers are joined. The claw
+/// layer is deliberately absent.
+struct HooklessElephantArtwork: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            ZStack {
+                elephantLayer("1_bottom")
+                    .mask(alignment: .bottom) {
+                        Rectangle().frame(height: side * 0.76)
+                    }
+                elephantLayer("1_left_arm")
+                elephantLayer("1_right_arm")
+                elephantLayer("1_head")
+            }
+            .frame(width: side, height: side)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+
+    private func elephantLayer(_ name: String) -> some View {
+        Image(name)
+            .resizable()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Square portrait treatment used by compact character slots. The main-menu
+/// elephant can keep its complete hanging artwork, while cards may explicitly
+/// request the body-only composition above.
 struct CroppedCharacterPortrait: View {
     let character: AnimalCharacter
     var elephantScale: CGFloat = 1.08
     var elephantYOffset: CGFloat = -0.045
     var otherCharacterScale: CGFloat = 1
+    var usesHooklessElephant = false
 
     var body: some View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height)
-            character.artwork
-                .resizable()
-                .scaledToFit()
+            Group {
+                if character.id == "elephant", usesHooklessElephant {
+                    HooklessElephantArtwork()
+                } else {
+                    character.artwork
+                        .resizable()
+                        .scaledToFit()
+                }
+            }
                 .frame(width: side, height: side)
                 .scaleEffect(character.id == "elephant" ? elephantScale : otherCharacterScale)
                 .offset(y: character.id == "elephant" ? side * elephantYOffset : 0)

@@ -248,32 +248,20 @@ nonisolated public enum MathScaling {
 /// straight from the session's step counter — no randomness at all — so the
 /// same level always walks the same path.
 ///
-/// Addition and subtraction run three groups of five sums (fifteen per lap)
-/// and then start over; the tables simply cycle ×1 … ×12.
+/// Addition and subtraction keep one uninterrupted arithmetic progression for
+/// the full session. The tables still practise the conventional ×1 … ×12 lap.
 nonisolated public enum PracticeRoute {
-    public static let groupSize = 5
-    /// What each group of five adds to the starting point, so the second and
-    /// third lap are not a literal repeat of the first.
-    public static let groupShifts = [0, 1, 3]
-
-    public static var lapLength: Int { groupSize * groupShifts.count }
-
-    private static func shift(_ step: Int) -> Int {
-        groupShifts[(step / groupSize) % groupShifts.count]
-    }
-
-    private static func position(_ step: Int) -> Int { step % groupSize }
-
-    /// The other operand of `n + ?`. For n = 2 this walks 2+2 … 2+10, then
-    /// 2+3 … 2+11, then 2+5 … 2+13.
+    /// The other operand of `n + ?`. For n = 2 this walks 2, 4, 6, 8, …
+    /// without switching to the odd numbers after five questions. Continuing
+    /// for the whole board also keeps every answer in Reeks unique.
     public static func additionOther(number n: Int, step: Int) -> Int {
-        n + shift(step) + position(step) * n
+        max(1, n) * (max(0, step) + 1)
     }
 
-    /// The starting number of `? − n`. For n = 2 this walks 12−2 … 4−2, then
-    /// 13−2 … 5−2, then 15−2 … 7−2.
+    /// Subtraction follows the same predictable step size: for n = 2 the
+    /// results are 2, 4, 6, 8, … throughout the complete board.
     public static func subtractionStart(number n: Int, step: Int) -> Int {
-        max(n, 6 * n + shift(step) - position(step) * n)
+        max(1, n) * (max(0, step) + 2)
     }
 
     /// The multiplier of `t × ?`, cycling 1 … 12 forever.

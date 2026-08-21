@@ -49,7 +49,7 @@ public final class InMemoryKeyValueStore: KeyValueStore {
 /// Random or Mixed are separate exercises, and on Supermix each combination of
 /// operations is separate again. Every one of those keeps its own best and its
 /// own "reached the maximum" tally. Targets depend on the chosen exercise;
-/// only Supermix reaches 50 bubbles.
+/// only Supermix reaches 50 nuts.
 nonisolated public struct LevelBoard: Hashable, Sendable {
     public let level: MathLevel
     /// Only meaningful on Supermix; ignored for every single-operation topic.
@@ -188,7 +188,7 @@ public final class ProgressStore {
 
     /// Version 3 gave every level three scoreboards — one per answer-card
     /// count — each aiming at its own target (20, 30, 40). There is now one
-    /// board per level and mode, always five bubbles, always aiming at 50.
+    /// board per level and mode, always five answers, always aiming at 50 nuts.
     ///
     /// The three old boards are folded into one by keeping the **highest** of
     /// them. Summing them would invent a score the player never reached in a
@@ -231,7 +231,7 @@ public final class ProgressStore {
 
         // A run paused mid-level belonged to a board that no longer exists, and
         // was played against a different target on a different number of
-        // bubbles. There is nothing coherent to resume, so the records go.
+        // answers. There is nothing coherent to resume, so the records go.
         defaults.removeObject(forKey: PausedSessionStore.key)
         defaults.removeObject(forKey: Key.legacySelectedCardCount)
     }
@@ -337,7 +337,7 @@ public final class ProgressStore {
     public func bestScore(_ board: LevelBoard) -> Int {
         // Existing saves may contain scores earned before this board received
         // its shorter target. Keep them for syncing, but never present more
-        // bubbles than the board can now hold.
+        // nuts than the board can now hold.
         min(mergedValue(forKey: Key.best(board)), board.maximum)
     }
 

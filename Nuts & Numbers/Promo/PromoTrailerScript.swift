@@ -27,7 +27,7 @@ enum PromoTrailerScript {
                   wrongs: ["3", "4", "6", "7"])
     }
 
-    /// Final beat after the life fish — collecting this triggers the finale.
+    /// Final answer beat; collecting it triggers the finale.
     static func finalRound(number: Int = 3) -> GameRound {
         makeRound(number: number,
                   prompt: "4 × 5 = ?",
@@ -127,7 +127,7 @@ enum PromoTrailerScript {
     }
 
     static let captions: [Caption] = [
-        Caption(text: "Avoid the wrong bubbles", start: 0.10, end: 4.8),
+        Caption(text: "Avoid the wrong answers", start: 0.10, end: 4.8),
         Caption(text: "Unlock new characters", start: 5.2, end: 10.85),
         Caption(text: "Catch helper fish in time", start: 11.30, end: 16.25),
         Caption(text: "And learn math", start: 16.70, end: 20.8)
@@ -141,7 +141,7 @@ enum PromoTrailerScript {
         let avoidEnd = min(4.8, unlock - gap)
         let unlockEnd = min(unlock + unlockCaptionDuration, catchStart - gap)
         return [
-            Caption(text: "Avoid the wrong bubbles", start: 0.10, end: max(0.10, avoidEnd)),
+            Caption(text: "Avoid the wrong answers", start: 0.10, end: max(0.10, avoidEnd)),
             Caption(text: "Unlock new characters", start: unlock, end: max(unlock + 0.20, unlockEnd)),
             Caption(text: "Catch helper fish in time", start: catchStart, end: learnStart - gap),
             Caption(text: "And learn math", start: learnStart, end: 20.8)
@@ -191,10 +191,6 @@ enum PromoTrailerScript {
     static var bonusAssistEnd: TimeInterval { usesPad ? 14.6 : 14.6 }
     static var bonusBlendStart: TimeInterval { usesPad ? 11.8 : 11.8 }
     static var bonusBlendEnd: TimeInterval { usesPad ? 13.45 : 13.45 }
-    static var lifeAssistStart: TimeInterval { usesPad ? 13.7 : 13.7 }
-    static var lifeAssistEnd: TimeInterval { usesPad ? 15.5 : 15.5 }
-    static var lifeBlendStart: TimeInterval { usesPad ? 13.6 : 13.6 }
-    static var lifeBlendEnd: TimeInterval { usesPad ? 15.3 : 15.3 }
 
     static var finaleFallbackAt: TimeInterval { usesPad ? 21.8 : 21.8 }
     static var finaleForceAt: TimeInterval { usesPad ? 22.6 : 22.6 }
@@ -334,7 +330,6 @@ enum PromoTrailerScript {
 
     static let spawnBonusFishAt: TimeInterval = 11.70
     static let seedStreakAt: TimeInterval = 10.55
-    static let spawnLifeFishAt: TimeInterval = 13.55
     static let installFinalRoundAt: TimeInterval = 11.72
     static let forceCompletionAfterFinal: TimeInterval = 0.12
     /// Fallback only — icon normally waits for the swim-out callback.

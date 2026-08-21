@@ -47,18 +47,18 @@ enum ClawConfig {
     static let dropGravity: CGFloat = 2400
 
     static let entranceDuration = 0.85
-    static let completionDuration = 2.12
+    static let completionDuration = 2.88
     static let timeUpDuration = 1.35
     /// The loaded trolley travels from the collection side to the exact centre
     /// before it stops. Braking there sends the elephant to its left apex.
-    static let celebrationCenterArrival = 0.52
+    static let celebrationCenterArrival = 0.68
     /// The hook stays parked while the elephant accelerates back to the right.
     /// Release happens during that swing, not at its apex, so the body carries
     /// real horizontal speed into the somersault.
-    static let celebrationRelease = 1.02
-    static let celebrationMouthArrival = 1.70
-    static let celebrationLeftAngle: CGFloat = 0.30
-    static let celebrationReleaseAngle: CGFloat = -0.22
+    static let celebrationRelease = 1.68
+    static let celebrationMouthArrival = 2.43
+    static let celebrationLeftAngle: CGFloat = 0.68
+    static let celebrationReleaseAngle: CGFloat = -0.58
     static let timeUpRelease = 0.58
 
     /// The four animated elephant layers share one square canvas. Keep the
@@ -217,6 +217,16 @@ struct ClawTutorialPlan: Equatable {
     var isActive = false
     var wantsMove = false
     var suppressesGrab = false
+    /// The answer ring is a teaching aid, never an always-on answer helper.
+    var highlightsCorrectNut = false
+    /// Pulse the physical controls that matter for the current instruction.
+    var highlightsJoystick = false
+    var highlightsGrab = false
+    /// Point out the two-digit score well after the first successful grab.
+    var highlightsScore = false
+    /// The timer lives in the HUD rather than this stage, but travels in the
+    /// same plan so every tutorial focus changes in one transaction.
+    var highlightsTimer = false
 }
 
 enum ClawTutorialEvent {
@@ -482,7 +492,6 @@ final class ClawEngine: ObservableObject {
                                                                          pile: pileRect.size))
         }
         refreshReachableCovering()
-        ensureTargetGrabable()
         refreshHighlights()
     }
 
@@ -492,7 +501,6 @@ final class ClawEngine: ObservableObject {
         currentTargetNutID = targetNutID
         currentAnswer = question.map { AnswerValue($0.correctAnswer) }
         promptPulse = 1
-        ensureTargetGrabable()
         refreshHighlights()
     }
 
@@ -515,6 +523,8 @@ final class ClawEngine: ObservableObject {
     func applyTutorial(_ plan: ClawTutorialPlan) {
         tutorialPlan = plan
         hasReportedMove = false
+        refreshHighlights()
+        nutSignal.send()
     }
 
     func setInput(_ value: CGFloat) {
@@ -922,10 +932,13 @@ final class ClawEngine: ObservableObject {
             let p = min(1, max(0,
                 (phaseAge - ClawConfig.celebrationCenterArrival) / span
             ))
+            let swingProgress = 1 - cos(p * .pi / 2)
             trolleyX = center
-            // Starting quadratically from the left apex gives zero initial
-            // speed and a non-zero rightward speed at the release frame.
-            swingAngle = leftAngle + (releaseAngle - leftAngle) * CGFloat(p * p)
+            // One uninterrupted arc crosses from the broad left apex to an
+            // almost equally broad right release. The quarter-cosine starts at
+            // rest but deliberately retains rightward speed at release.
+            swingAngle = leftAngle
+                + (releaseAngle - leftAngle) * CGFloat(swingProgress)
         } else {
             trolleyX = center
             let recoil = smoothStep(min(1, (phaseAge - ClawConfig.celebrationRelease) / 0.30))
@@ -959,7 +972,6 @@ final class ClawEngine: ObservableObject {
         phaseAge = 0
         if next == .idle {
             trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
-            ensureTargetGrabable()
             refreshHighlights()
         }
         if next == .returning {
@@ -1106,7 +1118,7 @@ final class ClawEngine: ObservableObject {
     }
 
     private func refreshHighlights() {
-        guard let currentAnswer else {
+        guard tutorialPlan.highlightsCorrectNut, let currentAnswer else {
             highlightedNutIDs = []
             return
         }
@@ -1126,56 +1138,6 @@ final class ClawEngine: ObservableObject {
             return
         }
         highlightedNutIDs = []
-    }
-
-    /// If the assigned shell is buried, swap it onto a nut the claw can
-    /// actually take — same printed value first, otherwise a decoy or later
-    /// sum. The round still points at the same id; only the slot moves.
-    private func ensureTargetGrabable() {
-        guard heldNutID == nil else { return }
-        guard let targetID = currentTargetNutID,
-              let targetIndex = nuts.firstIndex(where: { $0.id == targetID && $0.isPresent })
-        else { return }
-        let specs = nuts.filter(\.isPresent).map(\.spec)
-        if ClawPuzzle.isGrabable(nuts[targetIndex].spec, among: specs) { return }
-
-        let partners = nuts.indices.filter { index in
-            nuts[index].isPresent
-                && nuts[index].id != targetID
-                && ClawPuzzle.isGrabable(nuts[index].spec, among: specs)
-        }
-        guard let partner = partners.min(by: { a, b in
-            let ra = slotPreference(nuts[a])
-            let rb = slotPreference(nuts[b])
-            if ra.0 != rb.0 { return ra.0 < rb.0 }
-            if ra.1 != rb.1 { return ra.1 < rb.1 }
-            return ra.2 < rb.2
-        }) else { return }
-        swapRuntimeSlots(targetIndex, partner)
-    }
-
-    private func slotPreference(_ nut: ClawNutRuntime) -> (Int, Int, Double) {
-        let sameValue = currentAnswer.map { AnswerValue(nut.spec.text) == $0 } == true ? 0 : 1
-        let decoy = nut.spec.isDistractor ? 0 : 1
-        return (sameValue, decoy, nut.spec.position.y)
-    }
-
-    private func swapRuntimeSlots(_ i: Int, _ j: Int) {
-        let position = nuts[i].spec.position
-        let radius = nuts[i].spec.radius
-        nuts[i].spec.position = nuts[j].spec.position
-        nuts[i].spec.radius = nuts[j].spec.radius
-        nuts[j].spec.position = position
-        nuts[j].spec.radius = radius
-        let rest = nuts[i].rest
-        let screen = nuts[i].position
-        let pixels = nuts[i].pixelRadius
-        nuts[i].rest = nuts[j].rest
-        nuts[i].position = nuts[j].position
-        nuts[i].pixelRadius = nuts[j].pixelRadius
-        nuts[j].rest = rest
-        nuts[j].position = screen
-        nuts[j].pixelRadius = pixels
     }
 
     /// Centre of the open top — the chute mouth the nut must enter and leave.
@@ -1437,7 +1399,6 @@ struct ClawPlayfield: View {
                     .position(x: geo.panel.midX, y: geo.panel.midY)
             }
             .frame(width: size.width, height: size.height)
-            .simultaneousGesture(screenGrabSwipe)
             .environment(\.layoutDirection, .leftToRight)
             .onAppear {
                 bindEngine()
@@ -1480,6 +1441,17 @@ struct ClawPlayfield: View {
         .onChange(of: puzzle?.seed) { _, _ in
             engine.install(puzzle: puzzle,
                            collected: collectedAnswers,
+                           question: round?.question,
+                           targetNutID: round?.targetNutID)
+        }
+        // Preparation deliberately shows the complete pile behind the intro
+        // card. A resumed session receives its saved round only when Begin
+        // installs the prepared engine; the puzzle seed itself is unchanged,
+        // so observing only that seed left all already-collected nuts visible.
+        // Rebuild from the immutable plan whenever this count catches up.
+        .onChange(of: collectedAnswers) { _, collected in
+            engine.install(puzzle: puzzle,
+                           collected: collected,
                            question: round?.question,
                            targetNutID: round?.targetNutID)
         }
@@ -1577,17 +1549,6 @@ struct ClawPlayfield: View {
             }
     }
 
-    private var screenGrabSwipe: some Gesture {
-        DragGesture(minimumDistance: ClawConfig.screenGrabSwipe)
-            .onChanged { value in
-                guard isDownwardSwipe(value) else { return }
-                triggerScreenGrab()
-            }
-            .onEnded { _ in
-                didTriggerScreenGrab = false
-            }
-    }
-
     private func triggerScreenGrab() {
         guard !didTriggerScreenGrab else { return }
         didTriggerScreenGrab = true
@@ -1678,7 +1639,8 @@ struct ClawPlayfield: View {
     ) -> some View {
         let height = max(0, size.height - geo.bin.maxY + 1)
         return CatchBinLowerContinuationView(
-            sourceEndY: CatchBinArtwork.visibleSourceHeight(for: maximumRounds)
+            sourceEndY: CatchBinArtwork.visibleSourceHeight(for: maximumRounds),
+            accentColor: palette.character.color
         )
         .frame(width: geo.bin.width, height: height)
         .position(x: geo.bin.midX, y: geo.bin.maxY - 1 + height / 2)
@@ -1817,17 +1779,67 @@ struct ClawPlayfield: View {
                 .position(x: layout.joystickCenter.x,
                           y: layout.joystickCenter.y)
 
+                if tutorialPlan.highlightsJoystick {
+                    ClawFrameDrivenView(signal: engine.frameSignal) {
+                        let knob = layout.joystickKnobCenter(input: engine.joystickInput)
+                        TutorialControlHint(kind: .joystick,
+                                            color: palette.character.color,
+                                            deepColor: palette.character.deepColor,
+                                            clock: engine.motionClock,
+                                            reduceMotion: reduceMotion,
+                                            isPad: isPad)
+                            // The source artwork has a large transparent canvas.
+                            // Aim at the red knob and follow its actual tilt.
+                            .frame(width: layout.joystickKnobDiameter,
+                                   height: layout.joystickKnobDiameter)
+                            .position(x: knob.x, y: knob.y)
+                    }
+                    .transaction { $0.animation = nil }
+                }
+
                 ClawPanelScore(score: score, isPad: isPad, palette: palette)
                     .frame(width: layout.scoreWidth,
                            height: layout.scoreHeight)
                     .position(x: layout.scoreCenter.x,
                               y: layout.scoreCenter.y)
 
+                if tutorialPlan.highlightsScore {
+                    ClawFrameDrivenView(signal: engine.frameSignal) {
+                        TutorialPanelHint(color: palette.character.color,
+                                          deepColor: palette.character.deepColor,
+                                          clock: engine.motionClock,
+                                          reduceMotion: reduceMotion,
+                                          isPad: isPad)
+                    }
+                    .frame(width: layout.scoreHintFrame.width,
+                           height: layout.scoreHintFrame.height)
+                    .position(x: layout.scoreHintFrame.midX,
+                              y: layout.scoreHintFrame.midY)
+                    .transaction { $0.animation = nil }
+                }
+
                 ClawFrameDrivenView(signal: engine.controlSignal) {
                     grabButton(side: layout.grabSide)
                 }
+                .frame(width: layout.grabSide, height: layout.grabSide)
                 .position(x: layout.grabCenter.x,
                           y: layout.grabCenter.y)
+
+                if tutorialPlan.highlightsGrab {
+                    ClawFrameDrivenView(signal: engine.frameSignal) {
+                        TutorialControlHint(kind: .grab,
+                                            color: palette.character.color,
+                                            deepColor: palette.character.deepColor,
+                                            clock: engine.motionClock,
+                                            reduceMotion: reduceMotion,
+                                            isPad: isPad)
+                    }
+                    .frame(width: layout.grabHintDiameter,
+                           height: layout.grabHintDiameter)
+                    .position(x: layout.grabCapCenter.x,
+                              y: layout.grabCapCenter.y)
+                    .transaction { $0.animation = nil }
+                }
             }
         }
     }
@@ -1970,6 +1982,128 @@ struct ClawPlayfield: View {
     }
 }
 
+/// A bright, animated pointer around the physical control used by the current
+/// tutorial instruction. It sits outside the control's hit-testing so the hint
+/// can never intercept the tap it is asking for.
+private struct TutorialControlHint: View {
+    enum Kind {
+        case joystick
+        case grab
+    }
+
+    let kind: Kind
+    let color: Color
+    let deepColor: Color
+    let clock: Double
+    let reduceMotion: Bool
+    let isPad: Bool
+
+    var body: some View {
+        let wave = reduceMotion ? 0.5 : (sin(clock * 4.2) + 1) / 2
+        return GeometryReader { proxy in
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.92), lineWidth: isPad ? 5 : 3.5)
+                    .padding(isPad ? 5 : 3)
+                    .scaleEffect(1.02 + wave * 0.10)
+                    .opacity(0.92 - wave * 0.30)
+                    .shadow(color: color.opacity(0.95), radius: isPad ? 14 : 10)
+
+                Circle()
+                    .stroke(color,
+                            style: StrokeStyle(lineWidth: isPad ? 4 : 3,
+                                               lineCap: .round,
+                                               dash: [isPad ? 12 : 9, isPad ? 9 : 7],
+                                               dashPhase: reduceMotion ? 0 : clock * -18))
+                    .scaleEffect(1.08 + wave * 0.06)
+                    .shadow(color: .white.opacity(0.75), radius: 4)
+
+                sparkle(at: CGPoint(x: proxy.size.width * 0.04,
+                                     y: proxy.size.height * 0.16),
+                         phase: wave)
+                sparkle(at: CGPoint(x: proxy.size.width * 0.94,
+                                     y: proxy.size.height * 0.80),
+                         phase: 1 - wave)
+
+                if kind == .joystick {
+                    Image(systemName: "arrow.left.and.right")
+                        .font(.system(size: isPad ? 20 : 14, weight: .black))
+                        .foregroundStyle(.white)
+                        .padding(isPad ? 7 : 5)
+                        .background(deepColor, in: Circle())
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                        .shadow(color: color.opacity(0.9), radius: 8)
+                        .position(x: proxy.size.width * 0.50,
+                                  y: -wave * (isPad ? 5 : 3))
+                } else {
+                    Image(systemName: "hand.point.up.left.fill")
+                        .font(.system(size: isPad ? 31 : 23, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: deepColor.opacity(0.95), radius: 4, y: 2)
+                        .rotationEffect(.degrees(-12 + wave * 8))
+                        .scaleEffect(0.94 + wave * 0.10)
+                        .position(x: proxy.size.width * 0.82,
+                                  y: proxy.size.height * 0.04 - wave * (isPad ? 6 : 4))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func sparkle(at point: CGPoint, phase: Double) -> some View {
+        Image(systemName: "sparkle")
+            .font(.system(size: isPad ? 22 : 16, weight: .black))
+            .foregroundStyle(.white)
+            .shadow(color: color, radius: 5)
+            .scaleEffect(0.72 + phase * 0.48)
+            .opacity(0.58 + phase * 0.42)
+            .position(point)
+    }
+}
+
+/// A compact rounded focus around the recessed score digits. The score pad has
+/// broad transparent artwork margins, so targeting its full canvas would make
+/// the lesson point at empty space instead of the number that just changed.
+private struct TutorialPanelHint: View {
+    let color: Color
+    let deepColor: Color
+    let clock: Double
+    let reduceMotion: Bool
+    let isPad: Bool
+
+    var body: some View {
+        let wave = reduceMotion ? 0.5 : (sin(clock * 4.2) + 1) / 2
+        ZStack {
+            RoundedRectangle(cornerRadius: isPad ? 16 : 11, style: .continuous)
+                .stroke(.white.opacity(0.96), lineWidth: isPad ? 5 : 3.5)
+                .scaleEffect(1.02 + wave * 0.10)
+                .opacity(0.94 - wave * 0.28)
+                .shadow(color: color.opacity(0.95), radius: isPad ? 14 : 10)
+
+            RoundedRectangle(cornerRadius: isPad ? 18 : 13, style: .continuous)
+                .stroke(color,
+                        style: StrokeStyle(lineWidth: isPad ? 4 : 3,
+                                           lineCap: .round,
+                                           dash: [isPad ? 12 : 9, isPad ? 9 : 7],
+                                           dashPhase: reduceMotion ? 0 : clock * -18))
+                .scaleEffect(1.10 + wave * 0.05)
+                .shadow(color: .white.opacity(0.78), radius: 4)
+
+            Image(systemName: "arrow.down")
+                .font(.system(size: isPad ? 20 : 14, weight: .black))
+                .foregroundStyle(.white)
+                .padding(isPad ? 7 : 5)
+                .background(deepColor, in: Circle())
+                .overlay(Circle().stroke(.white, lineWidth: 2))
+                .shadow(color: color.opacity(0.9), radius: 8)
+                .offset(y: -(isPad ? 34 : 25) - wave * (isPad ? 5 : 3))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 /// Optical layout for the three authored control canvases. The reference art
 /// is composed on a 1024-point cabinet; `stageWidth` preserves those ratios on
 /// portrait screens and keeps the group centred instead of stretching it on a
@@ -2003,12 +2137,44 @@ private struct ArcadeControlLayout {
     var joystickCenter: CGPoint {
         CGPoint(x: stageOriginX + stageWidth * 0.27, y: size.height * 0.50)
     }
+    func joystickKnobCenter(input: CGFloat) -> CGPoint {
+        let clamped = max(-1, min(1, input))
+        let angle = clamped * CGFloat(JoystickArt.maxTilt) * .pi / 180
+        let knob = CGPoint(x: joystickWidth * JoystickArt.tutorialKnobCenter.x,
+                           y: joystickHeight * JoystickArt.tutorialKnobCenter.y)
+        let pivot = CGPoint(x: joystickWidth * JoystickArt.pokeAnchor.x,
+                            y: joystickHeight * JoystickArt.pokeAnchor.y)
+        let dx = knob.x - pivot.x
+        let dy = knob.y - pivot.y
+        let rotated = CGPoint(x: pivot.x + dx * cos(angle) - dy * sin(angle),
+                              y: pivot.y + dx * sin(angle) + dy * cos(angle))
+        return CGPoint(x: joystickCenter.x - joystickWidth / 2 + rotated.x,
+                       y: joystickCenter.y - joystickHeight / 2 + rotated.y)
+    }
+    var joystickKnobDiameter: CGFloat {
+        joystickWidth * JoystickArt.tutorialKnobDiameter
+    }
     var scoreCenter: CGPoint {
         CGPoint(x: stageOriginX + stageWidth * 0.568, y: size.height * 0.53)
+    }
+    var scoreHintFrame: CGRect {
+        let sx = scoreWidth / ScorePadArt.canvas.width
+        let sy = scoreHeight / ScorePadArt.canvas.height
+        let well = CGRect(x: scoreCenter.x - scoreWidth / 2 + ScorePadArt.well.minX * sx,
+                          y: scoreCenter.y - scoreHeight / 2 + ScorePadArt.well.minY * sy,
+                          width: ScorePadArt.well.width * sx,
+                          height: ScorePadArt.well.height * sy)
+        let padding = isPad ? max(12, scoreWidth * 0.07) : max(8, scoreWidth * 0.06)
+        return well.insetBy(dx: -padding, dy: -padding * 0.72)
     }
     var grabCenter: CGPoint {
         CGPoint(x: stageOriginX + stageWidth * 0.79, y: size.height * 0.55)
     }
+    var grabCapCenter: CGPoint {
+        CGPoint(x: grabCenter.x,
+                y: grabCenter.y + grabSide * (GrabButtonArt.labelCenterY - 0.5))
+    }
+    var grabHintDiameter: CGFloat { grabSide * 0.62 }
 }
 
 private enum GrabButtonArt {
@@ -2072,7 +2238,7 @@ private struct ClawPanelScore: View {
             }
         }
         .accessibilityIdentifier("progress")
-        .accessibilityLabel(Text(L("game.bubblesCollected \(score)")))
+        .accessibilityLabel(Text(L("game.nutsCollected \(score)")))
         .allowsHitTesting(false)
     }
 
@@ -2213,6 +2379,9 @@ struct ScoreIconCenterPreferenceKey: PreferenceKey {
 private enum JoystickArt {
     static let canvas = CGSize(width: 387, height: 244)
     static let maxTilt: Double = 24
+    /// Measured on `poke.png`: the red knob, excluding the transparent canvas.
+    static let tutorialKnobCenter = UnitPoint(x: 208 / 387, y: 58 / 244)
+    static let tutorialKnobDiameter: CGFloat = 104 / 387
     /// Socket lip — the visible stem pivots here so the foot stays in the ring.
     static let pokeAnchor = UnitPoint(x: 207 / 387, y: 124 / 244)
     /// Midpoint of the baked-in arrows on `base`, used to mirror the light.
@@ -2556,33 +2725,44 @@ private struct ClawElephantView: View {
             let swingDuration = CGFloat(
                 ClawConfig.celebrationRelease - ClawConfig.celebrationCenterArrival
             )
-            let angularVelocity = reduceMotion ? 0 : 2
+            let angularVelocity = reduceMotion ? 0 : CGFloat.pi / 2
                 * (ClawConfig.celebrationReleaseAngle - ClawConfig.celebrationLeftAngle)
                 / max(0.01, swingDuration)
             let pendulumRadius = side * 0.50
             let initialVelocity = CGSize(
                 width: -CGFloat(cos(Double(releaseAngle))) * pendulumRadius * angularVelocity,
-                height: -CGFloat(sin(Double(releaseAngle))) * pendulumRadius * angularVelocity
+                // The release now turns into the downward part of the salto.
+                // Keeping this at zero prevents a brief upward kick first.
+                height: 0
             )
             let mouthVelocity = CGSize(
-                width: 0,
+                // Keep crossing the cabinet throughout the flip. Ending with
+                // zero horizontal velocity made the last part of the salto
+                // look like a spin in place beside the bin.
+                width: mouthOffset.width / CGFloat(max(0.01, approachDuration)),
                 height: (insideOffset.height - mouthOffset.height)
                     * 0.35 / CGFloat(max(0.01, plungeDuration))
             )
 
             if approach < 1 {
                 let approachEase = smooth(approach)
+                let flightOffset = cubicHermite(from: .zero,
+                                                to: mouthOffset,
+                                                initialVelocity: initialVelocity,
+                                                finalVelocity: mouthVelocity,
+                                                duration: CGFloat(approachDuration),
+                                                progress: CGFloat(approach))
+                // The somersault advances with actual rightward travel. It can
+                // no longer keep rotating after the body has nearly stopped.
+                let travelProgress = abs(mouthOffset.width) > 1
+                    ? min(1, max(0, Double(flightOffset.width / mouthOffset.width)))
+                    : approach
                 return BodyMotion(
-                    offset: cubicHermite(from: .zero,
-                                         to: mouthOffset,
-                                         initialVelocity: initialVelocity,
-                                         finalVelocity: mouthVelocity,
-                                         duration: CGFloat(approachDuration),
-                                         progress: CGFloat(approach)),
+                    offset: flightOffset,
                     attachmentRotation: .radians(
                         Double(releaseAngle * CGFloat(1 - approachEase))
                     ),
-                    spinRotation: reduceMotion ? .zero : .degrees(-360 * approach),
+                    spinRotation: reduceMotion ? .zero : .degrees(-360 * travelProgress),
                     scale: 1 + (approachScale - 1) * CGFloat(approachEase)
                 )
             }
@@ -2594,9 +2774,16 @@ private struct ClawElephantView: View {
             // A linear component preserves the downward mouth-arrival speed;
             // the quadratic remainder accelerates the elephant into the bin.
             let plungeTravel = 0.35 * plunge + 0.65 * plunge * plunge
+            // Continue the rightward release velocity behind the rim and ease
+            // it to rest there, instead of stopping on the mouth's centreline.
+            let horizontalCarry = mouthVelocity.width * CGFloat(plungeDuration)
+                * CGFloat(plunge - plunge * plunge + plunge * plunge * plunge / 3)
             let finalScale = diveScale(side: side)
             return BodyMotion(
-                offset: interpolate(mouthOffset, insideOffset, CGFloat(plungeTravel)),
+                offset: CGSize(
+                    width: mouthOffset.width + horizontalCarry,
+                    height: interpolate(mouthOffset, insideOffset, CGFloat(plungeTravel)).height
+                ),
                 attachmentRotation: .radians(Double(releaseAngle * CGFloat(1 - plungeEase))),
                 spinRotation: reduceMotion ? .zero : .degrees(-360),
                 scale: approachScale + (finalScale - approachScale) * CGFloat(plungeEase)
@@ -4058,6 +4245,10 @@ private struct SavannaHabitatArtwork: View, Equatable {
             paintGroundDetails(in: &context, size: size)
             paintFieldVegetation(in: &context, size: size)
             paintTreesAndCanopy(in: &context, size: size)
+            // The tyre belongs to the rasterised habitat, permanently behind
+            // the elephant. Keeping it out of the frame-driven Canvas prevents
+            // overlap from ever changing its position or compositing cadence.
+            paintTireSwing(in: &context, size: size)
             // Habitat structures sit inside the cabinet, in front of the
             // framing trees. This overlap is important for believable depth.
             paintHabitatFurniture(in: &context, size: size)
@@ -4732,25 +4923,15 @@ private struct SavannaHabitatArtwork: View, Equatable {
         // the left of the bin instead.
         paintSedgeBank(in: &context, size: size)
         paintClimbingNet(in: &context, size: size)
-
-        // A fallen log crosses the ground plane instead of reading as another
-        // floating UI badge.
-        var log = Path()
-        log.move(to: CGPoint(x: size.width * 0.70, y: size.height * 0.72))
-        log.addQuadCurve(to: CGPoint(x: size.width * 0.91, y: size.height * 0.75),
-                         control: CGPoint(x: size.width * 0.81, y: size.height * 0.70))
-        context.stroke(log, with: .color(Color.black.opacity(0.18)),
-                       style: StrokeStyle(lineWidth: size.width * 0.055, lineCap: .round))
-        context.stroke(log, with: .linearGradient(
-            Gradient(colors: [barkLight, bark]),
-            startPoint: CGPoint(x: size.width * 0.70, y: size.height * 0.70),
-            endPoint: CGPoint(x: size.width * 0.91, y: size.height * 0.77)),
-                       style: StrokeStyle(lineWidth: size.width * 0.044, lineCap: .round))
     }
 
     private func paintTreesAndCanopy(in context: inout GraphicsContext, size: CGSize) {
         let w = size.width
         let h = size.height
+
+        // Crown branches are the rearmost tree layer. Trunks and foliage drawn
+        // afterwards hide their joins and create a convincing grown structure.
+        paintCanopyBranches(in: &context, size: size)
 
         var leftTrunk = Path()
         leftTrunk.move(to: CGPoint(x: -w * 0.018, y: h * 0.83))
@@ -4833,24 +5014,6 @@ private struct SavannaHabitatArtwork: View, Equatable {
                            with: .color(barkLight.opacity(0.48)), lineWidth: isPad ? 1.2 : 0.8)
         }
 
-        let branches: [(CGPoint, CGPoint, CGPoint, CGFloat)] = [
-            (CGPoint(x: 0.07, y: 0.20), CGPoint(x: 0.20, y: 0.10), CGPoint(x: 0.40, y: 0.08), 0.035),
-            (CGPoint(x: 0.91, y: 0.18), CGPoint(x: 0.79, y: 0.09), CGPoint(x: 0.58, y: 0.07), 0.032),
-            (CGPoint(x: 0.10, y: 0.32), CGPoint(x: 0.18, y: 0.21), CGPoint(x: 0.27, y: 0.18), 0.020),
-            (CGPoint(x: 0.90, y: 0.31), CGPoint(x: 0.83, y: 0.22), CGPoint(x: 0.74, y: 0.18), 0.019)
-        ]
-        for branch in branches {
-            var path = Path()
-            path.move(to: CGPoint(x: w * branch.0.x, y: h * branch.0.y))
-            path.addQuadCurve(to: CGPoint(x: w * branch.2.x, y: h * branch.2.y),
-                              control: CGPoint(x: w * branch.1.x, y: h * branch.1.y))
-            context.stroke(path, with: .linearGradient(
-                Gradient(colors: [bark, barkLight, bark]),
-                startPoint: CGPoint(x: w * branch.0.x, y: h * branch.0.y),
-                endPoint: CGPoint(x: w * branch.2.x, y: h * branch.2.y)),
-                           style: StrokeStyle(lineWidth: w * branch.3, lineCap: .round))
-        }
-
         let foliage: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
             (0.02, 0.03, 0.23, 0.12), (0.17, 0.015, 0.25, 0.13),
             (0.35, 0.025, 0.21, 0.11), (0.55, 0.02, 0.23, 0.12),
@@ -4869,23 +5032,29 @@ private struct SavannaHabitatArtwork: View, Equatable {
             context.fill(Path(ellipseIn: highlight), with: .color(Color.white.opacity(0.10)))
         }
 
-        // Dozens of pointed leaf silhouettes sit over the broad masses. This
-        // preserves a lush read from afar and supplies real detail up close.
-        for index in 0..<42 {
-            let x = w * (0.015 + CGFloat((index * 41) % 97) / 100)
-            let topBand = h * (0.035 + CGFloat((index * 17) % 13) / 100)
-            let sideDrop = (index % 7 == 0 || index % 11 == 0)
-                ? h * (0.08 + CGFloat(index % 4) * 0.034)
-                : 0
-            let angle = Double((index * 47) % 180) * .pi / 180
-            paintLeaf(in: &context,
-                      center: CGPoint(x: x, y: topBand + sideDrop),
-                      length: w * (0.022 + CGFloat(index % 3) * 0.006),
-                      angle: angle,
-                      color: index.isMultiple(of: 3) ? leafLight : savannaGreen)
-        }
-
         paintHangingVines(in: &context, size: size)
+    }
+
+    private func paintCanopyBranches(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let branches: [(CGPoint, CGPoint, CGPoint, CGFloat)] = [
+            (CGPoint(x: 0.07, y: 0.20), CGPoint(x: 0.20, y: 0.10), CGPoint(x: 0.40, y: 0.08), 0.035),
+            (CGPoint(x: 0.91, y: 0.18), CGPoint(x: 0.79, y: 0.09), CGPoint(x: 0.58, y: 0.07), 0.032),
+            (CGPoint(x: 0.10, y: 0.32), CGPoint(x: 0.18, y: 0.21), CGPoint(x: 0.27, y: 0.18), 0.020),
+            (CGPoint(x: 0.90, y: 0.31), CGPoint(x: 0.83, y: 0.22), CGPoint(x: 0.74, y: 0.18), 0.019)
+        ]
+        for branch in branches {
+            var path = Path()
+            path.move(to: CGPoint(x: w * branch.0.x, y: h * branch.0.y))
+            path.addQuadCurve(to: CGPoint(x: w * branch.2.x, y: h * branch.2.y),
+                              control: CGPoint(x: w * branch.1.x, y: h * branch.1.y))
+            context.stroke(path,
+                           with: .linearGradient(Gradient(colors: [bark, barkLight, bark]),
+                                                 startPoint: CGPoint(x: w * branch.0.x, y: h * branch.0.y),
+                                                 endPoint: CGPoint(x: w * branch.2.x, y: h * branch.2.y)),
+                           style: StrokeStyle(lineWidth: w * branch.3, lineCap: .round))
+        }
     }
 
     private func paintTireSwing(in context: inout GraphicsContext, size: CGSize) {
@@ -4961,9 +5130,8 @@ private struct SavannaHabitatArtwork: View, Equatable {
 
     private func paintForeground(in context: inout GraphicsContext, size: CGSize) {
         let tufts: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.05, 0.64, 0.050), (0.16, 0.73, 0.043), (0.06, 0.88, 0.075),
-            (0.25, 0.83, 0.038), (0.76, 0.80, 0.045), (0.86, 0.69, 0.055),
-            (0.94, 0.87, 0.080), (0.70, 0.64, 0.030)
+            (0.25, 0.83, 0.038), (0.72, 0.82, 0.045),
+            (0.95, 0.89, 0.060), (0.70, 0.64, 0.030)
         ]
         for tuft in tufts {
             paintGrass(in: &context,
@@ -5032,16 +5200,6 @@ private struct SavannaHabitatArtwork: View, Equatable {
                       radius: w * rock.2)
         }
 
-        paintDenseGrassClump(in: &context,
-                             base: CGPoint(x: w * 0.165, y: h * 0.790),
-                             height: h * 0.085,
-                             width: w * 0.100,
-                             dry: false,
-                             bladeCount: 15)
-        paintDryBrush(in: &context,
-                      base: CGPoint(x: w * 0.075, y: h * 0.735),
-                      height: h * 0.075,
-                      width: w * 0.070)
     }
 
     private func paintClimbingPost(in context: inout GraphicsContext, size: CGSize) {
@@ -5287,10 +5445,13 @@ private struct SavannaHabitatArtwork: View, Equatable {
     private func paintClimbingNet(in context: inout GraphicsContext, size: CGSize) {
         let w = size.width
         let h = size.height
-        let topLeft = CGPoint(x: w * 0.770, y: h * 0.205)
-        let topRight = CGPoint(x: w * 0.982, y: h * 0.192)
-        let bottomLeft = CGPoint(x: w * 0.755, y: h * 0.430)
-        let bottomRight = CGPoint(x: w * 0.978, y: h * 0.417)
+        // The lower beam follows the far shoreline of the pond. Keeping the
+        // original proportions while lowering the whole frame connects the
+        // upper play equipment to the ground plane.
+        let topLeft = CGPoint(x: w * 0.770, y: h * 0.298)
+        let topRight = CGPoint(x: w * 0.982, y: h * 0.285)
+        let bottomLeft = CGPoint(x: w * 0.755, y: h * 0.523)
+        let bottomRight = CGPoint(x: w * 0.978, y: h * 0.510)
 
         // Two independent hangers explain how the frame is carried.
         let hangers: [(CGPoint, CGPoint)] = [
@@ -5301,8 +5462,11 @@ private struct SavannaHabitatArtwork: View, Equatable {
             var rope = Path()
             rope.move(to: hanger.0)
             rope.addCurve(to: hanger.1,
-                          control1: CGPoint(x: hanger.0.x - w * 0.018, y: h * 0.125),
-                          control2: CGPoint(x: hanger.1.x + w * 0.012, y: h * 0.165))
+                          control1: CGPoint(x: hanger.0.x - w * 0.018, y: h * 0.155),
+                          control2: CGPoint(x: hanger.1.x + w * 0.012, y: h * 0.245))
+            context.stroke(rope,
+                           with: .color(Color.black.opacity(0.18)),
+                           style: StrokeStyle(lineWidth: isPad ? 4.5 : 2.8, lineCap: .round))
             context.stroke(rope,
                            with: .linearGradient(
                             Gradient(colors: [Color(red: 0.80, green: 0.61, blue: 0.29), bark]),
@@ -5310,37 +5474,46 @@ private struct SavannaHabitatArtwork: View, Equatable {
                            style: StrokeStyle(lineWidth: isPad ? 3.0 : 1.9, lineCap: .round))
         }
 
-        // Diamond rope lattice, deliberately slightly irregular.
+        // Diamond rope lattice built cell by cell. Every knot is calculated
+        // from an actual crossing, preventing the isolated brown dots visible
+        // in the previous staggered approximation.
         let ropeColor = Color(red: 0.72, green: 0.50, blue: 0.22)
-        for index in 0..<6 {
-            let t = CGFloat(index) / 5
-            var down = Path()
-            down.move(to: CGPoint(x: topLeft.x + (topRight.x - topLeft.x) * t,
-                                  y: topLeft.y + (topRight.y - topLeft.y) * t))
-            down.addLine(to: CGPoint(x: bottomLeft.x + (bottomRight.x - bottomLeft.x) * min(1, t + 0.34),
-                                     y: bottomLeft.y + (bottomRight.y - bottomLeft.y) * min(1, t + 0.34)))
-            context.stroke(down, with: .color(ropeColor.opacity(0.90)),
-                           style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.45, lineCap: .round))
-
-            var up = Path()
-            up.move(to: CGPoint(x: topLeft.x + (topRight.x - topLeft.x) * t,
-                                y: topLeft.y + (topRight.y - topLeft.y) * t))
-            up.addLine(to: CGPoint(x: bottomLeft.x + (bottomRight.x - bottomLeft.x) * max(0, t - 0.34),
-                                   y: bottomLeft.y + (bottomRight.y - bottomLeft.y) * max(0, t - 0.34)))
-            context.stroke(up, with: .color(ropeColor.opacity(0.82)),
-                           style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.45, lineCap: .round))
+        func netPoint(row: Int, column: Int) -> CGPoint {
+            let rowT = CGFloat(row) / 4
+            let columnT = CGFloat(column) / 4
+            let left = CGPoint(x: topLeft.x + (bottomLeft.x - topLeft.x) * rowT,
+                               y: topLeft.y + (bottomLeft.y - topLeft.y) * rowT)
+            let right = CGPoint(x: topRight.x + (bottomRight.x - topRight.x) * rowT,
+                                y: topRight.y + (bottomRight.y - topRight.y) * rowT)
+            return CGPoint(x: left.x + (right.x - left.x) * columnT,
+                           y: left.y + (right.y - left.y) * columnT)
         }
-
-        // Knots placed on a staggered grid make the crossings readable.
         for row in 0..<4 {
             for column in 0..<4 {
-                let x = w * (0.792 + CGFloat(column) * 0.048 + (row.isMultiple(of: 2) ? 0.0 : 0.022))
-                let y = h * (0.247 + CGFloat(row) * 0.047)
-                let knot = CGRect(x: x - w * 0.006, y: y - w * 0.005,
-                                  width: w * 0.012, height: w * 0.010)
-                context.fill(Path(ellipseIn: knot), with: .color(Color(red: 0.45, green: 0.27, blue: 0.085)))
-                context.stroke(Path(ellipseIn: knot.insetBy(dx: w * 0.002, dy: w * 0.0015)),
-                               with: .color(Color.white.opacity(0.16)), lineWidth: isPad ? 0.9 : 0.55)
+                let topA = netPoint(row: row, column: column)
+                let topB = netPoint(row: row, column: column + 1)
+                let bottomA = netPoint(row: row + 1, column: column)
+                let bottomB = netPoint(row: row + 1, column: column + 1)
+                var diamond = Path()
+                diamond.move(to: topA)
+                diamond.addLine(to: bottomB)
+                diamond.move(to: topB)
+                diamond.addLine(to: bottomA)
+                context.stroke(diamond,
+                               with: .color(ropeColor.opacity(0.88)),
+                               style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.45, lineCap: .round))
+
+                let crossing = CGPoint(x: (topA.x + topB.x + bottomA.x + bottomB.x) * 0.25,
+                                       y: (topA.y + topB.y + bottomA.y + bottomB.y) * 0.25)
+                let knot = CGRect(x: crossing.x - w * 0.005,
+                                  y: crossing.y - w * 0.004,
+                                  width: w * 0.010,
+                                  height: w * 0.008)
+                context.fill(Path(ellipseIn: knot),
+                             with: .color(Color(red: 0.45, green: 0.27, blue: 0.085)))
+                context.stroke(Path(ellipseIn: knot.insetBy(dx: w * 0.0018, dy: w * 0.0013)),
+                               with: .color(Color.white.opacity(0.16)),
+                               lineWidth: isPad ? 0.9 : 0.55)
             }
         }
 
@@ -5359,6 +5532,21 @@ private struct SavannaHabitatArtwork: View, Equatable {
                             Gradient(colors: [bark, barkLight, bark]),
                             startPoint: beam.0, endPoint: beam.1),
                            style: StrokeStyle(lineWidth: w * 0.021, lineCap: .round))
+
+            // A narrow irregular grain highlight sharpens the carved timber
+            // without turning the frame into a glossy interface element.
+            let grainStart = CGPoint(x: beam.0.x + (beam.1.x - beam.0.x) * 0.12,
+                                     y: beam.0.y + (beam.1.y - beam.0.y) * 0.12)
+            let grainEnd = CGPoint(x: beam.0.x + (beam.1.x - beam.0.x) * 0.82,
+                                   y: beam.0.y + (beam.1.y - beam.0.y) * 0.82)
+            var grain = Path()
+            grain.move(to: grainStart)
+            grain.addQuadCurve(to: grainEnd,
+                               control: CGPoint(x: (grainStart.x + grainEnd.x) * 0.5 + w * 0.003,
+                                                y: (grainStart.y + grainEnd.y) * 0.5 - h * 0.002))
+            context.stroke(grain,
+                           with: .color(Color(red: 0.93, green: 0.70, blue: 0.34).opacity(0.30)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.85, lineCap: .round))
         }
 
         for corner in [topLeft, topRight, bottomLeft, bottomRight] {
@@ -5367,42 +5555,93 @@ private struct SavannaHabitatArtwork: View, Equatable {
             context.fill(Path(ellipseIn: cap), with: .color(Color(red: 0.67, green: 0.43, blue: 0.16)))
             context.fill(Path(ellipseIn: cap.insetBy(dx: w * 0.005, dy: w * 0.004)),
                          with: .color(bark.opacity(0.68)))
+
+            // Three tight rope turns make every corner read as a constructed
+            // joint instead of four unrelated logs touching each other.
+            for turn in 0..<3 {
+                let tie = CGRect(x: corner.x - w * 0.015,
+                                 y: corner.y - w * 0.008 + CGFloat(turn) * w * 0.005,
+                                 width: w * 0.030,
+                                 height: w * 0.011)
+                context.stroke(Path(ellipseIn: tie),
+                               with: .color(ropeColor.opacity(0.92)),
+                               style: StrokeStyle(lineWidth: isPad ? 1.8 : 1.05, lineCap: .round))
+            }
         }
     }
 
     private func paintSedgeBank(in context: inout GraphicsContext, size: CGSize) {
         let w = size.width
         let h = size.height
-        let base = CGPoint(x: w * 0.825, y: h * 0.68)
+        // Several rooted clumps wrap around the collection bin. All bases sit
+        // low in the ground plane, so the bin can naturally occlude their
+        // lower stems when its foreground layer is composited later.
+        let clumps: [(CGFloat, CGFloat, CGFloat, CGFloat, Int)] = [
+            (0.820, 0.785, 0.155, 0.145, 17),
+            (0.735, 0.825, 0.082, 0.090, 10),
+            (0.905, 0.815, 0.115, 0.105, 12),
+            (0.972, 0.855, 0.095, 0.070, 9)
+        ]
 
-        // Dark soil and rock remain visible immediately left of the bin.
-        let mound = CGRect(x: w * 0.725, y: h * 0.635,
-                           width: w * 0.19, height: h * 0.065)
-        context.fill(Path(ellipseIn: mound),
-                     with: .linearGradient(
-                        Gradient(colors: [sandDeep.opacity(0.88), bark.opacity(0.72)]),
-                        startPoint: CGPoint(x: mound.midX, y: mound.minY),
-                        endPoint: CGPoint(x: mound.midX, y: mound.maxY)
-                     ))
+        // Broken earth pads and root shadows visually connect each fan to sand.
+        for (index, clump) in clumps.enumerated() {
+            let mound = CGRect(x: w * (clump.0 - clump.3 * 0.52),
+                               y: h * (clump.1 - 0.012),
+                               width: w * clump.3 * 1.04,
+                               height: h * (0.024 + CGFloat(index % 2) * 0.006))
+            context.fill(Path(ellipseIn: mound),
+                         with: .linearGradient(
+                            Gradient(colors: [Color(red: 0.50, green: 0.35, blue: 0.15).opacity(0.90),
+                                              sandDeep.opacity(0.88)]),
+                            startPoint: CGPoint(x: mound.midX, y: mound.minY),
+                            endPoint: CGPoint(x: mound.midX, y: mound.maxY)))
 
-        for index in 0..<13 {
-            let t = CGFloat(index) / 12
-            let x = base.x + (t - 0.5) * w * 0.19
-            let bladeHeight = h * (0.105 + CGFloat((index * 11) % 7) * 0.013)
-            let lean = (t - 0.50) * w * 0.065
-            var blade = Path()
-            blade.move(to: CGPoint(x: x, y: base.y))
-            blade.addCurve(to: CGPoint(x: x + lean, y: base.y - bladeHeight),
-                           control1: CGPoint(x: x - lean * 0.18, y: base.y - bladeHeight * 0.42),
-                           control2: CGPoint(x: x + lean * 0.65, y: base.y - bladeHeight * 0.72))
-            context.stroke(blade,
-                           with: .linearGradient(
-                            Gradient(colors: [savannaGreen, index.isMultiple(of: 3) ? leafLight : palette.leaf]),
-                            startPoint: CGPoint(x: x, y: base.y),
-                            endPoint: CGPoint(x: x + lean, y: base.y - bladeHeight)),
-                           style: StrokeStyle(lineWidth: isPad ? 3.2 : 2.0, lineCap: .round))
+            for rootIndex in 0..<4 {
+                let spread = (CGFloat(rootIndex) - 1.5) * w * clump.3 * 0.18
+                var root = Path()
+                root.move(to: CGPoint(x: w * clump.0, y: h * clump.1))
+                root.addQuadCurve(to: CGPoint(x: w * clump.0 + spread,
+                                               y: h * clump.1 + h * 0.010),
+                                  control: CGPoint(x: w * clump.0 + spread * 0.38,
+                                                   y: h * clump.1 + h * 0.003))
+                context.stroke(root,
+                               with: .color(bark.opacity(0.40)),
+                               style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+            }
         }
 
+        for (clumpIndex, clump) in clumps.enumerated() {
+            let base = CGPoint(x: w * clump.0, y: h * clump.1)
+            for bladeIndex in 0..<clump.4 {
+                let t = clump.4 > 1 ? CGFloat(bladeIndex) / CGFloat(clump.4 - 1) : 0.5
+                let rootX = base.x + (t - 0.5) * w * clump.3 * 0.66
+                let variedHeight = h * clump.2
+                    * (0.62 + CGFloat((bladeIndex * 7 + clumpIndex * 3) % 7) * 0.065)
+                let lean = (t - 0.5) * w * clump.3 * 0.58
+                var blade = Path()
+                blade.move(to: CGPoint(x: rootX, y: base.y))
+                blade.addCurve(to: CGPoint(x: rootX + lean, y: base.y - variedHeight),
+                               control1: CGPoint(x: rootX - lean * 0.12,
+                                                 y: base.y - variedHeight * 0.38),
+                               control2: CGPoint(x: rootX + lean * 0.58,
+                                                 y: base.y - variedHeight * 0.78))
+                context.stroke(blade,
+                               with: .linearGradient(
+                                Gradient(colors: [Color(red: 0.23, green: 0.34, blue: 0.08),
+                                                  bladeIndex.isMultiple(of: 3) ? leafLight : palette.leaf]),
+                                startPoint: CGPoint(x: rootX, y: base.y),
+                                endPoint: CGPoint(x: rootX + lean, y: base.y - variedHeight)),
+                               style: StrokeStyle(lineWidth: isPad ? 3.0 : 1.8, lineCap: .round))
+            }
+        }
+
+        // Small stones at the outer roots further seat the planting bed.
+        paintRock(in: &context,
+                  center: CGPoint(x: w * 0.748, y: h * 0.832),
+                  radius: w * 0.018)
+        paintRock(in: &context,
+                  center: CGPoint(x: w * 0.938, y: h * 0.842),
+                  radius: w * 0.014)
     }
 
     private func paintLeaf(in context: inout GraphicsContext,
@@ -5442,7 +5681,7 @@ private struct SavannaHabitatArtwork: View, Equatable {
 
     private func paintHangingVines(in context: inout GraphicsContext, size: CGSize) {
         let vines: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (0.14, 0.02, 0.16, 0.29), (0.48, 0.01, 0.46, 0.19),
+            (0.48, 0.01, 0.46, 0.19),
             (0.68, 0.02, 0.70, 0.25), (0.86, 0.02, 0.83, 0.34)
         ]
         for (index, vine) in vines.enumerated() {
@@ -5475,14 +5714,6 @@ private struct SavannaHabitatArtwork: View, Equatable {
                            with: .color(savannaGreen.opacity(0.88)),
                            style: StrokeStyle(lineWidth: isPad ? 2.0 : 1.25, lineCap: .round))
 
-            if index != 1 {
-                paintLeaf(in: &context,
-                          center: CGPoint(x: end.x + (index.isMultiple(of: 2) ? -curlRadius : curlRadius),
-                                          y: end.y - curlRadius * 0.30),
-                          length: size.width * 0.026,
-                          angle: index.isMultiple(of: 2) ? -0.45 : 0.45,
-                          color: leafLight)
-            }
         }
     }
 
@@ -5661,6 +5892,7 @@ private struct SanctuaryLivingDetails: View {
             let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
 
             paintFlyingBirds(in: &context, size: size, time: time)
+            paintWindblownLeaves(in: &context, size: size, time: time)
 
             // Slow dust motes add life while remaining far quieter than
             // the claw and without introducing decorative UI symbols.
@@ -5728,15 +5960,6 @@ private struct SanctuaryLivingDetails: View {
                                style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
             }
 
-            // The tyre is intentionally part of this living layer rather
-            // than the static habitat Canvas, allowing a very small sway.
-            var swingContext = context
-            let pivot = CGPoint(x: size.width * 0.24, y: 0)
-            let sway = reduceMotion ? 0 : sin(time * 0.68) * 1.65
-            swingContext.translateBy(x: pivot.x, y: pivot.y)
-            swingContext.rotate(by: .degrees(sway))
-            swingContext.translateBy(x: -pivot.x, y: -pivot.y)
-            paintTireSwing(in: &swingContext, size: size)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -5783,76 +6006,59 @@ private struct SanctuaryLivingDetails: View {
         }
     }
 
-    private func paintTireSwing(in context: inout GraphicsContext, size: CGSize) {
+    private func paintWindblownLeaves(in context: inout GraphicsContext,
+                                      size: CGSize,
+                                      time: TimeInterval) {
         let w = size.width
         let h = size.height
-        let ropeStart = CGPoint(x: w * 0.24, y: 0)
-        let tireCenter = CGPoint(x: w * 0.255, y: h * 0.255)
-        let bark = Color(red: 0.34, green: 0.19, blue: 0.075)
-        let barkLight = Color(red: 0.61, green: 0.39, blue: 0.16)
-        let vine = Color(red: 0.30, green: 0.43, blue: 0.11)
+        for index in 0..<14 {
+            let offset = Double(index) * 0.083
+            let duration = 5.1 + Double(index % 4) * 1.05
+            let progress = reduceMotion
+                ? CGFloat(0.12 + offset * 0.72)
+                : CGFloat((time / duration + offset).truncatingRemainder(dividingBy: 1))
+            let wave = CGFloat(sin(Double(progress) * .pi * 2 + Double(index) * 0.84))
+            let center = CGPoint(x: w * (-0.07 + progress * 1.15),
+                                 y: h * (0.070 + CGFloat(index % 5) * 0.043 + wave * 0.024))
+            let length = w * (0.014 + CGFloat(index % 4) * 0.003)
+            let angle = -0.20 + Double(wave) * 0.78 + Double(index % 2) * 0.22
+            let direction = CGVector(dx: CGFloat(cos(angle)), dy: CGFloat(sin(angle)))
+            let normal = CGVector(dx: -direction.dy, dy: direction.dx)
+            let root = CGPoint(x: center.x - direction.dx * length * 0.50,
+                               y: center.y - direction.dy * length * 0.50)
+            let tip = CGPoint(x: center.x + direction.dx * length * 0.50,
+                              y: center.y + direction.dy * length * 0.50)
 
-        var liana = Path()
-        liana.move(to: ropeStart)
-        liana.addCurve(to: CGPoint(x: tireCenter.x, y: tireCenter.y - h * 0.022),
-                       control1: CGPoint(x: w * 0.20, y: h * 0.075),
-                       control2: CGPoint(x: w * 0.30, y: h * 0.15))
-        context.stroke(liana, with: .color(Color.black.opacity(0.30)),
-                       style: StrokeStyle(lineWidth: isPad ? 6 : 4, lineCap: .round))
-        context.stroke(liana,
-                       with: .linearGradient(Gradient(colors: [vine, barkLight, bark]),
-                                             startPoint: ropeStart,
-                                             endPoint: tireCenter),
-                       style: StrokeStyle(lineWidth: isPad ? 4.2 : 2.8, lineCap: .round))
+            // A very faint wake supplies the requested whoosh without looking
+            // like a UI speed-line effect.
+            var wake = Path()
+            wake.move(to: CGPoint(x: root.x - w * 0.024, y: root.y - wave * h * 0.003))
+            wake.addQuadCurve(to: root,
+                              control: CGPoint(x: root.x - w * 0.010, y: root.y + wave * h * 0.004))
+            context.stroke(wake,
+                           with: .color(Color(red: 0.35, green: 0.46, blue: 0.12).opacity(0.18)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.4 : 0.8, lineCap: .round))
 
-        let diameter = min(w * 0.115, h * 0.105)
-        let tireRect = CGRect(x: tireCenter.x - diameter * 0.50,
-                              y: tireCenter.y - diameter * 0.50,
-                              width: diameter,
-                              height: diameter)
-        let rubberWidth = diameter * 0.245
-        context.stroke(Path(ellipseIn: tireRect.offsetBy(dx: diameter * 0.035,
-                                                         dy: diameter * 0.065)),
-                       with: .color(Color.black.opacity(0.34)),
-                       style: StrokeStyle(lineWidth: rubberWidth * 1.10))
-        context.stroke(Path(ellipseIn: tireRect),
-                       with: .linearGradient(
-                        Gradient(colors: [Color(red: 0.30, green: 0.27, blue: 0.20),
-                                          Color(red: 0.105, green: 0.095, blue: 0.075),
-                                          Color(red: 0.035, green: 0.038, blue: 0.032)]),
-                        startPoint: CGPoint(x: tireRect.minX, y: tireRect.minY),
-                        endPoint: CGPoint(x: tireRect.maxX, y: tireRect.maxY)),
-                       style: StrokeStyle(lineWidth: rubberWidth, lineCap: .round))
-        context.stroke(Path(ellipseIn: tireRect.insetBy(dx: rubberWidth * 0.16,
-                                                        dy: rubberWidth * 0.16)),
-                       with: .color(Color.white.opacity(0.16)),
-                       style: StrokeStyle(lineWidth: isPad ? 1.8 : 1.05))
-        context.stroke(Path(ellipseIn: tireRect.insetBy(dx: rubberWidth * 0.52,
-                                                        dy: rubberWidth * 0.52)),
-                       with: .color(Color.black.opacity(0.52)),
-                       style: StrokeStyle(lineWidth: isPad ? 2.3 : 1.4))
-
-        var sidewallGlint = Path()
-        sidewallGlint.addArc(center: tireCenter,
-                             radius: diameter * 0.50,
-                             startAngle: .degrees(205),
-                             endAngle: .degrees(305),
-                             clockwise: false)
-        context.stroke(sidewallGlint,
-                       with: .color(Color.white.opacity(0.12)),
-                       style: StrokeStyle(lineWidth: rubberWidth * 0.22, lineCap: .round))
-
-        let knotY = tireRect.minY + rubberWidth * 0.12
-        for index in 0..<3 {
-            let knot = CGRect(x: tireCenter.x - rubberWidth * (0.48 + CGFloat(index) * 0.035),
-                              y: knotY + CGFloat(index) * rubberWidth * 0.16,
-                              width: rubberWidth * (0.96 + CGFloat(index) * 0.07),
-                              height: rubberWidth * 0.30)
-            context.stroke(Path(ellipseIn: knot),
-                           with: .color(index == 1 ? barkLight : bark),
-                           style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.55, lineCap: .round))
+            var leaf = Path()
+            leaf.move(to: root)
+            leaf.addQuadCurve(to: tip,
+                              control: CGPoint(x: center.x + normal.dx * length * 0.30,
+                                               y: center.y + normal.dy * length * 0.30))
+            leaf.addQuadCurve(to: root,
+                              control: CGPoint(x: center.x - normal.dx * length * 0.30,
+                                               y: center.y - normal.dy * length * 0.30))
+            leaf.closeSubpath()
+            let leafColor = index.isMultiple(of: 3)
+                ? Color(red: 0.55, green: 0.64, blue: 0.20)
+                : Color(red: 0.29, green: 0.43, blue: 0.10)
+            context.fill(leaf,
+                         with: .linearGradient(
+                            Gradient(colors: [leafColor.opacity(0.90), leafColor.opacity(0.56)]),
+                            startPoint: root,
+                            endPoint: tip))
         }
     }
+
 }
 
 /// Draw the newly supplied tall bin at its natural width-led scale. Shorter
@@ -5907,6 +6113,7 @@ private struct CatchBinArtworkView: View, Equatable {
 /// alternate copy is mirrored so adjacent source edges meet without a seam.
 private struct CatchBinLowerContinuationView: View, Equatable {
     let sourceEndY: CGFloat
+    let accentColor: Color
 
     var body: some View {
         GeometryReader { proxy in
@@ -5917,16 +6124,32 @@ private struct CatchBinLowerContinuationView: View, Equatable {
             )
             let copyCount = max(1, Int(ceil(proxy.size.height / sliceHeight)))
 
-            VStack(spacing: 0) {
-                ForEach(0..<copyCount, id: \.self) { index in
-                    CatchBinSourceSlice(
-                        sourceY: sourceEndY - sourceSliceHeight,
-                        sourceHeight: sourceSliceHeight
-                    )
-                    .frame(height: sliceHeight)
-                    .scaleEffect(y: index.isMultiple(of: 2) ? -1 : 1)
+            ZStack {
+                VStack(spacing: 0) {
+                    ForEach(0..<copyCount, id: \.self) { index in
+                        CatchBinSourceSlice(
+                            sourceY: sourceEndY - sourceSliceHeight,
+                            sourceHeight: sourceSliceHeight
+                        )
+                        .frame(height: sliceHeight)
+                        .scaleEffect(y: index.isMultiple(of: 2) ? -1 : 1)
+                    }
                 }
+
+                // Continue the same material tint used by the main bin art.
+                // This strip is a separately repeated source crop, so it needs
+                // its own wash to avoid a neutral block in the lower corner.
+                LinearGradient(
+                    stops: [
+                        .init(color: accentColor.opacity(0.22), location: 0),
+                        .init(color: accentColor.opacity(0.44), location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .blendMode(.color)
             }
+            .compositingGroup()
             .frame(width: proxy.size.width,
                    height: proxy.size.height,
                    alignment: .top)

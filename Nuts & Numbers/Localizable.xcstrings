@@ -10298,7 +10298,7 @@
       }
     },
     "game.answer.correct" : {
-      "comment" : "VoiceOver value spoken for an answer bubble that holds the correct answer. Pairs with game.answer.wrong. One word.",
+      "comment" : "VoiceOver value spoken for the moving answer that holds the correct value. Pairs with game.answer.wrong. One word.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -10766,7 +10766,7 @@
       }
     },
     "game.answer.wrong" : {
-      "comment" : "VoiceOver value spoken for an answer bubble that holds a wrong answer. Pairs with game.answer.correct. One word.",
+      "comment" : "VoiceOver value spoken for a moving answer that holds a wrong value. Pairs with game.answer.correct. One word.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -11233,8 +11233,8 @@
         }
       }
     },
-    "game.bubblesCollected %lld" : {
-      "comment" : "VoiceOver label for the running bubble total, on the home screen header and the in-game counter. Bubbles are the game's collectible; the total only ever grows.",
+    "game.nutsCollected %lld" : {
+      "comment" : "VoiceOver label for the running nut total, on the home screen header and the in-game counter. Nuts are the game's collectible; the total only ever grows.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -11531,13 +11531,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubble collected"
+                  "value" : "%lld nut collected"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbles collected"
+                  "value" : "%lld nuts collected"
                 }
               }
             }
@@ -12179,13 +12179,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbel verzameld"
+                  "value" : "%lld noot verzameld"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbels verzameld"
+                  "value" : "%lld noten verzameld"
                 }
               }
             }
@@ -17904,7 +17904,7 @@
       }
     },
     "game.end.completionSubtitle" : {
-      "comment" : "Line under the title on the result screen when the level was completed by collecting every bubble.",
+      "comment" : "Line under the title on the result screen when the level was completed by collecting every nut.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -18006,7 +18006,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You collected all the bubbles."
+            "value" : "You collected all the nuts."
           }
         },
         "es" : {
@@ -18222,7 +18222,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Je hebt alle bubbels verzameld."
+            "value" : "Je hebt alle noten verzameld."
           }
         },
         "or" : {
@@ -18840,7 +18840,7 @@
       }
     },
     "game.end.gameOverTitle" : {
-      "comment" : "Title on the result screen when the player ran out of lives. Matter-of-fact, not harsh — the audience is young.",
+      "comment" : "Title on the result screen when the level clock runs out. Matter-of-fact, not harsh — the audience is young.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -24558,7 +24558,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "2× bubbles • 1.5× speed"
+            "value" : "2× nuts • 1.5× speed"
           }
         },
         "es" : {
@@ -24774,7 +24774,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "2× bubbels • 1,5× snelheid"
+            "value" : "2× noten • 1,5× snelheid"
           }
         },
         "or" : {
@@ -28200,7 +28200,7 @@
       }
     },
     "home.cardsRemaining %lld" : {
-      "comment" : "Countdown beside the next character on the home screen: how many more bubbles are needed. Extremely tight — the number plus at most one short word.",
+      "comment" : "Countdown beside the next character on the home screen: how many more nuts are needed. Extremely tight — the number plus at most one short word.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -29136,7 +29136,7 @@
       }
     },
     "home.nextCharacter %lld %@" : {
-      "comment" : "VoiceOver label for the next-character prompt on the home screen. First argument is the bubbles still needed, second is the animal's name.",
+      "comment" : "VoiceOver label for the next-character prompt on the home screen. First argument is the nuts still needed, second is the animal's name.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -29433,13 +29433,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%1$lld more bubble to unlock %2$@"
+                  "value" : "%1$lld more nut to unlock %2$@"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%1$lld more bubbles to unlock %2$@"
+                  "value" : "%1$lld more nuts to unlock %2$@"
                 }
               }
             }
@@ -30081,13 +30081,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Nog %1$lld bubbel tot %2$@"
+                  "value" : "Nog %1$lld noot tot %2$@"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Nog %1$lld bubbels tot %2$@"
+                  "value" : "Nog %1$lld noten tot %2$@"
                 }
               }
             }
@@ -30552,7 +30552,7 @@
       }
     },
     "home.pausedCards %lld" : {
-      "comment" : "VoiceOver value for a level tile that holds a paused run, saying how many bubbles are being kept.",
+      "comment" : "VoiceOver value for a level tile that holds a paused run, saying how many nuts are being kept.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -30849,13 +30849,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubble paused"
+                  "value" : "%lld nut paused"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbles paused"
+                  "value" : "%lld nuts paused"
                 }
               }
             }
@@ -31497,13 +31497,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbel gepauzeerd"
+                  "value" : "%lld noot gepauzeerd"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbels gepauzeerd"
+                  "value" : "%lld noten gepauzeerd"
                 }
               }
             }
@@ -40392,7 +40392,7 @@
       }
     },
     "levelIntro.cardsBullet %lld" : {
-      "comment" : "Third line of the level intro card: the most bubbles this level can yield. Emphasise the count and its noun with Markdown **bold**.",
+      "comment" : "Third line of the level intro card: the most nuts this level can yield. Emphasise the count and its noun with Markdown **bold**.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -40689,13 +40689,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "You can collect up to **%lld bubble** in this level."
+                  "value" : "You can collect up to **%lld nut** in this level."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "You can collect up to **%lld bubbles** in this level."
+                  "value" : "You can collect up to **%lld nuts** in this level."
                 }
               }
             }
@@ -41337,13 +41337,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Je kunt in dit level maximaal **%lld bubbel** verzamelen."
+                  "value" : "Je kunt in dit level maximaal **%lld noot** verzamelen."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Je kunt in dit level maximaal **%lld bubbels** verzamelen."
+                  "value" : "Je kunt in dit level maximaal **%lld noten** verzamelen."
                 }
               }
             }
@@ -58302,7 +58302,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Collect a few more bubbles to unlock %@! 🐼"
+            "value" : "Collect a few more nuts to unlock %@! 🐼"
           }
         },
         "es" : {
@@ -58518,7 +58518,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verzamel nog een paar bubbels om %@ vrij te spelen! 🐼"
+            "value" : "Verzamel nog een paar noten om %@ vrij te spelen! 🐼"
           }
         },
         "or" : {
@@ -58668,7 +58668,7 @@
       }
     },
     "notif.animal.title %lld" : {
-      "comment" : "Push notification title when a new animal is nearly earned. The argument is the bubbles still needed.",
+      "comment" : "Push notification title when a new animal is nearly earned. The argument is the nuts still needed.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -58965,13 +58965,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Only %lld bubble to go! 🫧"
+                  "value" : "Only %lld nut to go! 🌰"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Only %lld bubbles to go! 🫧"
+                  "value" : "Only %lld nuts to go! 🌰"
                 }
               }
             }
@@ -59613,13 +59613,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Nog maar %lld bubbel te gaan! 🫧"
+                  "value" : "Nog maar %lld noot te gaan! 🌰"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Nog maar %lld bubbels te gaan! 🫧"
+                  "value" : "Nog maar %lld noten te gaan! 🌰"
                 }
               }
             }
@@ -61500,7 +61500,7 @@
       }
     },
     "notif.cards.title %lld" : {
-      "comment" : "Push notification title celebrating a bubble milestone. The argument is the player's total.",
+      "comment" : "Push notification title celebrating a nut milestone. The argument is the player's total.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -61797,13 +61797,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubble collected! 🫧"
+                  "value" : "%lld nut collected! 🌰"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbles collected! 🫧"
+                  "value" : "%lld nuts collected! 🌰"
                 }
               }
             }
@@ -62445,13 +62445,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbel verzameld! 🫧"
+                  "value" : "%lld noot verzameld! 🌰"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbels verzameld! 🫧"
+                  "value" : "%lld noten verzameld! 🌰"
                 }
               }
             }
@@ -63018,7 +63018,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your animals are waiting. Jump back in and keep collecting bubbles!"
+            "value" : "Your animals are waiting. Jump back in and keep collecting nuts!"
           }
         },
         "es" : {
@@ -63234,7 +63234,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Je dieren wachten op je. Spring weer verder en verzamel meer bubbels!"
+            "value" : "Je dieren wachten op je. Spring weer verder en verzamel meer noten!"
           }
         },
         "or" : {
@@ -67905,13 +67905,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "It’s been %lld day. Let’s solve some sums and collect more bubbles!"
+                  "value" : "It’s been %lld day. Let’s solve some sums and collect more nuts!"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "It’s been %lld days. Let’s solve some sums and collect more bubbles!"
+                  "value" : "It’s been %lld days. Let’s solve some sums and collect more nuts!"
                 }
               }
             }
@@ -68553,13 +68553,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Het is %lld dag geleden. Tijd voor wat sommen en nieuwe bubbels!"
+                  "value" : "Het is %lld dag geleden. Tijd voor wat sommen en nieuwe noten!"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Het is %lld dagen geleden. Tijd voor wat sommen en nieuwe bubbels!"
+                  "value" : "Het is %lld dagen geleden. Tijd voor wat sommen en nieuwe noten!"
                 }
               }
             }
@@ -72312,7 +72312,7 @@
       }
     },
     "notif.weekly.body %lld" : {
-      "comment" : "Push notification body for the weekly recap. The argument is the player's all-time bubble total.",
+      "comment" : "Push notification body for the weekly recap. The argument is the player's all-time nut total.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -72609,13 +72609,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "You have %lld bubble in total. Ready for a few more?"
+                  "value" : "You have %lld nut in total. Ready for a few more?"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "You have %lld bubbles in total. Ready for a few more?"
+                  "value" : "You have %lld nuts in total. Ready for a few more?"
                 }
               }
             }
@@ -73257,13 +73257,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Je hebt in totaal %lld bubbel. Klaar voor nog een paar?"
+                  "value" : "Je hebt in totaal %lld noot. Klaar voor nog een paar?"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Je hebt in totaal %lld bubbels. Klaar voor nog een paar?"
+                  "value" : "Je hebt in totaal %lld noten. Klaar voor nog een paar?"
                 }
               }
             }
@@ -73728,7 +73728,7 @@
       }
     },
     "notif.weekly.title %lld" : {
-      "comment" : "Push notification title for the weekly recap. The argument is the bubbles collected this week.",
+      "comment" : "Push notification title for the weekly recap. The argument is the nuts collected this week.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -74025,13 +74025,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubble this week! 🎉"
+                  "value" : "%lld nut this week! 🎉"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbles this week! 🎉"
+                  "value" : "%lld nuts this week! 🎉"
                 }
               }
             }
@@ -74673,13 +74673,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbel deze week! 🎉"
+                  "value" : "%lld noot deze week! 🎉"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld bubbels deze week! 🎉"
+                  "value" : "%lld noten deze week! 🎉"
                 }
               }
             }
@@ -88314,7 +88314,7 @@
       }
     },
     "premium.availableAt %lld" : {
-      "comment" : "Status under a character still to be earned. The argument is the bubble total that opens it.",
+      "comment" : "Status under a character still to be earned. The argument is the nut total that opens it.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -88611,13 +88611,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Available from %lld bubble"
+                  "value" : "Available from %lld nut"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Available from %lld bubbles"
+                  "value" : "Available from %lld nuts"
                 }
               }
             }
@@ -89259,13 +89259,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Beschikbaar vanaf %lld bubbel"
+                  "value" : "Beschikbaar vanaf %lld noot"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Beschikbaar vanaf %lld bubbels"
+                  "value" : "Beschikbaar vanaf %lld noten"
                 }
               }
             }
@@ -90666,7 +90666,7 @@
       }
     },
     "premium.earnedCards %lld" : {
-      "comment" : "Status under a character showing how many bubbles the player has so far.",
+      "comment" : "Status under a character showing how many nuts the player has so far.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -90963,13 +90963,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "You’ve earned %lld bubble"
+                  "value" : "You’ve earned %lld nut"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "You’ve earned %lld bubbles"
+                  "value" : "You’ve earned %lld nuts"
                 }
               }
             }
@@ -91611,13 +91611,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Je hebt %lld bubbel verdiend"
+                  "value" : "Je hebt %lld noot verdiend"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Je hebt %lld bubbels verdiend"
+                  "value" : "Je hebt %lld noten verdiend"
                 }
               }
             }
@@ -98634,7 +98634,7 @@
       }
     },
     "premium.unlockWithCards" : {
-      "comment" : "Alternative call to action: open a character with collected bubbles instead of money.",
+      "comment" : "Alternative call to action: open a character with collected nuts instead of money.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -98736,7 +98736,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unlock with bubbles"
+            "value" : "Unlock with nuts"
           }
         },
         "es" : {
@@ -98952,7 +98952,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vrijspelen met bubbels"
+            "value" : "Vrijspelen met noten"
           }
         },
         "or" : {
@@ -114642,13 +114642,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Push the joystick to swing the elephant left and right."
+            "value" : "Push the joystick left or right to move the elephant."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Beweeg de hendel om de olifant heen en weer te laten zwengelen."
+            "value" : "Duw de pook naar links of rechts om de olifant te verplaatsen."
           }
         }
       }
@@ -114678,13 +114678,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Press GRAB and pick the nut that matches the sum."
+            "value" : "Press GRAB to pick the nut that matches the sum."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Druk op Pak! en pak het nootje dat bij de som past."
+            "value" : "Druk op PAK en pak de noot die bij de som past."
           }
         }
       }
@@ -114797,8 +114797,44 @@
         }
       }
     },
+    "tutorial.claw.step.10" : {
+      "comment" : "Claw walkthrough step 3: collect another correct nut while the score display is highlighted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grab another correct nut to raise your score even further."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pak nog een goede noot om je score verder omhoog te brengen."
+          }
+        }
+      }
+    },
+    "tutorial.claw.step.11" : {
+      "comment" : "Claw walkthrough step 4: explain the per-nut time allowance while the frozen timer is highlighted for five seconds.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In every level, you get 10 seconds for each nut you need to collect. Good luck—you can do it!"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Je krijgt in elk level 10 seconden voor elke noot die je moet verzamelen. Succes, je kunt het!"
+          }
+        }
+      }
+    },
     "tutorial.notice.message" : {
-      "comment" : "Body of the note shown when the walkthrough cannot be armed. Explains what to do instead.",
+      "comment" : "Body of the note shown when the walkthrough cannot be armed because the player has already earned a point. Explains what to do instead.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -114900,7 +114936,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You are already playing this level. Finish it or start a new game, then tap the cap again to play the tutorial."
+            "value" : "The tutorial can start until you earn your first point. Start a new game to try it."
           }
         },
         "es" : {
@@ -115116,7 +115152,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Je bent dit level al aan het spelen. Maak het af of begin een nieuw spel en tik dan opnieuw op het hoedje om de tutorial te spelen."
+            "value" : "Je kunt de tutorial starten totdat je je eerste punt haalt. Begin een nieuw spel om hem te proberen."
           }
         },
         "or" : {
@@ -115266,7 +115302,7 @@
       }
     },
     "tutorial.notice.title" : {
-      "comment" : "Title of the note shown when the walkthrough cannot be armed because a run is already in progress.",
+      "comment" : "Title of the note shown when the walkthrough cannot be armed because the player has already earned a point.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -115368,7 +115404,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Only at the start of a game"
+            "value" : "Before your first point"
           }
         },
         "es" : {
@@ -115584,7 +115620,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alleen bij een nieuw spel"
+            "value" : "Voor je eerste punt"
           }
         },
         "or" : {
@@ -116670,7 +116706,7 @@
       }
     },
     "tutorial.step.3" : {
-      "comment" : "Walkthrough step 3 of 10: the answer bubbles appear and the right one is collected by swimming into it.",
+      "comment" : "Walkthrough step 3 of 10: the moving answers appear and the right one awards a nut when the player swims into it.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -116772,7 +116808,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Here come the answer bubbles! Swim into the correct answer to collect the bubble."
+            "value" : "Here come the answers! Swim into the correct answer to collect a nut."
           }
         },
         "es" : {
@@ -116988,7 +117024,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Daar komen antwoordbubbels! Zwem tegen het juiste antwoord om de bubbel te verzamelen."
+            "value" : "Daar komen de antwoorden! Zwem tegen het juiste antwoord om een noot te verzamelen."
           }
         },
         "or" : {
@@ -117138,7 +117174,7 @@
       }
     },
     "tutorial.step.4" : {
-      "comment" : "Walkthrough step 4 of 10: a wrong bubble costs a life, and there are three lives.",
+      "comment" : "Walkthrough step 4 of 10: touching a wrong answer costs a life, and there are three lives.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
@@ -117240,7 +117276,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Watch out for wrong answers! If you hit a wrong bubble, you lose a life. You have three lives. Try it once."
+            "value" : "Watch out for wrong answers! If you hit one, you lose a life. You have three lives. Try it once."
           }
         },
         "es" : {
@@ -117456,7 +117492,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pas op voor foute antwoorden! Als je een foute bubbel raakt, verlies je een leven. Je hebt drie levens. Probeer het één keer."
+            "value" : "Pas op voor foute antwoorden! Als je er één raakt, verlies je een leven. Je hebt drie levens. Probeer het één keer."
           }
         },
         "or" : {
@@ -119112,7 +119148,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Super bonus! The bubbles now move twice as fast, and you earn double points. First, two bubbles will appear."
+            "value" : "Super bonus! The answers now move twice as fast, and you earn double nuts. First, two answers will appear."
           }
         },
         "es" : {
@@ -119328,7 +119364,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Superbonus! De bubbels gaan nu twee keer zo snel en je krijgt dubbele punten. Eerst komen er twee bubbels."
+            "value" : "Superbonus! De antwoorden gaan nu twee keer zo snel en je krijgt dubbele noten. Eerst komen er twee antwoorden."
           }
         },
         "or" : {

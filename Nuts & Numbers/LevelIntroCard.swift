@@ -5,7 +5,7 @@
 //  The card shown before a level starts: what kind of sums it holds, which
 //  levels the questions are drawn from, and how many cards can be collected.
 //  Restored from the original start screen; only the settings it offers have
-//  changed, since lives and the answer helper are no longer optional here.
+//  changed, since the clock and answer rules are no longer optional here.
 //
 
 import SwiftUI
@@ -230,7 +230,7 @@ struct LevelIntroCard: View {
     }
 
     /// Confirms that the run is safely waiting without repeating a potentially
-    /// awkward singular/plural bubble count.
+    /// awkward singular/plural nut count.
     private var pausedMessage: some View {
         HStack(spacing: 6) {
             Image(systemName: "pause.fill")
@@ -247,7 +247,10 @@ struct LevelIntroCard: View {
     private var characterPortrait: some View {
         CroppedCharacterPortrait(
             character: theme,
-            otherCharacterScale: max(0, 1 - 10 / portraitSize)
+            elephantScale: 1.32,
+            elephantYOffset: -0.14,
+            otherCharacterScale: max(0, 1 - 10 / portraitSize),
+            usesHooklessElephant: true
         )
             .frame(width: portraitSize, height: portraitSize)
             .background(theme.skyColor, in: RoundedRectangle(cornerRadius: 20, style: .continuous))

@@ -1935,7 +1935,7 @@ final class ReefEngine: ObservableObject {
             collectedBubbles[index].age += dt
             let raw = min(1, collectedBubbles[index].age / ReefConfig.collectedBubbleDuration)
             // A smooth climb reads as buoyancy: it leaves the tail gently and
-            // settles without snapping when it reaches the score bubble.
+            // settles without snapping when it reaches the score nut.
             let t = CGFloat(raw * raw * (3 - 2 * raw))
             let bubble = collectedBubbles[index]
             collectedBubbles[index].position = cubicPoint(from: bubble.start,

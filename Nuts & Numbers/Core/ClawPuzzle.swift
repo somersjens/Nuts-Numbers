@@ -2,13 +2,13 @@
 //  ClawPuzzle.swift
 //  Nuts & Numbers
 //
-//  Builds one claw-machine level: the full sum list, the extra decoy nuts,
-//  the gold nuts, and a physical pile that is guaranteed to stay solvable.
+//  Builds one claw-machine level: the full sum list, the gold nuts, and a
+//  physical pile that is guaranteed to stay solvable and finish empty.
 //
 //  The brick mound is built first. Each sum is then parked on a nut that is
 //  already grabable at that point in the session — sometimes the peak, often
 //  a half-free nut one or two rows down — so later shells can sit on top for
-//  many rounds. Duplicate printed values are avoided on decoys.
+//  many rounds. Repeated answer values are spread apart where possible.
 //
 
 import Foundation
@@ -18,7 +18,7 @@ import Foundation
 /// Unit-space point inside the pile rectangle. (0, 0) is the top-left of the
 /// nut bed, (1, 1) the bottom-right. Kept free of SwiftUI so generation can
 /// run on a worker.
-nonisolated public struct ClawPoint: Equatable, Sendable {
+nonisolated public struct ClawPoint: Equatable, Codable, Sendable {
     public var x: Double
     public var y: Double
 
@@ -30,14 +30,13 @@ nonisolated public struct ClawPoint: Equatable, Sendable {
 
 // MARK: - Nut
 
-nonisolated public struct ClawNut: Identifiable, Equatable, Sendable {
+nonisolated public struct ClawNut: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     /// The value printed on the shell. Any nut whose value matches the
     /// standing sum is a correct grab, even if it was laid for a later question.
     public let text: String
-    /// 0-based index of the sum this nut was laid for, or nil when it is a
-    /// decoy. Used for stacking order and pause/resume, not as the only
-    /// accepted grab.
+    /// 0-based index of the sum this nut was laid for. The optional shape is
+    /// retained for save compatibility, although new piles contain no decoys.
     public let sequenceIndex: Int?
     public let isGold: Bool
     public var position: ClawPoint
@@ -72,7 +71,7 @@ nonisolated public struct ClawNut: Identifiable, Equatable, Sendable {
 
 // MARK: - Puzzle
 
-nonisolated public struct ClawPuzzle: Equatable, Sendable {
+nonisolated public struct ClawPuzzle: Equatable, Codable, Sendable {
     /// The sums in the order they will be asked. Same length as the board.
     public let questions: [MathQuestion]
     public let nuts: [ClawNut]
@@ -83,10 +82,32 @@ nonisolated public struct ClawPuzzle: Equatable, Sendable {
         nuts.first { $0.isAssigned(toQuestionIndex: index) }
     }
 
+    /// Verifies the immutable question-to-nut plan by playing its complete
+    /// removal order in memory. This is used before a saved plan is restored;
+    /// the live playfield never needs to rewrite or relocate a printed answer.
+    nonisolated public func isPlayablePlan(expectedCount: Int) -> Bool {
+        guard questions.count == expectedCount,
+              nuts.count >= expectedCount,
+              Set(nuts.map(\.id)).count == nuts.count
+        else { return false }
+
+        var pile = nuts
+        for (index, question) in questions.enumerated() {
+            guard question.isValid(requiredDistractors: GameConfig.distractorCount),
+                  let target = pile.first(where: { $0.isAssigned(toQuestionIndex: index) }),
+                  AnswerValue(target.text) == AnswerValue(question.correctAnswer),
+                  ClawPuzzle.isGrabable(target, among: pile)
+            else { return false }
+            ClawPuzzleBuilder.applyFall(&pile, removing: target)
+        }
+        return true
+    }
+
     /// Nuts that still belong in the machine after `collected` correct answers.
-    /// Earlier assigned nuts leave; decoys stay until the level ends. Positions
-    /// follow the same cascade as a live session, so a rebuilt playfield does
-    /// not put later answers back under a stack that should already have slid.
+    /// Earlier assigned nuts leave. Positions follow the same cascade as a live
+    /// session, so a rebuilt playfield does not put later answers back under a
+    /// stack that should already have slid. At the full count this returns an
+    /// empty pile.
     nonisolated public func remainingNuts(afterCollected collected: Int) -> [ClawNut] {
         var pile = nuts
         for index in 0..<collected {
@@ -128,10 +149,15 @@ nonisolated public struct ClawPuzzle: Equatable, Sendable {
         ClawPuzzleBuilder.fallChain(removing: removed, among: remaining)
     }
 
-    /// Builds a full level from an already-generated sum list. The returned
-    /// `questions` may be reordered so similar sums sit near each other.
-    nonisolated public static func build(questions: [MathQuestion], seed: UInt64) -> ClawPuzzle {
-        ClawPuzzleBuilder.build(questions: questions, seed: seed)
+    /// Builds a full level from an already-generated sum list. Random and Mixed
+    /// sessions may spread their questions for a better pile; Reeks keeps the
+    /// generator's exact teaching sequence.
+    nonisolated public static func build(questions: [MathQuestion],
+                                         seed: UInt64,
+                                         preservesQuestionOrder: Bool = false) -> ClawPuzzle {
+        ClawPuzzleBuilder.build(questions: questions,
+                                seed: seed,
+                                preservesQuestionOrder: preservesQuestionOrder)
     }
 }
 
@@ -152,9 +178,13 @@ nonisolated private enum ClawPuzzleBuilder {
         case strictPyramid
     }
 
-    nonisolated static func build(questions: [MathQuestion], seed: UInt64) -> ClawPuzzle {
+    nonisolated static func build(questions: [MathQuestion],
+                                  seed: UInt64,
+                                  preservesQuestionOrder: Bool) -> ClawPuzzle {
         let random = RandomSource(seed: seed &+ 0xC1A0_9A75)
-        let ordered = spreadQuestions(questions, random: random)
+        let ordered = preservesQuestionOrder
+            ? questions
+            : spreadQuestions(questions, random: random)
         let gold = goldIndices(count: ordered.count, random: random)
         let distractors = makeDistractors(for: ordered, random: random)
         let strategy = LayoutStrategy.allCases[
@@ -182,7 +212,10 @@ nonisolated private enum ClawPuzzleBuilder {
             repairGrabability(&nuts, answerCount: ordered.count)
             refreshCovering(&nuts)
         }
-        return ClawPuzzle(questions: ordered, nuts: nuts, seed: seed)
+        let puzzle = ClawPuzzle(questions: ordered, nuts: nuts, seed: seed)
+        assert(puzzle.isPlayablePlan(expectedCount: ordered.count),
+               "Claw puzzle must be completely planned before play starts")
+        return puzzle
     }
 
     // MARK: Ordering
@@ -216,7 +249,8 @@ nonisolated private enum ClawPuzzleBuilder {
 
     static func makeDistractors(for questions: [MathQuestion],
                                 random: RandomSource) -> [String] {
-        let wanted = max(1, Int((Double(questions.count) * GameConfig.clawDistractorRatio).rounded()))
+        let wanted = max(0, Int((Double(questions.count) * GameConfig.clawDistractorRatio).rounded()))
+        guard wanted > 0 else { return [] }
         let forbidden = Set(questions.map { AnswerValue($0.correctAnswer) })
         var pool: [String] = []
         var seen = Set<AnswerValue>()
@@ -345,16 +379,27 @@ nonisolated private enum ClawPuzzleBuilder {
                               distractors: [String],
                               random: RandomSource) {
         var sim = nuts
+        // A small exercise can have fewer distinct results than the board has
+        // shells (for example a table has twelve). Repeats are then inevitable,
+        // but a later copy should preferably stay buried while an earlier copy
+        // is the standing answer. Remember every shell that was already exposed
+        // during that value's question and avoid assigning the next copy there.
+        var exposedSlotsByAnswer: [AnswerValue: Set<UUID>] = [:]
         for (index, question) in answers.enumerated() {
             let grabable = sim.filter { ClawPuzzle.isGrabable($0, among: sim) }
             let printed = AnswerValue(question.correctAnswer)
+            let previouslyExposed = exposedSlotsByAnswer[printed] ?? []
+            let newlyExposed = grabable.filter { !previouslyExposed.contains($0.id) }
+            let candidates = newlyExposed.isEmpty ? grabable : newlyExposed
             let already = nuts.filter { $0.sequenceIndex != nil && value(of: $0) == printed }
-            let far = grabable.filter { candidate in
+            let far = candidates.filter { candidate in
                 !already.contains { closeTogether($0, candidate) }
             }
-            let pool = far.isEmpty ? grabable : far
+            let pool = far.isEmpty ? candidates : far
             let chosen = pickAnswerSlot(pool, pile: sim, random: random) ?? random.element(pool)
             guard let chosen, ClawPuzzle.isGrabable(chosen, among: sim) else { break }
+            exposedSlotsByAnswer[printed, default: []]
+                .formUnion(grabable.map(\.id))
             if let i = nuts.firstIndex(where: { $0.id == chosen.id }) {
                 nuts[i] = relabel(nuts[i],
                                   text: question.correctAnswer,

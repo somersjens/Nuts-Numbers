@@ -21,7 +21,7 @@ struct ResultView: View {
     @State private var isPresented = false
     @State private var badgeLanded = false
     @State private var shineSweep = false
-    @State private var showsBubbleRain = false
+    @State private var showsNutRain = false
 
     private var isPad: Bool { AppLayout.isPad }
     private var scale: CGFloat { isPad ? 1.2 : 1 }
@@ -36,8 +36,8 @@ struct ResultView: View {
     private var isCompleted: Bool { result.reason == .roundsCompleted }
 
     /// A completed board always gets the same celebratory description. When
-    /// the player runs out of lives, every three bubbles advance to the next
-    /// encouraging message, capped at the tenth message.
+    /// time expires, every three nuts advance to the next encouraging message,
+    /// capped at the tenth message.
     private var encouragement: String {
         guard !isCompleted else { return L(key: "game.end.completionSubtitle") }
         let index = min(max(levelScore, 0) / 3, 9)
@@ -46,8 +46,7 @@ struct ResultView: View {
 
     private var titleKey: LocalizedStringKey {
         switch result.reason {
-        case .outOfLives, .outOfTime:
-            return "game.end.gameOverTitle"
+        case .outOfTime:        return "game.end.gameOverTitle"
         case .roundsCompleted: return "result.complete"
         case .quit:            return "result.stopped"
         }
@@ -87,8 +86,8 @@ struct ResultView: View {
 
             // Layered above the card, so the burst rains over the result rather
             // than behind it. It starts once the card entrance is underway.
-            if showsBubbleRain {
-                BubbleRainView()
+            if showsNutRain {
+                NutRainView(color: character.color)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
@@ -97,11 +96,11 @@ struct ResultView: View {
             withAnimation(.spring(response: 0.46, dampingFraction: 0.82)) {
                 isPresented = true
             }
-            // Only a score this level has never seen before rains bubbles;
+            // Only a score this level has never seen before rains nuts;
             // matching or falling short of the old best ends quietly.
             guard showsNewBest else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
-                showsBubbleRain = true
+                showsNutRain = true
             }
             // The badge drops in after the card has settled, then glints once.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
@@ -167,10 +166,7 @@ struct ResultView: View {
                     .font(.system(size: 20 * scale, weight: .bold))
                     .foregroundStyle(character.color.opacity(0.68))
                     .offset(x: 53 * scale, y: -8 * scale)
-                character.artwork
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 130 * scale, height: 92 * scale)
+                resultPortrait
                     .scaleEffect(isPresented ? 1 : 0.4)
                     .rotationEffect(.degrees(isPresented ? 0 : -25))
                     .animation(.spring(response: 0.55, dampingFraction: 0.5),
@@ -178,11 +174,28 @@ struct ResultView: View {
             }
             .frame(height: 92 * scale)
         } else {
-            character.artwork
-                .resizable()
-                .scaledToFit()
-                .frame(width: 130 * scale, height: 92 * scale)
+            resultPortrait
         }
+    }
+
+    /// The result uses a calm portrait badge instead of dropping the entire
+    /// hanging sprite into a shallow frame. For the elephant this keeps the
+    /// feet-to-arms silhouette centred and leaves the machine hook out of view.
+    private var resultPortrait: some View {
+        CroppedCharacterPortrait(character: character,
+                                 elephantScale: 1.32,
+                                 elephantYOffset: -0.14,
+                                 otherCharacterScale: 0.88,
+                                 usesHooklessElephant: true)
+            .frame(width: 118 * scale, height: 92 * scale)
+            .background(character.skyColor.opacity(0.82),
+                        in: RoundedRectangle(cornerRadius: 24 * scale, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 24 * scale, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24 * scale, style: .continuous)
+                    .stroke(.white.opacity(0.92), lineWidth: 2)
+            }
+            .shadow(color: character.deepColor.opacity(0.16), radius: 7 * scale, y: 3 * scale)
     }
 
     /// "×7 complete!" — where the "×7" is a drawn label (a stacked fraction, or
@@ -397,22 +410,24 @@ struct ResultView: View {
     }
 }
 
-/// A shower of bubbles for a new personal best: they drift down over the card
-/// and pop, one after another, instead of the confetti this used to rain.
-private struct BubbleRainView: View {
-    @State private var bubbles: [RainBubble]
+/// A shower of nuts for a new personal best: they drift down over the card
+/// and fade, one after another, instead of the confetti this used to rain.
+private struct NutRainView: View {
+    let color: Color
+    @State private var nuts: [RainNut]
 
-    init() {
+    init(color: Color) {
+        self.color = color
         // Keep the reward visible without covering the result card in a dense
         // curtain. The varied timing still makes this feel organic.
-        _bubbles = State(initialValue: (0..<18).map { _ in RainBubble() })
+        _nuts = State(initialValue: (0..<18).map { _ in RainNut() })
     }
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                ForEach(bubbles) { bubble in
-                    FallingBubble(bubble: bubble, area: proxy.size)
+                ForEach(nuts) { nut in
+                    FallingNut(nut: nut, area: proxy.size, color: color)
                 }
             }
         }
@@ -420,68 +435,51 @@ private struct BubbleRainView: View {
     }
 }
 
-private struct RainBubble: Identifiable {
+private struct RainNut: Identifiable {
     let id = UUID()
-    /// Share of the width the bubble falls down.
+    /// Share of the width the nut falls down.
     let x = CGFloat.random(in: 0.08...0.92)
     let diameter = CGFloat.random(in: 8...22)
-    /// Share of the height at which it bursts, so they do not all pop in a line.
-    let burstY = CGFloat.random(in: 0.34...0.86)
+    /// Share of the height at which it fades, so they do not all vanish in a line.
+    let fadeY = CGFloat.random(in: 0.34...0.86)
     let fallDuration = Double.random(in: 1.55...2.45)
     let delay = Double.random(in: 0...1.1)
     /// A little sideways wander on the way down.
     let drift = CGFloat.random(in: -14...14)
+    let rotation = Double.random(in: -32...32)
 }
 
-private struct FallingBubble: View {
-    let bubble: RainBubble
+private struct FallingNut: View {
+    let nut: RainNut
     let area: CGSize
+    let color: Color
 
     @State private var hasFallen = false
-    @State private var isBursting = false
-    @State private var burstFinished = false
+    @State private var hasFaded = false
 
     var body: some View {
-        ZStack {
-            // A faint ring lingers for a moment after the shell dissolves. It
-            // gives each bubble a soft finish instead of a sudden large pop.
-            Circle()
-                .stroke(.white.opacity(0.62), lineWidth: 0.8)
-                .scaleEffect(isBursting ? (burstFinished ? 1.5 : 1.08) : 0.88)
-                .opacity(isBursting && !burstFinished ? 0.3 : 0)
-
-            Circle()
-                .fill(
-                    RadialGradient(colors: [.white.opacity(0.78), .white.opacity(0.16)],
-                                   center: UnitPoint(x: 0.34, y: 0.30),
-                                   startRadius: 1,
-                                   endRadius: bubble.diameter * 0.7)
-                )
-                .overlay { Circle().stroke(.white.opacity(0.66), lineWidth: 0.9) }
-                .scaleEffect(isBursting ? 1.14 : 1)
-                .opacity(isBursting ? 0 : 0.78)
-        }
-        .frame(width: bubble.diameter, height: bubble.diameter)
-        .position(x: area.width * bubble.x + (hasFallen ? bubble.drift : 0),
-                  y: hasFallen ? area.height * bubble.burstY : -bubble.diameter)
+        CurrencyIcon(size: nut.diameter)
+            .foregroundStyle(color)
+            .rotationEffect(.degrees(hasFallen ? nut.rotation : -nut.rotation))
+            .scaleEffect(hasFaded ? 1.22 : 1)
+            .opacity(hasFaded ? 0 : 0.82)
+        .frame(width: nut.diameter, height: nut.diameter)
+        .position(x: area.width * nut.x + (hasFallen ? nut.drift : 0),
+                  y: hasFallen ? area.height * nut.fadeY : -nut.diameter)
         .onAppear {
             withAnimation(
                 .timingCurve(0.32, 0.48, 0.42, 1,
-                             duration: bubble.fallDuration)
-                    .delay(bubble.delay)
+                             duration: nut.fallDuration)
+                    .delay(nut.delay)
             ) {
                 hasFallen = true
             }
 
-            // Let the bubble settle, dissolve its shell, then gently fade
-            // the remaining ring. The two short phases avoid a hard cut.
+            // Let the nut settle, then gently fade instead of ending on a hard cut.
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + bubble.delay + bubble.fallDuration + 0.06
+                deadline: .now() + nut.delay + nut.fallDuration + 0.06
             ) {
-                withAnimation(.easeOut(duration: 0.18)) { isBursting = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
-                    withAnimation(.easeOut(duration: 0.34)) { burstFinished = true }
-                }
+                withAnimation(.easeOut(duration: 0.34)) { hasFaded = true }
             }
         }
     }
