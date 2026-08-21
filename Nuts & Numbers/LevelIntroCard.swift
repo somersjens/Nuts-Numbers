@@ -203,9 +203,11 @@ struct LevelIntroCard: View {
                     .padding(28 * scale)
                     .padding(.top, 4)
                     .frame(maxWidth: 420 * scale)
-                    // Explicit white: `.background` follows Dark Mode and the
-                    // deep-purple copy on this card becomes unreadable.
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    // Keep the surface light in Dark Mode, but let a hint of
+                    // the reef show through so starting or resuming feels less
+                    // like switching away from the game.
+                    .background(Color.white.opacity(0.92),
+                                in: RoundedRectangle(cornerRadius: 28, style: .continuous))
                     .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .stroke(theme.deepColor.opacity(0.14), lineWidth: 1))

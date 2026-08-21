@@ -169,7 +169,7 @@ struct GameView: View {
             }
         }
         .animation(.easeInOut(duration: 0.28), value: model.isGameOver)
-        .animation(.easeInOut(duration: 0.25), value: showsIntro)
+        .animation(.easeInOut(duration: 0.35), value: showsIntro)
         .onAppear {
             screenInsets = ScreenSafeArea.current
             model.prepare()

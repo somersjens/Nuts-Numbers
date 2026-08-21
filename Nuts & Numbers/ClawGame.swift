@@ -47,11 +47,18 @@ enum ClawConfig {
     static let dropGravity: CGFloat = 2400
 
     static let entranceDuration = 0.85
-    static let completionDuration = 1.78
+    static let completionDuration = 2.12
     static let timeUpDuration = 1.35
-    static let celebrationJerkEnd = 0.20
-    static let celebrationRelease = 0.62
-    static let celebrationMouthArrival = 1.26
+    /// The loaded trolley travels from the collection side to the exact centre
+    /// before it stops. Braking there sends the elephant to its left apex.
+    static let celebrationCenterArrival = 0.52
+    /// The hook stays parked while the elephant accelerates back to the right.
+    /// Release happens during that swing, not at its apex, so the body carries
+    /// real horizontal speed into the somersault.
+    static let celebrationRelease = 1.02
+    static let celebrationMouthArrival = 1.70
+    static let celebrationLeftAngle: CGFloat = 0.30
+    static let celebrationReleaseAngle: CGFloat = -0.22
     static let timeUpRelease = 0.58
 
     /// The four animated elephant layers share one square canvas. Keep the
@@ -62,6 +69,9 @@ enum ClawConfig {
     /// Visible free rope between the trolley rail and the hook. The previous
     /// sprite sat almost flush against the rail, leaving no line to flex.
     static func elephantRopeLength(isPad: Bool) -> CGFloat { isPad ? 58 : 44 }
+    /// Distance from the hanging attachment to the centre between the front
+    /// hands. Both the descent and the carried walnut must use this same point.
+    static let elephantGripReach: CGFloat = 0.92
 
     static func nutPixelRadius(unit: Double, pile: CGSize) -> CGFloat {
         CGFloat(unit) * pile.width
@@ -436,7 +446,8 @@ final class ClawEngine: ObservableObject {
         finaleAge = 0
         heldNutID = nil
         input = 0
-        trolleyX = binUnitX
+        finaleStartX = binUnitX
+        trolleyX = finaleStartX
         lastTrolleyX = trolleyX
         trolleyY = 0
         swingVelocity = 0
@@ -490,13 +501,18 @@ final class ClawEngine: ObservableObject {
         let elephant = ClawConfig.elephantVisibleHeight(isPad: isPad)
         let restY = playRect.minY + ClawConfig.elephantRopeLength(isPad: isPad)
         let span = max(90, pileRect.maxY - restY - elephant * 0.22)
-        let desiredY: CGFloat
-        if let target {
-            desiredY = target.rest.y - elephant * 0.78
-        } else {
-            desiredY = pileRect.minY + 8
+        guard let target else {
+            let emptyGrabY = pileRect.minY + 8
+            return max(0.28, min(1, (emptyGrabY - restY) / span))
         }
-        return max(0.28, min(1, (desiredY - restY) / span))
+
+        // Solve from the visible hand position back to the trolley. The old
+        // calculation used 0.78 here while `trunkPoint` used 0.92, then also
+        // forced a 0.28 minimum descent. On a tall pile both errors made the
+        // elephant pass the nut before its hands closed around it.
+        let gripReach = elephant * ClawConfig.elephantGripReach
+        let desiredTrolleyY = target.position.y - cos(swingAngle) * gripReach
+        return max(0, min(1, (desiredTrolleyY - restY) / span))
     }
 
     private func nearestNut() -> ClawNutRuntime? {
@@ -590,6 +606,12 @@ final class ClawEngine: ObservableObject {
             break
         case .descending:
             let t = min(1, phaseAge / descendTime)
+            // The swing keeps settling during the descent. Re-solve the end
+            // depth each frame so the hands still finish on the nut centre.
+            if let id = grabTarget,
+               let target = nuts.first(where: { $0.id == id }) {
+                grabDepth = depthToward(target)
+            }
             trolleyY = easeInOut(t) * grabDepth
             if t >= 1 {
                 if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
@@ -757,28 +779,33 @@ final class ClawEngine: ObservableObject {
     }
 
     private func stepCelebration(dt: Double) {
-        let parked = binUnitX
-        let pulledLeft = max(trolleyMinX, parked - 0.065)
+        let center: CGFloat = 0.5
+        let leftAngle = ClawConfig.celebrationLeftAngle
+        let releaseAngle = ClawConfig.celebrationReleaseAngle
 
         if reduceMotion {
-            trolleyX = parked
+            trolleyX = center
             swingAngle = 0
-        } else if phaseAge < ClawConfig.celebrationJerkEnd {
-            let p = smoothStep(phaseAge / ClawConfig.celebrationJerkEnd)
-            trolleyX = parked + (pulledLeft - parked) * CGFloat(p)
-            // Positive screen-space rotation puts the elephant to the left.
-            swingAngle = 0.25 * CGFloat(p)
+        } else if phaseAge < ClawConfig.celebrationCenterArrival {
+            let p = smoothStep(phaseAge / ClawConfig.celebrationCenterArrival)
+            trolleyX = finaleStartX + (center - finaleStartX) * CGFloat(p)
+            // The trolley brakes at centre while the loaded body continues to
+            // the left. Both position and angle arrive with zero velocity.
+            swingAngle = leftAngle * CGFloat(p)
         } else if phaseAge < ClawConfig.celebrationRelease {
-            let span = ClawConfig.celebrationRelease - ClawConfig.celebrationJerkEnd
-            let p = smoothStep((phaseAge - ClawConfig.celebrationJerkEnd) / span)
-            trolleyX = pulledLeft
-            // The trolley stops; momentum carries the body back to the right.
-            swingAngle = 0.25 + (-0.34 - 0.25) * CGFloat(p)
+            let span = ClawConfig.celebrationRelease - ClawConfig.celebrationCenterArrival
+            let p = min(1, max(0,
+                (phaseAge - ClawConfig.celebrationCenterArrival) / span
+            ))
+            trolleyX = center
+            // Starting quadratically from the left apex gives zero initial
+            // speed and a non-zero rightward speed at the release frame.
+            swingAngle = leftAngle + (releaseAngle - leftAngle) * CGFloat(p * p)
         } else {
-            trolleyX = pulledLeft
+            trolleyX = center
             let recoil = smoothStep(min(1, (phaseAge - ClawConfig.celebrationRelease) / 0.30))
             // Only the empty claw settles after it lets go.
-            swingAngle = -0.34 * (1 - CGFloat(recoil))
+            swingAngle = releaseAngle * (1 - CGFloat(recoil))
         }
         trolleyY = 0
         lastTrolleyX = trolleyX
@@ -943,7 +970,8 @@ final class ClawEngine: ObservableObject {
 
     var trunkPoint: CGPoint {
         let origin = trolleyScreen
-        let length = ClawConfig.elephantVisibleHeight(isPad: isPad) * 0.92
+        let length = ClawConfig.elephantVisibleHeight(isPad: isPad)
+            * ClawConfig.elephantGripReach
         // Screen-space rotation and a mathematical y-up rotation lean in
         // opposite horizontal directions. Follow the rendered hands so a
         // walnut cannot drift to the other side of a swinging elephant.
@@ -1380,8 +1408,6 @@ struct ClawPlayfield: View {
                 .frame(width: geo.play.width, height: geo.play.height)
 
             SanctuaryLivingDetails(
-                palette: palette,
-                character: character,
                 isPad: isPad,
                 reduceMotion: reduceMotion
             )
@@ -2106,9 +2132,19 @@ private struct ClawElephantView: View {
         let local = CGPoint(x: origin.x - play.minX, y: origin.y - play.minY)
         let grip = armGrip
         let isFinale = phase == .celebrating || phase == .timeUp
+        // The elephant hangs from its back feet, so the loose response grows
+        // gently down the body: the face and front arms travel a touch farther
+        // than the legs nearest the rope. A tiny phase delay keeps the layers
+        // connected while still suggesting soft weight below the attachment.
         let bottomLag = isFinale
             ? Angle.zero
             : Angle.radians(Double(-swing) * 0.11 + sin(motionClock * 2.15) * 0.012)
+        let headLag = isFinale
+            ? Angle.zero
+            : Angle.radians(Double(-swing) * 0.13 + sin(motionClock * 2.15 - 0.08) * 0.015)
+        let armLag = isFinale
+            ? Angle.zero
+            : Angle.radians(Double(-swing) * 0.15 + sin(motionClock * 2.15 - 0.12) * 0.017)
         let motion = bodyMotion(side: side)
         ZStack(alignment: .topLeading) {
             swayingRope(to: local)
@@ -2127,14 +2163,17 @@ private struct ClawElephantView: View {
                 elephantLayer(.leftArm)
                     .rotationEffect(.degrees(-17 * grip),
                                     anchor: UnitPoint(x: 0.36, y: 0.76))
+                    .rotationEffect(armLag, anchor: .top)
 
                 elephantLayer(.rightArm)
                     .rotationEffect(.degrees(17 * grip),
                                     anchor: UnitPoint(x: 0.64, y: 0.76))
+                    .rotationEffect(armLag, anchor: .top)
 
                 // The face deliberately renders last: it hides the arm and
                 // torso seams while the loose layers are moving.
                 elephantLayer(.head)
+                    .rotationEffect(headLag, anchor: .top)
             }
             .frame(width: side, height: side)
             .scaleEffect(motion.scale, anchor: .top)
@@ -2190,12 +2229,13 @@ private struct ClawElephantView: View {
                 return attachedBody
             }
 
-            let releaseAngle: CGFloat = reduceMotion ? 0 : -0.34
+            let releaseAngle: CGFloat = reduceMotion
+                ? 0
+                : ClawConfig.celebrationReleaseAngle
             let approachDuration = ClawConfig.celebrationMouthArrival - ClawConfig.celebrationRelease
             let approach = min(1, max(0,
                 (phaseAge - ClawConfig.celebrationRelease) / approachDuration
             ))
-            let approachEase = smooth(approach)
             let mouth = CGPoint(x: bin.minX + bin.width * 0.36,
                                 y: bin.minY + bin.height * 0.15)
             let approachScale: CGFloat = reduceMotion ? 0.68 : 0.62
@@ -2203,37 +2243,62 @@ private struct ClawElephantView: View {
                 width: mouth.x - origin.x,
                 height: mouth.y - origin.y - side * 0.78 * approachScale
             )
-            let continuation = CGSize(
-                width: mouthOffset.width + side * 0.14,
-                height: min(mouthOffset.height, 0) - side * 0.08
-            )
-
-            if approach < 1 {
-                return BodyMotion(
-                    offset: quadraticBezier(from: .zero,
-                                            control: continuation,
-                                            to: mouthOffset,
-                                            progress: CGFloat(approachEase)),
-                    attachmentRotation: .radians(Double(releaseAngle * CGFloat(1 - approachEase))),
-                    spinRotation: reduceMotion ? .zero : .degrees(360 * approachEase),
-                    scale: 1 + (approachScale - 1) * CGFloat(approachEase)
-                )
-            }
-
-            let plungeDuration = ClawConfig.completionDuration - ClawConfig.celebrationMouthArrival
-            let plunge = smooth(min(1, max(0,
-                (phaseAge - ClawConfig.celebrationMouthArrival) / plungeDuration
-            )))
-            let finalScale = diveScale(side: side)
             let insideOffset = CGSize(
                 width: mouth.x - origin.x,
                 height: bin.minY + bin.height * 0.31 - origin.y
             )
+            let plungeDuration = ClawConfig.completionDuration - ClawConfig.celebrationMouthArrival
+
+            // Match the detached body's first velocity to the angular speed
+            // it had on the final attached frame. This is the continuity that
+            // makes the release read as momentum instead of a new animation.
+            let swingDuration = CGFloat(
+                ClawConfig.celebrationRelease - ClawConfig.celebrationCenterArrival
+            )
+            let angularVelocity = reduceMotion ? 0 : 2
+                * (ClawConfig.celebrationReleaseAngle - ClawConfig.celebrationLeftAngle)
+                / max(0.01, swingDuration)
+            let pendulumRadius = side * 0.50
+            let initialVelocity = CGSize(
+                width: -CGFloat(cos(Double(releaseAngle))) * pendulumRadius * angularVelocity,
+                height: -CGFloat(sin(Double(releaseAngle))) * pendulumRadius * angularVelocity
+            )
+            let mouthVelocity = CGSize(
+                width: 0,
+                height: (insideOffset.height - mouthOffset.height)
+                    * 0.35 / CGFloat(max(0.01, plungeDuration))
+            )
+
+            if approach < 1 {
+                let approachEase = smooth(approach)
+                return BodyMotion(
+                    offset: cubicHermite(from: .zero,
+                                         to: mouthOffset,
+                                         initialVelocity: initialVelocity,
+                                         finalVelocity: mouthVelocity,
+                                         duration: CGFloat(approachDuration),
+                                         progress: CGFloat(approach)),
+                    attachmentRotation: .radians(
+                        Double(releaseAngle * CGFloat(1 - approachEase))
+                    ),
+                    spinRotation: reduceMotion ? .zero : .degrees(-360 * approach),
+                    scale: 1 + (approachScale - 1) * CGFloat(approachEase)
+                )
+            }
+
+            let plunge = min(1, max(0,
+                (phaseAge - ClawConfig.celebrationMouthArrival) / plungeDuration
+            ))
+            let plungeEase = smooth(plunge)
+            // A linear component preserves the downward mouth-arrival speed;
+            // the quadratic remainder accelerates the elephant into the bin.
+            let plungeTravel = 0.35 * plunge + 0.65 * plunge * plunge
+            let finalScale = diveScale(side: side)
             return BodyMotion(
-                offset: interpolate(mouthOffset, insideOffset, CGFloat(plunge)),
-                attachmentRotation: .zero,
-                spinRotation: reduceMotion ? .zero : .degrees(360),
-                scale: approachScale + (finalScale - approachScale) * CGFloat(plunge)
+                offset: interpolate(mouthOffset, insideOffset, CGFloat(plungeTravel)),
+                attachmentRotation: .radians(Double(releaseAngle * CGFloat(1 - plungeEase))),
+                spinRotation: reduceMotion ? .zero : .degrees(-360),
+                scale: approachScale + (finalScale - approachScale) * CGFloat(plungeEase)
             )
 
         case .timeUp:
@@ -2276,20 +2341,29 @@ private struct ClawElephantView: View {
                height: from.height + (to.height - from.height) * progress)
     }
 
-    private func quadraticBezier(
+    private func cubicHermite(
         from: CGSize,
-        control: CGSize,
         to: CGSize,
+        initialVelocity: CGSize,
+        finalVelocity: CGSize,
+        duration: CGFloat,
         progress: CGFloat
     ) -> CGSize {
-        let inverse = 1 - progress
+        let t2 = progress * progress
+        let t3 = t2 * progress
+        let fromWeight = 2 * t3 - 3 * t2 + 1
+        let initialVelocityWeight = t3 - 2 * t2 + progress
+        let toWeight = -2 * t3 + 3 * t2
+        let finalVelocityWeight = t3 - t2
         return CGSize(
-            width: inverse * inverse * from.width
-                + 2 * inverse * progress * control.width
-                + progress * progress * to.width,
-            height: inverse * inverse * from.height
-                + 2 * inverse * progress * control.height
-                + progress * progress * to.height
+            width: fromWeight * from.width
+                + initialVelocityWeight * duration * initialVelocity.width
+                + toWeight * to.width
+                + finalVelocityWeight * duration * finalVelocity.width,
+            height: fromWeight * from.height
+                + initialVelocityWeight * duration * initialVelocity.height
+                + toWeight * to.height
+                + finalVelocityWeight * duration * finalVelocity.height
         )
     }
 
@@ -2907,39 +2981,7 @@ private struct SanctuaryScene: View, Equatable {
     let isPad: Bool
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [character.skyColor,
-                         palette.interior,
-                         palette.wood.opacity(0.94)],
-                startPoint: .top, endPoint: .bottom
-            )
-
-            recessedRoom
-
-            VStack(spacing: 6) {
-                ForEach(0..<10, id: \.self) { index in
-                    Rectangle()
-                        .fill(Color.white.opacity(index.isMultiple(of: 2) ? 0.07 : 0.03))
-                        .frame(height: 1)
-                    Spacer(minLength: 0)
-                }
-            }
-            .padding(.vertical, 12)
-
-            pawWall
-            ceilingBeams
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                woodenFloor
-                    .frame(height: isPad ? 74 : 50)
-            }
-            habitatArchitecture
-            hangingLamps
-            tireSwing
-
-            foregroundPlants
-        }
+        SavannaHabitatArtwork(palette: palette, character: character, isPad: isPad)
         .allowsHitTesting(false)
     }
 
@@ -3646,87 +3688,1828 @@ private struct SanctuaryScene: View, Equatable {
     }
 }
 
-/// Swaying toys, breathing lamp light and drifting dust make the sanctuary feel
-/// occupied without competing with the moving elephant or changing game input.
-private struct SanctuaryLivingDetails: View {
+/// A fully procedural habitat backdrop. Every coordinate is expressed as a
+/// fraction of the chamber, so the same composition works on compact phones,
+/// tall phones and iPad without loading or cropping a background asset.
+private struct SavannaHabitatArtwork: View, Equatable {
     let palette: ClawPalette
     let character: AnimalCharacter
+    let isPad: Bool
+
+    private let skyTop = Color(red: 0.48, green: 0.79, blue: 0.93)
+    private let skyHaze = Color(red: 0.91, green: 0.88, blue: 0.68)
+    private let sandLight = Color(red: 0.76, green: 0.61, blue: 0.34)
+    private let sandDeep = Color(red: 0.42, green: 0.28, blue: 0.12)
+    private let bark = Color(red: 0.34, green: 0.19, blue: 0.075)
+    private let barkLight = Color(red: 0.61, green: 0.39, blue: 0.16)
+    private let savannaGreen = Color(red: 0.30, green: 0.43, blue: 0.11)
+    private let leafLight = Color(red: 0.50, green: 0.60, blue: 0.18)
+    private let water = Color(red: 0.18, green: 0.62, blue: 0.76)
+
+    var body: some View {
+        Canvas { context, size in
+            paintSky(in: &context, size: size)
+            paintDistantSavanna(in: &context, size: size)
+            paintGround(in: &context, size: size)
+            paintSandSurface(in: &context, size: size)
+            paintWaterhole(in: &context, size: size)
+            paintWaterEdgeDetails(in: &context, size: size)
+            paintGroundDetails(in: &context, size: size)
+            paintFieldVegetation(in: &context, size: size)
+            paintTreesAndCanopy(in: &context, size: size)
+            // Habitat structures sit inside the cabinet, in front of the
+            // framing trees. This overlap is important for believable depth.
+            paintHabitatFurniture(in: &context, size: size)
+            paintForeground(in: &context, size: size)
+        }
+        .overlay {
+            // A restrained glass tint unifies the scenery without washing out
+            // the black answer labels on the walnut pile.
+            LinearGradient(colors: [.white.opacity(0.08),
+                                    .clear,
+                                    palette.woodDeep.opacity(0.035)],
+                           startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+        }
+    }
+
+    private func paintSky(in context: inout GraphicsContext, size: CGSize) {
+        context.fill(
+            Path(CGRect(origin: .zero, size: size)),
+            with: .linearGradient(
+                Gradient(colors: [skyTop, character.skyColor.opacity(0.76), skyHaze]),
+                startPoint: CGPoint(x: size.width * 0.35, y: 0),
+                endPoint: CGPoint(x: size.width * 0.58, y: size.height * 0.58)
+            )
+        )
+
+        // Keep the hazy savanna sun clear of the right canopy: slightly lower
+        // and closer to centre lets its full disc remain visible.
+        let sun = CGRect(x: size.width * 0.60,
+                         y: size.height * 0.195,
+                         width: size.width * 0.135,
+                         height: size.width * 0.135)
+        context.fill(Path(ellipseIn: sun.insetBy(dx: -sun.width * 0.8, dy: -sun.height * 0.8)),
+                     with: .radialGradient(
+                        Gradient(colors: [Color.white.opacity(0.32), .clear]),
+                        center: CGPoint(x: sun.midX, y: sun.midY),
+                        startRadius: 2,
+                        endRadius: sun.width * 1.25
+                     ))
+        context.fill(Path(ellipseIn: sun), with: .color(Color(red: 1, green: 0.91, blue: 0.55).opacity(0.72)))
+
+        // Thin, irregular cloud strokes add atmospheric scale while keeping
+        // the centre quiet for the hanging character.
+        let clouds: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.17, 0.26, 0.18, 0.020), (0.54, 0.19, 0.14, 0.015),
+            (0.72, 0.31, 0.20, 0.018), (0.39, 0.34, 0.11, 0.012)
+        ]
+        for (index, cloud) in clouds.enumerated() {
+            var path = Path()
+            let x = size.width * cloud.0
+            let y = size.height * cloud.1
+            let width = size.width * cloud.2
+            path.move(to: CGPoint(x: x - width * 0.50, y: y))
+            path.addCurve(to: CGPoint(x: x + width * 0.50, y: y),
+                          control1: CGPoint(x: x - width * 0.24, y: y - size.height * cloud.3),
+                          control2: CGPoint(x: x + width * 0.20, y: y + size.height * cloud.3 * 0.35))
+            context.stroke(path,
+                           with: .color(Color.white.opacity(index.isMultiple(of: 2) ? 0.24 : 0.16)),
+                           style: StrokeStyle(lineWidth: isPad ? 3.0 : 1.8, lineCap: .round))
+        }
+    }
+
+    private func paintDistantSavanna(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let horizon = h * 0.43
+
+        var mountains = Path()
+        mountains.move(to: CGPoint(x: 0, y: horizon + h * 0.05))
+        mountains.addLine(to: CGPoint(x: w * 0.18, y: horizon - h * 0.035))
+        mountains.addLine(to: CGPoint(x: w * 0.31, y: horizon + h * 0.01))
+        mountains.addLine(to: CGPoint(x: w * 0.51, y: horizon - h * 0.055))
+        mountains.addLine(to: CGPoint(x: w * 0.67, y: horizon + h * 0.005))
+        mountains.addLine(to: CGPoint(x: w * 0.84, y: horizon - h * 0.025))
+        mountains.addLine(to: CGPoint(x: w, y: horizon + h * 0.03))
+        mountains.addLine(to: CGPoint(x: w, y: horizon + h * 0.12))
+        mountains.addLine(to: CGPoint(x: 0, y: horizon + h * 0.12))
+        mountains.closeSubpath()
+        context.fill(mountains, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.37, green: 0.48, blue: 0.33).opacity(0.34),
+                              Color(red: 0.65, green: 0.57, blue: 0.36).opacity(0.18)]),
+            startPoint: CGPoint(x: 0, y: horizon - h * 0.06),
+            endPoint: CGPoint(x: 0, y: horizon + h * 0.10)
+        ))
+
+        let trees: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.13, 0.515, 0.205), (0.33, 0.495, 0.145),
+            (0.57, 0.520, 0.225), (0.79, 0.500, 0.155), (0.93, 0.510, 0.185)
+        ]
+        for tree in trees {
+            paintAcacia(in: &context,
+                        center: CGPoint(x: w * tree.0, y: h * tree.1),
+                        scale: h * tree.2,
+                        distant: true)
+        }
+    }
+
+    private func paintGround(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        var ground = Path()
+        ground.move(to: CGPoint(x: 0, y: h * 0.45))
+        ground.addQuadCurve(to: CGPoint(x: w, y: h * 0.44),
+                            control: CGPoint(x: w * 0.52, y: h * 0.49))
+        ground.addLine(to: CGPoint(x: w, y: h))
+        ground.addLine(to: CGPoint(x: 0, y: h))
+        ground.closeSubpath()
+        context.fill(ground, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.73, green: 0.66, blue: 0.39),
+                              sandLight,
+                              sandDeep]),
+            startPoint: CGPoint(x: w * 0.50, y: h * 0.42),
+            endPoint: CGPoint(x: w * 0.50, y: h)
+        ))
+
+        // A widening game trail gives the flat chamber genuine depth.
+        var trail = Path()
+        trail.move(to: CGPoint(x: w * 0.49, y: h * 0.55))
+        trail.addCurve(to: CGPoint(x: w * 0.30, y: h),
+                       control1: CGPoint(x: w * 0.58, y: h * 0.69),
+                       control2: CGPoint(x: w * 0.31, y: h * 0.79))
+        trail.addLine(to: CGPoint(x: w * 0.73, y: h))
+        trail.addCurve(to: CGPoint(x: w * 0.54, y: h * 0.55),
+                       control1: CGPoint(x: w * 0.72, y: h * 0.80),
+                       control2: CGPoint(x: w * 0.48, y: h * 0.70))
+        trail.closeSubpath()
+        context.fill(trail, with: .color(Color(red: 0.82, green: 0.66, blue: 0.39).opacity(0.52)))
+    }
+
+    private func paintSandSurface(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // Broad, low-contrast mineral patches make the soil read as a surface
+        // with history, not as a smooth gradient with noise sprinkled on top.
+        let patches: [(CGFloat, CGFloat, CGFloat, CGFloat, Color)] = [
+            (0.08, 0.49, 0.24, 0.055, Color(red: 0.48, green: 0.37, blue: 0.18).opacity(0.14)),
+            (0.42, 0.475, 0.28, 0.050, Color(red: 0.92, green: 0.75, blue: 0.43).opacity(0.18)),
+            (0.71, 0.50, 0.22, 0.060, Color(red: 0.45, green: 0.34, blue: 0.16).opacity(0.13)),
+            (0.11, 0.66, 0.29, 0.095, Color(red: 0.36, green: 0.25, blue: 0.11).opacity(0.12)),
+            (0.47, 0.70, 0.34, 0.090, Color(red: 0.91, green: 0.69, blue: 0.37).opacity(0.13)),
+            (0.70, 0.78, 0.27, 0.105, Color(red: 0.33, green: 0.23, blue: 0.10).opacity(0.13)),
+            (0.20, 0.88, 0.34, 0.100, Color(red: 0.87, green: 0.63, blue: 0.31).opacity(0.12))
+        ]
+        for (index, patch) in patches.enumerated() {
+            let rect = CGRect(x: w * patch.0,
+                              y: h * patch.1,
+                              width: w * patch.2,
+                              height: h * patch.3)
+            paintSandPatch(in: &context, rect: rect, color: patch.4, phase: index)
+        }
+
+        // Wind-combed ridges become wider and farther apart toward the camera.
+        for index in 0..<28 {
+            let depth = CGFloat((index * 17) % 29) / 28
+            let y = h * (0.485 + depth * 0.46)
+            let xSeed = CGFloat((index * 43) % 101) / 100
+            let x = w * (0.035 + xSeed * 0.91)
+            let length = w * (0.020 + depth * 0.050)
+            let lift = h * (0.0012 + depth * 0.0022)
+            var ridge = Path()
+            ridge.move(to: CGPoint(x: x - length * 0.50, y: y))
+            ridge.addCurve(to: CGPoint(x: x + length * 0.50, y: y + lift * 0.15),
+                           control1: CGPoint(x: x - length * 0.18, y: y - lift),
+                           control2: CGPoint(x: x + length * 0.20, y: y + lift))
+            context.stroke(ridge,
+                           with: .color(index.isMultiple(of: 3)
+                                ? Color.white.opacity(0.12)
+                                : bark.opacity(0.105)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.3 : 0.75, lineCap: .round))
+        }
+
+        // Tiny paired specks create gravel beds rather than evenly distributed
+        // confetti. Each cluster shares a shadow direction.
+        for cluster in 0..<15 {
+            let cx = w * (0.07 + CGFloat((cluster * 31) % 89) / 100)
+            let cy = h * (0.51 + CGFloat((cluster * 19) % 43) / 100)
+            let depth = cy / h
+            for grain in 0..<4 {
+                let gx = cx + CGFloat(grain - 2) * w * 0.006 + CGFloat(cluster % 2) * w * 0.003
+                let gy = cy + CGFloat((grain * 3) % 4) * h * 0.0025
+                let radius = max(0.55, depth * (isPad ? 1.8 : 1.15))
+                let dot = CGRect(x: gx, y: gy, width: radius * 1.7, height: radius)
+                context.fill(Path(ellipseIn: dot),
+                             with: .color(grain.isMultiple(of: 2)
+                                ? bark.opacity(0.24)
+                                : Color.white.opacity(0.13)))
+            }
+        }
+
+        // Paired shadow/light scallops describe shallow wind ripples in the
+        // loose sand. Their scale increases toward the cabinet glass.
+        for index in 0..<13 {
+            let depth = CGFloat(index) / 12
+            let y = h * (0.535 + depth * 0.40)
+            let seed = CGFloat((index * 47) % 97) / 96
+            let x = w * (0.08 + seed * 0.84)
+            let length = w * (0.025 + depth * 0.055)
+            let rise = h * (0.0015 + depth * 0.0025)
+            var ripple = Path()
+            ripple.move(to: CGPoint(x: x - length * 0.50, y: y))
+            ripple.addCurve(to: CGPoint(x: x + length * 0.50, y: y),
+                            control1: CGPoint(x: x - length * 0.22, y: y - rise),
+                            control2: CGPoint(x: x + length * 0.18, y: y + rise * 0.45))
+            context.stroke(ripple,
+                           with: .color(bark.opacity(0.13)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.45 : 0.85, lineCap: .round))
+            var light = context
+            light.translateBy(x: 0, y: -(isPad ? 1.5 : 0.8))
+            light.stroke(ripple,
+                         with: .color(Color(red: 0.96, green: 0.79, blue: 0.48).opacity(0.16)),
+                         style: StrokeStyle(lineWidth: isPad ? 1.0 : 0.6, lineCap: .round))
+        }
+
+        // A few angular seed husks and twig fragments add close-range detail
+        // without turning the ground into evenly distributed noise.
+        for index in 0..<10 {
+            let x = w * (0.10 + CGFloat((index * 37) % 83) / 100)
+            let y = h * (0.60 + CGFloat((index * 23) % 35) / 100)
+            let length = w * (0.008 + CGFloat(index % 3) * 0.004)
+            var husk = Path()
+            husk.move(to: CGPoint(x: x - length, y: y))
+            husk.addQuadCurve(to: CGPoint(x: x + length, y: y + length * 0.18),
+                              control: CGPoint(x: x, y: y - length * 0.34))
+            context.stroke(husk,
+                           with: .color(Color(red: 0.32, green: 0.22, blue: 0.09).opacity(0.30)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+        }
+    }
+
+    private func paintSandPatch(in context: inout GraphicsContext,
+                                rect: CGRect,
+                                color: Color,
+                                phase: Int) {
+        let wobble = rect.width * (phase.isMultiple(of: 2) ? 0.08 : 0.12)
+        var patch = Path()
+        patch.move(to: CGPoint(x: rect.minX + wobble, y: rect.midY))
+        patch.addCurve(to: CGPoint(x: rect.midX, y: rect.minY),
+                       control1: CGPoint(x: rect.minX + rect.width * 0.18, y: rect.minY + rect.height * 0.10),
+                       control2: CGPoint(x: rect.midX - wobble, y: rect.minY + rect.height * 0.12))
+        patch.addCurve(to: CGPoint(x: rect.maxX - wobble * 0.55, y: rect.midY),
+                       control1: CGPoint(x: rect.midX + wobble, y: rect.minY - rect.height * 0.08),
+                       control2: CGPoint(x: rect.maxX - rect.width * 0.08, y: rect.minY + rect.height * 0.22))
+        patch.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
+                       control1: CGPoint(x: rect.maxX + wobble * 0.12, y: rect.maxY - rect.height * 0.22),
+                       control2: CGPoint(x: rect.midX + wobble, y: rect.maxY + rect.height * 0.05))
+        patch.addCurve(to: CGPoint(x: rect.minX + wobble, y: rect.midY),
+                       control1: CGPoint(x: rect.midX - wobble, y: rect.maxY - rect.height * 0.02),
+                       control2: CGPoint(x: rect.minX - wobble * 0.12, y: rect.maxY - rect.height * 0.18))
+        patch.closeSubpath()
+        context.fill(patch, with: .color(color))
+    }
+
+    private func paintWaterhole(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // An asymmetric, perspective-flattened shoreline. The far edge is
+        // narrow and quiet; the near bank is broader and more broken up.
+        var bank = Path()
+        bank.move(to: CGPoint(x: w * 0.285, y: h * 0.578))
+        bank.addCurve(to: CGPoint(x: w * 0.405, y: h * 0.526),
+                      control1: CGPoint(x: w * 0.315, y: h * 0.544),
+                      control2: CGPoint(x: w * 0.350, y: h * 0.532))
+        bank.addCurve(to: CGPoint(x: w * 0.620, y: h * 0.530),
+                      control1: CGPoint(x: w * 0.475, y: h * 0.510),
+                      control2: CGPoint(x: w * 0.575, y: h * 0.514))
+        bank.addCurve(to: CGPoint(x: w * 0.735, y: h * 0.585),
+                      control1: CGPoint(x: w * 0.690, y: h * 0.542),
+                      control2: CGPoint(x: w * 0.720, y: h * 0.556))
+        bank.addCurve(to: CGPoint(x: w * 0.595, y: h * 0.653),
+                      control1: CGPoint(x: w * 0.730, y: h * 0.620),
+                      control2: CGPoint(x: w * 0.675, y: h * 0.646))
+        bank.addCurve(to: CGPoint(x: w * 0.370, y: h * 0.646),
+                      control1: CGPoint(x: w * 0.515, y: h * 0.669),
+                      control2: CGPoint(x: w * 0.425, y: h * 0.660))
+        bank.addCurve(to: CGPoint(x: w * 0.285, y: h * 0.578),
+                      control1: CGPoint(x: w * 0.315, y: h * 0.628),
+                      control2: CGPoint(x: w * 0.275, y: h * 0.607))
+        bank.closeSubpath()
+        context.fill(bank, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.70, green: 0.57, blue: 0.31),
+                              Color(red: 0.34, green: 0.24, blue: 0.12)]),
+            startPoint: CGPoint(x: w * 0.50, y: h * 0.52),
+            endPoint: CGPoint(x: w * 0.50, y: h * 0.66)
+        ))
+
+        var pond = Path()
+        pond.move(to: CGPoint(x: w * 0.310, y: h * 0.579))
+        pond.addCurve(to: CGPoint(x: w * 0.420, y: h * 0.541),
+                      control1: CGPoint(x: w * 0.335, y: h * 0.552),
+                      control2: CGPoint(x: w * 0.372, y: h * 0.546))
+        pond.addCurve(to: CGPoint(x: w * 0.612, y: h * 0.544),
+                      control1: CGPoint(x: w * 0.480, y: h * 0.526),
+                      control2: CGPoint(x: w * 0.565, y: h * 0.530))
+        pond.addCurve(to: CGPoint(x: w * 0.706, y: h * 0.584),
+                      control1: CGPoint(x: w * 0.665, y: h * 0.551),
+                      control2: CGPoint(x: w * 0.696, y: h * 0.564))
+        pond.addCurve(to: CGPoint(x: w * 0.585, y: h * 0.628),
+                      control1: CGPoint(x: w * 0.696, y: h * 0.610),
+                      control2: CGPoint(x: w * 0.650, y: h * 0.626))
+        pond.addCurve(to: CGPoint(x: w * 0.382, y: h * 0.624),
+                      control1: CGPoint(x: w * 0.515, y: h * 0.641),
+                      control2: CGPoint(x: w * 0.430, y: h * 0.636))
+        pond.addCurve(to: CGPoint(x: w * 0.310, y: h * 0.579),
+                      control1: CGPoint(x: w * 0.338, y: h * 0.614),
+                      control2: CGPoint(x: w * 0.304, y: h * 0.600))
+        pond.closeSubpath()
+        context.fill(pond, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.58, green: 0.85, blue: 0.88),
+                              water,
+                              Color(red: 0.065, green: 0.35, blue: 0.47)]),
+            startPoint: CGPoint(x: w * 0.48, y: h * 0.535),
+            endPoint: CGPoint(x: w * 0.52, y: h * 0.635)
+        ))
+
+        // Broken reflections follow the wide perspective axis instead of
+        // tracing concentric ellipses.
+        let ripples: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.365, 0.566, 0.555, -0.002), (0.445, 0.585, 0.655, 0.001),
+            (0.335, 0.602, 0.485, 0.002), (0.520, 0.614, 0.670, -0.001)
+        ]
+        for (index, ripple) in ripples.enumerated() {
+            var line = Path()
+            let y = h * ripple.1
+            line.move(to: CGPoint(x: w * ripple.0, y: y))
+            line.addCurve(to: CGPoint(x: w * ripple.2, y: y + h * ripple.3),
+                          control1: CGPoint(x: w * (ripple.0 + 0.045), y: y - h * 0.006),
+                          control2: CGPoint(x: w * (ripple.2 - 0.040), y: y + h * 0.005))
+            context.stroke(line,
+                           with: .color(Color.white.opacity(0.48 - Double(index) * 0.07)),
+                           style: StrokeStyle(lineWidth: isPad ? 2.0 : 1.25, lineCap: .round))
+        }
+
+        // Warm shallows along the near edge make the water sit in the sand.
+        var shallows = Path()
+        shallows.move(to: CGPoint(x: w * 0.365, y: h * 0.622))
+        shallows.addCurve(to: CGPoint(x: w * 0.610, y: h * 0.625),
+                          control1: CGPoint(x: w * 0.440, y: h * 0.640),
+                          control2: CGPoint(x: w * 0.545, y: h * 0.640))
+        context.stroke(shallows,
+                       with: .color(Color(red: 0.74, green: 0.60, blue: 0.32).opacity(0.42)),
+                       style: StrokeStyle(lineWidth: isPad ? 5 : 3, lineCap: .round))
+    }
+
+    private func paintWaterEdgeDetails(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // Paired wet/dry contours give the bank a hand-eroded edge. The lines
+        // remain interrupted at the reed beds so it never becomes a hard oval.
+        let bankContours: [(CGPoint, CGPoint, CGPoint, CGPoint)] = [
+            (CGPoint(x: 0.315, y: 0.575), CGPoint(x: 0.365, y: 0.535),
+             CGPoint(x: 0.500, y: 0.526), CGPoint(x: 0.615, y: 0.544)),
+            (CGPoint(x: 0.665, y: 0.556), CGPoint(x: 0.730, y: 0.580),
+             CGPoint(x: 0.680, y: 0.624), CGPoint(x: 0.615, y: 0.632)),
+            (CGPoint(x: 0.560, y: 0.641), CGPoint(x: 0.485, y: 0.651),
+             CGPoint(x: 0.390, y: 0.636), CGPoint(x: 0.335, y: 0.614))
+        ]
+        for contour in bankContours {
+            var lip = Path()
+            lip.move(to: CGPoint(x: w * contour.0.x, y: h * contour.0.y))
+            lip.addCurve(to: CGPoint(x: w * contour.3.x, y: h * contour.3.y),
+                         control1: CGPoint(x: w * contour.1.x, y: h * contour.1.y),
+                         control2: CGPoint(x: w * contour.2.x, y: h * contour.2.y))
+            context.stroke(lip,
+                           with: .color(Color(red: 0.23, green: 0.18, blue: 0.09).opacity(0.42)),
+                           style: StrokeStyle(lineWidth: isPad ? 4.3 : 2.7, lineCap: .round))
+
+            var dryHighlight = context
+            dryHighlight.translateBy(x: 0, y: -(isPad ? 1.8 : 1.0))
+            dryHighlight.stroke(lip,
+                                with: .color(Color(red: 0.86, green: 0.70, blue: 0.40).opacity(0.32)),
+                                style: StrokeStyle(lineWidth: isPad ? 1.8 : 1.1, lineCap: .round))
+        }
+
+        // Small collapsed shelves interrupt the contour and sell soft mud.
+        let mudPockets: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.325, 0.610, 0.052, 0.014),
+            (0.535, 0.642, 0.072, 0.015),
+            (0.681, 0.590, 0.045, 0.012)
+        ]
+        for pocket in mudPockets {
+            let rect = CGRect(x: w * (pocket.0 - pocket.2 * 0.5),
+                              y: h * (pocket.1 - pocket.3 * 0.5),
+                              width: w * pocket.2,
+                              height: h * pocket.3)
+            context.fill(Path(ellipseIn: rect),
+                         with: .linearGradient(
+                            Gradient(colors: [Color.black.opacity(0.20),
+                                              Color(red: 0.55, green: 0.39, blue: 0.18).opacity(0.52)]),
+                            startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                            endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
+        }
+
+        // Dark wet shelves occur only where the bank is low. They are broken
+        // segments, not an outline around the entire pool.
+        let wetShelves: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.285, 0.593, 0.385, 0.606),
+            (0.575, 0.635, 0.690, 0.610),
+            (0.615, 0.545, 0.675, 0.558)
+        ]
+        for shelf in wetShelves {
+            var mud = Path()
+            mud.move(to: CGPoint(x: w * shelf.0, y: h * shelf.1))
+            mud.addCurve(to: CGPoint(x: w * shelf.2, y: h * shelf.3),
+                         control1: CGPoint(x: w * (shelf.0 + 0.028), y: h * (shelf.1 + 0.010)),
+                         control2: CGPoint(x: w * (shelf.2 - 0.025), y: h * (shelf.3 - 0.006)))
+            context.stroke(mud,
+                           with: .color(Color(red: 0.25, green: 0.20, blue: 0.105).opacity(0.38)),
+                           style: StrokeStyle(lineWidth: isPad ? 5.5 : 3.4, lineCap: .round))
+        }
+
+        // Rocks sit in three uneven groups, leaving long open stretches of mud
+        // and reeds. This removes the artificial necklace around the water.
+        let stones: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.292, 0.582, 0.021), (0.322, 0.602, 0.015), (0.350, 0.611, 0.010),
+            (0.642, 0.633, 0.014), (0.675, 0.622, 0.027), (0.714, 0.603, 0.017),
+            (0.735, 0.580, 0.011), (0.635, 0.543, 0.012)
+        ]
+        for (index, stone) in stones.enumerated() {
+            let radius = w * stone.2
+            let center = CGPoint(x: w * stone.0, y: h * stone.1)
+            let contact = CGRect(x: center.x - radius * 1.05,
+                                 y: center.y + radius * 0.12,
+                                 width: radius * 2.10,
+                                 height: radius * 0.52)
+            context.fill(Path(ellipseIn: contact), with: .color(Color.black.opacity(0.14)))
+            paintRock(in: &context, center: center, radius: radius)
+            let glint = CGRect(x: center.x - radius * 0.44,
+                               y: center.y - radius * 0.44,
+                               width: radius * 0.52,
+                               height: radius * 0.18)
+            context.fill(Path(ellipseIn: glint),
+                         with: .color(Color.white.opacity(index.isMultiple(of: 2) ? 0.18 : 0.10)))
+        }
+
+        // Two local reed beds, both offset from the rock groups.
+        let reedBeds: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.365, 0.558, 0.034), (0.704, 0.585, 0.048)
+        ]
+        for bed in reedBeds {
+            paintReeds(in: &context,
+                       base: CGPoint(x: w * bed.0, y: h * bed.1),
+                       height: h * bed.2)
+        }
+
+        paintDenseGrassClump(in: &context,
+                             base: CGPoint(x: w * 0.592, y: h * 0.645),
+                             height: h * 0.031,
+                             width: w * 0.045,
+                             dry: true,
+                             bladeCount: 8)
+    }
+
+    private func paintGroundDetails(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        for index in 0..<38 {
+            let column = CGFloat((index * 37) % 101) / 100
+            let depth = CGFloat((index * 19) % 53) / 52
+            let y = h * (0.47 + depth * 0.49)
+            let x = w * column
+            let radius = max(0.7, (y / h) * (isPad ? 2.1 : 1.5))
+            let pebble = CGRect(x: x, y: y, width: radius * 1.9, height: radius)
+            context.fill(Path(ellipseIn: pebble), with: .color(bark.opacity(0.20)))
+        }
+
+        // Short perspective cracks and dry grass marks prevent the sand from
+        // reading as one flat gradient. Marks grow subtly toward the viewer.
+        for index in 0..<16 {
+            let x = w * (0.08 + CGFloat((index * 31) % 83) / 100)
+            let y = h * (0.50 + CGFloat((index * 23) % 43) / 100)
+            let length = w * (0.010 + (y / h) * 0.018)
+            var crack = Path()
+            crack.move(to: CGPoint(x: x - length, y: y))
+            crack.addLine(to: CGPoint(x: x, y: y + length * 0.22))
+            crack.addLine(to: CGPoint(x: x + length * 0.72, y: y - length * 0.12))
+            if index.isMultiple(of: 3) {
+                crack.move(to: CGPoint(x: x, y: y + length * 0.18))
+                crack.addLine(to: CGPoint(x: x - length * 0.12, y: y + length * 0.62))
+            }
+            context.stroke(crack,
+                           with: .color(bark.opacity(0.16)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.2 : 0.75, lineCap: .round))
+        }
+
+        let middleTufts: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.18, 0.52, 0.018), (0.27, 0.56, 0.014), (0.75, 0.52, 0.018),
+            (0.82, 0.58, 0.024), (0.48, 0.67, 0.015), (0.59, 0.71, 0.018),
+            (0.30, 0.68, 0.022), (0.71, 0.77, 0.025)
+        ]
+        for tuft in middleTufts {
+            paintGrass(in: &context,
+                       base: CGPoint(x: w * tuft.0, y: h * tuft.1),
+                       height: h * tuft.2)
+        }
+
+        let rocks: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.27, 0.61, 0.030), (0.72, 0.60, 0.026), (0.22, 0.72, 0.043),
+            (0.77, 0.70, 0.038), (0.10, 0.84, 0.060), (0.90, 0.82, 0.055)
+        ]
+        for rock in rocks {
+            paintRock(in: &context,
+                      center: CGPoint(x: w * rock.0, y: h * rock.1),
+                      radius: w * rock.2)
+        }
+    }
+
+    private func paintFieldVegetation(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // A thin, broken vegetation band anchors the horizon without turning
+        // it into a uniform green stripe.
+        let distantClumps: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.06, 0.486, 0.018), (0.18, 0.500, 0.024), (0.29, 0.482, 0.015),
+            (0.40, 0.505, 0.020), (0.52, 0.483, 0.016), (0.65, 0.500, 0.022),
+            (0.76, 0.482, 0.017), (0.88, 0.502, 0.026), (0.96, 0.487, 0.015)
+        ]
+        for (index, clump) in distantClumps.enumerated() {
+            paintDenseGrassClump(in: &context,
+                                 base: CGPoint(x: w * clump.0, y: h * clump.1),
+                                 height: h * clump.2,
+                                 width: w * clump.2 * 1.65,
+                                 dry: index.isMultiple(of: 3),
+                                 bladeCount: 7)
+        }
+
+        let grasses: [(CGFloat, CGFloat, CGFloat, CGFloat, Bool)] = [
+            (0.11, 0.565, 0.038, 0.052, false),
+            (0.235, 0.605, 0.050, 0.062, true),
+            (0.285, 0.535, 0.026, 0.036, false),
+            (0.735, 0.545, 0.032, 0.044, false),
+            (0.805, 0.615, 0.060, 0.072, false),
+            (0.675, 0.685, 0.046, 0.058, true),
+            (0.335, 0.700, 0.052, 0.066, false),
+            (0.155, 0.765, 0.070, 0.086, true),
+            (0.845, 0.770, 0.080, 0.095, false)
+        ]
+        for grass in grasses {
+            paintDenseGrassClump(in: &context,
+                                 base: CGPoint(x: w * grass.0, y: h * grass.1),
+                                 height: h * grass.2,
+                                 width: w * grass.3,
+                                 dry: grass.4,
+                                 bladeCount: grass.2 > 0.055 ? 13 : 10)
+        }
+
+        let shrubs: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.18, 0.535, 0.030), (0.78, 0.515, 0.025),
+            (0.255, 0.655, 0.045), (0.735, 0.650, 0.040)
+        ]
+        for (index, shrub) in shrubs.enumerated() {
+            paintLowShrub(in: &context,
+                          base: CGPoint(x: w * shrub.0, y: h * shrub.1),
+                          radius: w * shrub.2,
+                          dry: index == 1 || index == 2)
+        }
+
+        paintDryBrush(in: &context,
+                      base: CGPoint(x: w * 0.61, y: h * 0.515),
+                      height: h * 0.043,
+                      width: w * 0.060)
+        paintDryBrush(in: &context,
+                      base: CGPoint(x: w * 0.43, y: h * 0.675),
+                      height: h * 0.060,
+                      width: w * 0.075)
+    }
+
+    private func paintDenseGrassClump(in context: inout GraphicsContext,
+                                      base: CGPoint,
+                                      height: CGFloat,
+                                      width: CGFloat,
+                                      dry: Bool,
+                                      bladeCount: Int) {
+        // A soft contact shadow seats every plant in the sand.
+        let shadow = CGRect(x: base.x - width * 0.48,
+                            y: base.y - height * 0.045,
+                            width: width * 0.96,
+                            height: height * 0.16)
+        context.fill(Path(ellipseIn: shadow), with: .color(Color.black.opacity(0.11)))
+
+        for index in 0..<bladeCount {
+            let t = bladeCount > 1 ? CGFloat(index) / CGFloat(bladeCount - 1) : 0.5
+            let rootX = base.x + (t - 0.5) * width * 0.64
+            let lean = (t - 0.5) * width * (0.72 + CGFloat(index % 3) * 0.12)
+            let bladeHeight = height * (0.62 + CGFloat((index * 7) % 6) * 0.075)
+            let bladeWidth = max(0.6, width * (index.isMultiple(of: 4) ? 0.045 : 0.030))
+            let tip = CGPoint(x: rootX + lean, y: base.y - bladeHeight)
+            var blade = Path()
+            blade.move(to: CGPoint(x: rootX - bladeWidth * 0.5, y: base.y))
+            blade.addQuadCurve(to: tip,
+                               control: CGPoint(x: rootX + lean * 0.18, y: base.y - bladeHeight * 0.55))
+            blade.addQuadCurve(to: CGPoint(x: rootX + bladeWidth * 0.5, y: base.y),
+                               control: CGPoint(x: rootX + lean * 0.48 + bladeWidth,
+                                                y: base.y - bladeHeight * 0.45))
+            blade.closeSubpath()
+            let color: Color
+            if dry {
+                color = index.isMultiple(of: 3)
+                    ? Color(red: 0.66, green: 0.48, blue: 0.18)
+                    : Color(red: 0.43, green: 0.40, blue: 0.12)
+            } else {
+                color = index.isMultiple(of: 3) ? leafLight : savannaGreen
+            }
+            context.fill(blade, with: .linearGradient(
+                Gradient(colors: [color.opacity(0.92), color.opacity(0.62)]),
+                startPoint: base, endPoint: tip
+            ))
+        }
+    }
+
+    private func paintLowShrub(in context: inout GraphicsContext,
+                               base: CGPoint,
+                               radius: CGFloat,
+                               dry: Bool) {
+        for index in 0..<9 {
+            let angle = -Double.pi * 0.92 + Double(index) * Double.pi * 0.23
+            let length = radius * (0.72 + CGFloat(index % 4) * 0.13)
+            var stem = Path()
+            stem.move(to: base)
+            let tip = CGPoint(x: base.x + CGFloat(cos(angle)) * length,
+                              y: base.y + CGFloat(sin(angle)) * length * 0.72)
+            stem.addQuadCurve(to: tip,
+                              control: CGPoint(x: (base.x + tip.x) * 0.5 + CGFloat(index % 2) * radius * 0.08,
+                                               y: (base.y + tip.y) * 0.5))
+            context.stroke(stem,
+                           with: .color(dry ? barkLight.opacity(0.72) : savannaGreen.opacity(0.80)),
+                           style: StrokeStyle(lineWidth: max(0.65, radius * 0.055), lineCap: .round))
+            if !dry || index.isMultiple(of: 2) {
+                paintLeaf(in: &context,
+                          center: tip,
+                          length: radius * 0.42,
+                          angle: angle + .pi * 0.35,
+                          color: dry ? Color(red: 0.58, green: 0.46, blue: 0.18) : leafLight)
+            }
+        }
+    }
+
+    private func paintDryBrush(in context: inout GraphicsContext,
+                               base: CGPoint,
+                               height: CGFloat,
+                               width: CGFloat) {
+        for index in 0..<7 {
+            let t = CGFloat(index) / 6
+            let tip = CGPoint(x: base.x + (t - 0.5) * width,
+                              y: base.y - height * (0.55 + CGFloat((index * 5) % 4) * 0.12))
+            var stem = Path()
+            stem.move(to: base)
+            stem.addCurve(to: tip,
+                          control1: CGPoint(x: base.x + (t - 0.5) * width * 0.16, y: base.y - height * 0.30),
+                          control2: CGPoint(x: tip.x - (t - 0.5) * width * 0.10, y: tip.y + height * 0.18))
+            context.stroke(stem,
+                           with: .color(Color(red: 0.47, green: 0.35, blue: 0.13).opacity(0.78)),
+                           style: StrokeStyle(lineWidth: max(0.6, height * 0.022), lineCap: .round))
+            let head = CGRect(x: tip.x - width * 0.025,
+                              y: tip.y - height * 0.035,
+                              width: width * 0.05,
+                              height: height * 0.07)
+            context.fill(Path(ellipseIn: head),
+                         with: .color(Color(red: 0.76, green: 0.59, blue: 0.25).opacity(0.74)))
+        }
+    }
+
+    private func paintHabitatFurniture(in context: inout GraphicsContext, size: CGSize) {
+        paintLeftRootBank(in: &context, size: size)
+        paintClimbingPost(in: &context, size: size)
+
+        // The collection bin occupies the far-right floor. A stump in that
+        // location vanished completely, so this bank grows above and just to
+        // the left of the bin instead.
+        paintSedgeBank(in: &context, size: size)
+        paintClimbingNet(in: &context, size: size)
+
+        // A fallen log crosses the ground plane instead of reading as another
+        // floating UI badge.
+        var log = Path()
+        log.move(to: CGPoint(x: size.width * 0.70, y: size.height * 0.72))
+        log.addQuadCurve(to: CGPoint(x: size.width * 0.91, y: size.height * 0.75),
+                         control: CGPoint(x: size.width * 0.81, y: size.height * 0.70))
+        context.stroke(log, with: .color(Color.black.opacity(0.18)),
+                       style: StrokeStyle(lineWidth: size.width * 0.055, lineCap: .round))
+        context.stroke(log, with: .linearGradient(
+            Gradient(colors: [barkLight, bark]),
+            startPoint: CGPoint(x: size.width * 0.70, y: size.height * 0.70),
+            endPoint: CGPoint(x: size.width * 0.91, y: size.height * 0.77)),
+                       style: StrokeStyle(lineWidth: size.width * 0.044, lineCap: .round))
+    }
+
+    private func paintTreesAndCanopy(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        var leftTrunk = Path()
+        leftTrunk.move(to: CGPoint(x: -w * 0.018, y: h * 0.83))
+        leftTrunk.addCurve(to: CGPoint(x: w * 0.058, y: h * 0.43),
+                           control1: CGPoint(x: w * 0.025, y: h * 0.70),
+                           control2: CGPoint(x: w * 0.010, y: h * 0.55))
+        leftTrunk.addCurve(to: CGPoint(x: w * 0.076, y: h * 0.085),
+                           control1: CGPoint(x: w * 0.085, y: h * 0.31),
+                           control2: CGPoint(x: w * 0.035, y: h * 0.18))
+        leftTrunk.addQuadCurve(to: CGPoint(x: w * 0.118, y: h * 0.052),
+                               control: CGPoint(x: w * 0.100, y: h * 0.060))
+        leftTrunk.addCurve(to: CGPoint(x: w * 0.108, y: h * 0.44),
+                           control1: CGPoint(x: w * 0.094, y: h * 0.17),
+                           control2: CGPoint(x: w * 0.125, y: h * 0.31))
+        leftTrunk.addCurve(to: CGPoint(x: w * 0.040, y: h * 0.86),
+                           control1: CGPoint(x: w * 0.090, y: h * 0.62),
+                           control2: CGPoint(x: w * 0.105, y: h * 0.74))
+        leftTrunk.closeSubpath()
+        context.fill(leftTrunk, with: .linearGradient(
+            Gradient(colors: [bark, barkLight, bark]),
+            startPoint: CGPoint(x: 0, y: h), endPoint: CGPoint(x: w * 0.13, y: 0))
+        )
+        context.stroke(leftTrunk, with: .color(Color.black.opacity(0.25)),
+                       style: StrokeStyle(lineWidth: isPad ? 2.2 : 1.35, lineJoin: .round))
+
+        var rightTrunk = Path()
+        rightTrunk.move(to: CGPoint(x: w * 1.018, y: h * 0.84))
+        rightTrunk.addCurve(to: CGPoint(x: w * 0.946, y: h * 0.44),
+                            control1: CGPoint(x: w * 0.980, y: h * 0.70),
+                            control2: CGPoint(x: w * 0.992, y: h * 0.56))
+        rightTrunk.addCurve(to: CGPoint(x: w * 0.924, y: h * 0.085),
+                            control1: CGPoint(x: w * 0.915, y: h * 0.31),
+                            control2: CGPoint(x: w * 0.965, y: h * 0.18))
+        rightTrunk.addQuadCurve(to: CGPoint(x: w * 0.882, y: h * 0.052),
+                                control: CGPoint(x: w * 0.900, y: h * 0.060))
+        rightTrunk.addCurve(to: CGPoint(x: w * 0.892, y: h * 0.45),
+                            control1: CGPoint(x: w * 0.906, y: h * 0.17),
+                            control2: CGPoint(x: w * 0.875, y: h * 0.31))
+        rightTrunk.addCurve(to: CGPoint(x: w * 0.960, y: h * 0.87),
+                            control1: CGPoint(x: w * 0.910, y: h * 0.63),
+                            control2: CGPoint(x: w * 0.895, y: h * 0.75))
+        rightTrunk.closeSubpath()
+        context.fill(rightTrunk, with: .linearGradient(
+            Gradient(colors: [bark, barkLight, bark]),
+            startPoint: CGPoint(x: w, y: h), endPoint: CGPoint(x: w * 0.86, y: 0))
+        )
+        context.stroke(rightTrunk, with: .color(Color.black.opacity(0.25)),
+                       style: StrokeStyle(lineWidth: isPad ? 2.2 : 1.35, lineJoin: .round))
+
+        // Fine bark grooves follow the trunks instead of sitting as generic
+        // vertical stripes, with small knots that catch the light.
+        for index in 0..<4 {
+            let offset = CGFloat(index - 2) * w * 0.010
+            var leftGrain = Path()
+            leftGrain.move(to: CGPoint(x: w * 0.025 + offset, y: h * 0.76))
+            leftGrain.addCurve(to: CGPoint(x: w * 0.095 + offset * 0.35, y: h * 0.10),
+                               control1: CGPoint(x: w * 0.055 - offset, y: h * 0.56),
+                               control2: CGPoint(x: w * 0.045 + offset, y: h * 0.30))
+            context.stroke(leftGrain,
+                           with: .color(index.isMultiple(of: 2) ? Color.white.opacity(0.12) : bark.opacity(0.44)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.7 : 1.0, lineCap: .round))
+
+            var rightGrain = Path()
+            rightGrain.move(to: CGPoint(x: w * 0.975 + offset, y: h * 0.77))
+            rightGrain.addCurve(to: CGPoint(x: w * 0.895 + offset * 0.35, y: h * 0.10),
+                                control1: CGPoint(x: w * 0.945 - offset, y: h * 0.56),
+                                control2: CGPoint(x: w * 0.965 + offset, y: h * 0.30))
+            context.stroke(rightGrain,
+                           with: .color(index.isMultiple(of: 2) ? bark.opacity(0.48) : Color.white.opacity(0.10)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.7 : 1.0, lineCap: .round))
+        }
+        let knots: [(CGFloat, CGFloat)] = [
+            (0.065, 0.43), (0.095, 0.60), (0.945, 0.37), (0.965, 0.57)
+        ]
+        for knot in knots {
+            let rect = CGRect(x: w * knot.0 - w * 0.012, y: h * knot.1 - w * 0.008,
+                              width: w * 0.024, height: w * 0.016)
+            context.fill(Path(ellipseIn: rect), with: .color(bark.opacity(0.72)))
+            context.stroke(Path(ellipseIn: rect.insetBy(dx: w * 0.004, dy: w * 0.003)),
+                           with: .color(barkLight.opacity(0.48)), lineWidth: isPad ? 1.2 : 0.8)
+        }
+
+        let branches: [(CGPoint, CGPoint, CGPoint, CGFloat)] = [
+            (CGPoint(x: 0.07, y: 0.20), CGPoint(x: 0.20, y: 0.10), CGPoint(x: 0.40, y: 0.08), 0.035),
+            (CGPoint(x: 0.91, y: 0.18), CGPoint(x: 0.79, y: 0.09), CGPoint(x: 0.58, y: 0.07), 0.032),
+            (CGPoint(x: 0.10, y: 0.32), CGPoint(x: 0.18, y: 0.21), CGPoint(x: 0.27, y: 0.18), 0.020),
+            (CGPoint(x: 0.90, y: 0.31), CGPoint(x: 0.83, y: 0.22), CGPoint(x: 0.74, y: 0.18), 0.019)
+        ]
+        for branch in branches {
+            var path = Path()
+            path.move(to: CGPoint(x: w * branch.0.x, y: h * branch.0.y))
+            path.addQuadCurve(to: CGPoint(x: w * branch.2.x, y: h * branch.2.y),
+                              control: CGPoint(x: w * branch.1.x, y: h * branch.1.y))
+            context.stroke(path, with: .linearGradient(
+                Gradient(colors: [bark, barkLight, bark]),
+                startPoint: CGPoint(x: w * branch.0.x, y: h * branch.0.y),
+                endPoint: CGPoint(x: w * branch.2.x, y: h * branch.2.y)),
+                           style: StrokeStyle(lineWidth: w * branch.3, lineCap: .round))
+        }
+
+        let foliage: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.02, 0.03, 0.23, 0.12), (0.17, 0.015, 0.25, 0.13),
+            (0.35, 0.025, 0.21, 0.11), (0.55, 0.02, 0.23, 0.12),
+            (0.73, 0.015, 0.25, 0.13), (0.91, 0.035, 0.20, 0.12),
+            (0.02, 0.15, 0.16, 0.12), (0.88, 0.15, 0.16, 0.12)
+        ]
+        for (index, cluster) in foliage.enumerated() {
+            let rect = CGRect(x: w * (cluster.0 - cluster.2 * 0.5),
+                              y: h * cluster.1,
+                              width: w * cluster.2,
+                              height: h * cluster.3)
+            context.fill(Path(ellipseIn: rect),
+                         with: .color(index.isMultiple(of: 2) ? leafLight : savannaGreen))
+            let highlight = rect.insetBy(dx: rect.width * 0.20, dy: rect.height * 0.24)
+                .offsetBy(dx: -rect.width * 0.10, dy: -rect.height * 0.12)
+            context.fill(Path(ellipseIn: highlight), with: .color(Color.white.opacity(0.10)))
+        }
+
+        // Dozens of pointed leaf silhouettes sit over the broad masses. This
+        // preserves a lush read from afar and supplies real detail up close.
+        for index in 0..<42 {
+            let x = w * (0.015 + CGFloat((index * 41) % 97) / 100)
+            let topBand = h * (0.035 + CGFloat((index * 17) % 13) / 100)
+            let sideDrop = (index % 7 == 0 || index % 11 == 0)
+                ? h * (0.08 + CGFloat(index % 4) * 0.034)
+                : 0
+            let angle = Double((index * 47) % 180) * .pi / 180
+            paintLeaf(in: &context,
+                      center: CGPoint(x: x, y: topBand + sideDrop),
+                      length: w * (0.022 + CGFloat(index % 3) * 0.006),
+                      angle: angle,
+                      color: index.isMultiple(of: 3) ? leafLight : savannaGreen)
+        }
+
+        paintHangingVines(in: &context, size: size)
+    }
+
+    private func paintTireSwing(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let ropeStart = CGPoint(x: w * 0.24, y: 0)
+        let tireCenter = CGPoint(x: w * 0.255, y: h * 0.255)
+
+        var liana = Path()
+        liana.move(to: ropeStart)
+        liana.addCurve(to: CGPoint(x: tireCenter.x, y: tireCenter.y - h * 0.022),
+                       control1: CGPoint(x: w * 0.20, y: h * 0.075),
+                       control2: CGPoint(x: w * 0.30, y: h * 0.15))
+        context.stroke(liana, with: .color(Color.black.opacity(0.30)),
+                       style: StrokeStyle(lineWidth: isPad ? 6 : 4, lineCap: .round))
+        context.stroke(liana, with: .linearGradient(
+            Gradient(colors: [savannaGreen, barkLight, bark]),
+            startPoint: ropeStart, endPoint: tireCenter),
+                       style: StrokeStyle(lineWidth: isPad ? 4.2 : 2.8, lineCap: .round))
+
+        // A real front-facing ring: perfectly round, visually heavy and with
+        // an open centre. The previous flattened ellipse read like a pulley.
+        let diameter = min(w * 0.115, h * 0.105)
+        let tireRect = CGRect(x: tireCenter.x - diameter * 0.50,
+                              y: tireCenter.y - diameter * 0.50,
+                              width: diameter,
+                              height: diameter)
+        let rubberWidth = diameter * 0.245
+        context.stroke(Path(ellipseIn: tireRect.offsetBy(dx: diameter * 0.035,
+                                                         dy: diameter * 0.065)),
+                       with: .color(Color.black.opacity(0.34)),
+                       style: StrokeStyle(lineWidth: rubberWidth * 1.10))
+        context.stroke(Path(ellipseIn: tireRect),
+                       with: .linearGradient(
+                        Gradient(colors: [Color(red: 0.30, green: 0.27, blue: 0.20),
+                                          Color(red: 0.105, green: 0.095, blue: 0.075),
+                                          Color(red: 0.035, green: 0.038, blue: 0.032)]),
+                        startPoint: CGPoint(x: tireRect.minX, y: tireRect.minY),
+                        endPoint: CGPoint(x: tireRect.maxX, y: tireRect.maxY)),
+                       style: StrokeStyle(lineWidth: rubberWidth, lineCap: .round))
+
+        // Sidewall bevels define the outer rubber and the recessed inner hole.
+        context.stroke(Path(ellipseIn: tireRect.insetBy(dx: rubberWidth * 0.16,
+                                                        dy: rubberWidth * 0.16)),
+                       with: .color(Color.white.opacity(0.16)),
+                       style: StrokeStyle(lineWidth: isPad ? 1.8 : 1.05))
+        context.stroke(Path(ellipseIn: tireRect.insetBy(dx: rubberWidth * 0.52,
+                                                        dy: rubberWidth * 0.52)),
+                       with: .color(Color.black.opacity(0.52)),
+                       style: StrokeStyle(lineWidth: isPad ? 2.3 : 1.4))
+        var sidewallGlint = Path()
+        sidewallGlint.addArc(center: tireCenter,
+                             radius: diameter * 0.50,
+                             startAngle: .degrees(205),
+                             endAngle: .degrees(305),
+                             clockwise: false)
+        context.stroke(sidewallGlint,
+                       with: .color(Color.white.opacity(0.12)),
+                       style: StrokeStyle(lineWidth: rubberWidth * 0.22, lineCap: .round))
+
+        // The vine visibly loops and tightens around the top of the tyre.
+        let knotY = tireRect.minY + rubberWidth * 0.12
+        for index in 0..<3 {
+            let knot = CGRect(x: tireCenter.x - rubberWidth * (0.48 + CGFloat(index) * 0.035),
+                              y: knotY + CGFloat(index) * rubberWidth * 0.16,
+                              width: rubberWidth * (0.96 + CGFloat(index) * 0.07),
+                              height: rubberWidth * 0.30)
+            context.stroke(Path(ellipseIn: knot),
+                           with: .color(index == 1 ? barkLight : bark),
+                           style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.55, lineCap: .round))
+        }
+    }
+
+    private func paintForeground(in context: inout GraphicsContext, size: CGSize) {
+        let tufts: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.05, 0.64, 0.050), (0.16, 0.73, 0.043), (0.06, 0.88, 0.075),
+            (0.25, 0.83, 0.038), (0.76, 0.80, 0.045), (0.86, 0.69, 0.055),
+            (0.94, 0.87, 0.080), (0.70, 0.64, 0.030)
+        ]
+        for tuft in tufts {
+            paintGrass(in: &context,
+                       base: CGPoint(x: size.width * tuft.0, y: size.height * tuft.1),
+                       height: size.height * tuft.2)
+        }
+    }
+
+    private func paintReeds(in context: inout GraphicsContext,
+                            base: CGPoint,
+                            height: CGFloat) {
+        for index in 0..<5 {
+            let offset = (CGFloat(index) - 2) * height * 0.13
+            let reedHeight = height * (0.64 + CGFloat((index * 7) % 5) * 0.09)
+            var stem = Path()
+            stem.move(to: CGPoint(x: base.x + offset, y: base.y))
+            stem.addQuadCurve(to: CGPoint(x: base.x + offset * 1.22, y: base.y - reedHeight),
+                              control: CGPoint(x: base.x + offset * 0.78, y: base.y - reedHeight * 0.48))
+            context.stroke(stem,
+                           with: .color(index.isMultiple(of: 2) ? leafLight : savannaGreen),
+                           style: StrokeStyle(lineWidth: max(0.8, height * 0.035), lineCap: .round))
+            if index == 1 || index == 3 {
+                let head = CGRect(x: base.x + offset * 1.22 - height * 0.025,
+                                  y: base.y - reedHeight - height * 0.085,
+                                  width: height * 0.05,
+                                  height: height * 0.13)
+                context.fill(Path(ellipseIn: head), with: .color(barkLight.opacity(0.84)))
+            }
+        }
+    }
+
+    private func paintLeftRootBank(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+
+        // These roots visually continue the large frame tree into the ground,
+        // replacing the isolated upright stump that looked placed at random.
+        let roots: [(CGPoint, CGPoint, CGPoint, CGFloat)] = [
+            (CGPoint(x: 0.030, y: 0.715), CGPoint(x: 0.105, y: 0.720), CGPoint(x: 0.245, y: 0.755), 0.030),
+            (CGPoint(x: 0.045, y: 0.690), CGPoint(x: 0.110, y: 0.665), CGPoint(x: 0.205, y: 0.690), 0.022),
+            (CGPoint(x: 0.020, y: 0.755), CGPoint(x: 0.075, y: 0.785), CGPoint(x: 0.165, y: 0.805), 0.026)
+        ]
+        for root in roots {
+            var path = Path()
+            path.move(to: CGPoint(x: w * root.0.x, y: h * root.0.y))
+            path.addQuadCurve(to: CGPoint(x: w * root.2.x, y: h * root.2.y),
+                              control: CGPoint(x: w * root.1.x, y: h * root.1.y))
+            context.stroke(path,
+                           with: .color(Color.black.opacity(0.18)),
+                           style: StrokeStyle(lineWidth: w * root.3 * 1.25, lineCap: .round))
+            context.stroke(path,
+                           with: .linearGradient(
+                            Gradient(colors: [bark, barkLight, sandDeep]),
+                            startPoint: CGPoint(x: w * root.0.x, y: h * root.0.y),
+                            endPoint: CGPoint(x: w * root.2.x, y: h * root.2.y)),
+                           style: StrokeStyle(lineWidth: w * root.3, lineCap: .round))
+        }
+
+        let rocks: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.070, 0.760, 0.052), (0.130, 0.785, 0.043),
+            (0.185, 0.755, 0.036), (0.095, 0.825, 0.048)
+        ]
+        for rock in rocks {
+            paintRock(in: &context,
+                      center: CGPoint(x: w * rock.0, y: h * rock.1),
+                      radius: w * rock.2)
+        }
+
+        paintDenseGrassClump(in: &context,
+                             base: CGPoint(x: w * 0.165, y: h * 0.790),
+                             height: h * 0.085,
+                             width: w * 0.100,
+                             dry: false,
+                             bladeCount: 15)
+        paintDryBrush(in: &context,
+                      base: CGPoint(x: w * 0.075, y: h * 0.735),
+                      height: h * 0.075,
+                      width: w * 0.070)
+    }
+
+    private func paintClimbingPost(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let postX = w * 0.145
+        let postTop = h * 0.315
+        let postBottom = h * 0.735
+        let postWidth = w * 0.052
+        let postRect = CGRect(x: postX - postWidth * 0.50,
+                              y: postTop,
+                              width: postWidth,
+                              height: postBottom - postTop)
+        let platforms: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.355, 0.170, -0.010),
+            (0.455, 0.135, 0.018),
+            (0.565, 0.175, -0.014),
+            (0.680, 0.145, 0.012)
+        ]
+
+        // The rear halves are painted first and then naturally disappear
+        // behind the trunk. Their exposed shoulders prove the rope continues
+        // around the back instead of being drawn as stripes on the front.
+        paintRopeWrapBack(in: &context,
+                          center: CGPoint(x: postX, y: h * 0.515),
+                          width: postWidth * 1.34,
+                          height: h * 0.058)
+        paintRopeWrapBack(in: &context,
+                          center: CGPoint(x: postX, y: h * 0.635),
+                          width: postWidth * 1.34,
+                          height: h * 0.052)
+        paintRopeWrapBack(in: &context,
+                          center: CGPoint(x: postX, y: postBottom - h * 0.006),
+                          width: postWidth * 1.42,
+                          height: h * 0.033)
+        for platform in platforms {
+            paintRopeWrapBack(in: &context,
+                              center: CGPoint(x: postX, y: h * platform.0),
+                              width: postWidth * 1.34,
+                              height: h * 0.018,
+                              turns: 3)
+        }
+
+        context.fill(RoundedRectangle(cornerRadius: postWidth * 0.30, style: .continuous)
+            .path(in: postRect.offsetBy(dx: w * 0.008, dy: h * 0.006)),
+                     with: .color(Color.black.opacity(0.22)))
+        context.fill(RoundedRectangle(cornerRadius: postWidth * 0.30, style: .continuous).path(in: postRect),
+                     with: .linearGradient(
+                        Gradient(colors: [bark, barkLight, Color(red: 0.27, green: 0.14, blue: 0.055)]),
+                        startPoint: CGPoint(x: postRect.minX, y: postRect.minY),
+                        endPoint: CGPoint(x: postRect.maxX, y: postRect.maxY)
+                     ))
+
+        // Irregular longitudinal cuts make this a real debarked trunk.
+        for index in 0..<4 {
+            let x = postRect.minX + postWidth * (0.18 + CGFloat(index) * 0.21)
+            var groove = Path()
+            groove.move(to: CGPoint(x: x, y: postTop + h * 0.018))
+            groove.addCurve(to: CGPoint(x: x + CGFloat(index - 2) * w * 0.003, y: postBottom - h * 0.018),
+                            control1: CGPoint(x: x + CGFloat(index % 2) * w * 0.007, y: h * 0.46),
+                            control2: CGPoint(x: x - CGFloat(index % 2) * w * 0.006, y: h * 0.61))
+            context.stroke(groove,
+                           with: .color(index.isMultiple(of: 2) ? Color.white.opacity(0.13) : bark.opacity(0.48)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+        }
+
+        // Knots, old peg holes and growth rings break up the straight pole.
+        let trunkKnots: [(CGFloat, CGFloat, CGFloat)] = [
+            (-0.12, 0.405, 0.19), (0.15, 0.585, 0.16), (-0.08, 0.704, 0.12)
+        ]
+        for knot in trunkKnots {
+            let knotRect = CGRect(x: postX + postWidth * knot.0 - postWidth * knot.2,
+                                  y: h * knot.1 - postWidth * knot.2 * 0.55,
+                                  width: postWidth * knot.2 * 2,
+                                  height: postWidth * knot.2 * 1.10)
+            context.fill(Path(ellipseIn: knotRect), with: .color(bark.opacity(0.72)))
+            context.stroke(Path(ellipseIn: knotRect.insetBy(dx: postWidth * 0.045,
+                                                            dy: postWidth * 0.025)),
+                           with: .color(Color(red: 0.75, green: 0.50, blue: 0.21).opacity(0.48)),
+                           lineWidth: isPad ? 1.2 : 0.75)
+        }
+
+        for (index, platform) in platforms.enumerated() {
+            let y = h * platform.0
+            let width = w * platform.1
+            let shift = w * platform.2
+            let start = CGPoint(x: postX - width * 0.50 + shift, y: y)
+            let end = CGPoint(x: postX + width * 0.50 + shift, y: y)
+            var shelf = Path()
+            shelf.move(to: start)
+            shelf.addLine(to: end)
+            context.stroke(shelf,
+                           with: .color(Color.black.opacity(0.24)),
+                           style: StrokeStyle(lineWidth: w * 0.030, lineCap: .round))
+            context.stroke(shelf,
+                           with: .linearGradient(
+                            Gradient(colors: [bark, barkLight, bark]),
+                            startPoint: start, endPoint: end),
+                           style: StrokeStyle(lineWidth: w * 0.023, lineCap: .round))
+
+            var highlight = Path()
+            highlight.move(to: CGPoint(x: start.x + w * 0.008, y: start.y - w * 0.006))
+            highlight.addCurve(to: CGPoint(x: end.x - w * 0.008, y: end.y - w * 0.005),
+                               control1: CGPoint(x: postX - width * 0.18, y: y - w * 0.009),
+                               control2: CGPoint(x: postX + width * 0.20, y: y - w * 0.003))
+            context.stroke(highlight,
+                           with: .color(Color(red: 0.88, green: 0.66, blue: 0.32).opacity(0.36)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+
+            // End grain and a dark core make every platform read as a branch.
+            for endPoint in [start, end] {
+                let endGrain = CGRect(x: endPoint.x - w * 0.011,
+                                      y: endPoint.y - w * 0.009,
+                                      width: w * 0.022,
+                                      height: w * 0.018)
+                context.fill(Path(ellipseIn: endGrain),
+                             with: .color(Color(red: 0.68, green: 0.44, blue: 0.17)))
+                context.stroke(Path(ellipseIn: endGrain.insetBy(dx: w * 0.004, dy: w * 0.003)),
+                               with: .color(bark.opacity(0.54)),
+                               lineWidth: isPad ? 1.0 : 0.65)
+            }
+
+            // Small diagonal brace below alternating shelves.
+            let braceDirection: CGFloat = index.isMultiple(of: 2) ? -1 : 1
+            var brace = Path()
+            brace.move(to: CGPoint(x: postX, y: y + h * 0.008))
+            brace.addLine(to: CGPoint(x: postX + braceDirection * width * 0.34,
+                                      y: y + h * 0.040))
+            context.stroke(brace,
+                           with: .color(bark.opacity(0.82)),
+                           style: StrokeStyle(lineWidth: w * 0.010, lineCap: .round))
+
+            // The front halves complete the rear lashings painted before the
+            // trunk, so every single strand now passes around real depth.
+            paintRopeWrap(in: &context,
+                          center: CGPoint(x: postX, y: y),
+                          width: postWidth * 1.34,
+                          height: h * 0.018,
+                          turns: 3,
+                          showKnot: false)
+        }
+
+        // Two substantial sisal scratching zones connect the shelves.
+        paintRopeWrap(in: &context,
+                      center: CGPoint(x: postX, y: h * 0.515),
+                      width: postWidth * 1.34,
+                      height: h * 0.058)
+        paintRopeWrap(in: &context,
+                      center: CGPoint(x: postX, y: h * 0.635),
+                      width: postWidth * 1.34,
+                      height: h * 0.052)
+
+        // Visible cut ends on the top shelf and trunk.
+        let cap = CGRect(x: postX - postWidth * 0.54,
+                         y: postTop - postWidth * 0.16,
+                         width: postWidth * 1.08,
+                         height: postWidth * 0.42)
+        context.fill(Path(ellipseIn: cap), with: .color(Color(red: 0.69, green: 0.48, blue: 0.22)))
+        context.stroke(Path(ellipseIn: cap.insetBy(dx: postWidth * 0.18, dy: postWidth * 0.06)),
+                       with: .color(bark.opacity(0.40)), lineWidth: isPad ? 1.4 : 0.85)
+
+        // A broad, lashed foot grounds the structure instead of letting the
+        // narrow pole appear to float over the sand.
+        let footY = postBottom + h * 0.006
+        var foot = Path()
+        foot.move(to: CGPoint(x: postX - w * 0.070, y: footY))
+        foot.addQuadCurve(to: CGPoint(x: postX + w * 0.070, y: footY),
+                          control: CGPoint(x: postX, y: footY - h * 0.010))
+        context.stroke(foot, with: .color(Color.black.opacity(0.22)),
+                       style: StrokeStyle(lineWidth: w * 0.029, lineCap: .round))
+        context.stroke(foot,
+                       with: .linearGradient(Gradient(colors: [bark, barkLight, bark]),
+                                             startPoint: CGPoint(x: postX - w * 0.070, y: footY),
+                                             endPoint: CGPoint(x: postX + w * 0.070, y: footY)),
+                       style: StrokeStyle(lineWidth: w * 0.022, lineCap: .round))
+        paintRopeWrap(in: &context,
+                      center: CGPoint(x: postX, y: postBottom - h * 0.006),
+                      width: postWidth * 1.42,
+                      height: h * 0.033)
+    }
+
+    private func paintRopeWrap(in context: inout GraphicsContext,
+                               center: CGPoint,
+                               width: CGFloat,
+                               height: CGFloat,
+                               turns: Int = 8,
+                               showKnot: Bool = true) {
+        for index in 0..<turns {
+            let divisor = CGFloat(max(1, turns - 1))
+            let y = center.y - height * 0.50 + CGFloat(index) * height / divisor
+            let left = CGPoint(x: center.x - width * 0.50, y: y)
+            let right = CGPoint(x: center.x + width * 0.50, y: y)
+            var front = Path()
+            front.move(to: left)
+            front.addQuadCurve(to: right,
+                               control: CGPoint(x: center.x, y: y + height * 0.115))
+            context.stroke(front,
+                           with: .color(Color(red: 0.32, green: 0.19, blue: 0.065).opacity(0.58)),
+                           style: StrokeStyle(lineWidth: max(1.2, height * 0.082), lineCap: .round))
+            context.stroke(front,
+                           with: .linearGradient(
+                            Gradient(colors: [Color(red: 0.58, green: 0.39, blue: 0.14),
+                                              Color(red: 0.92, green: 0.73, blue: 0.40),
+                                              Color(red: 0.46, green: 0.28, blue: 0.09)]),
+                            startPoint: left,
+                            endPoint: right),
+                           style: StrokeStyle(lineWidth: max(0.85, height * 0.052), lineCap: .round))
+        }
+        if showKnot {
+            let knot = CGRect(x: center.x + width * 0.31,
+                              y: center.y + height * 0.20,
+                              width: width * 0.24,
+                              height: width * 0.20)
+            context.fill(Path(ellipseIn: knot), with: .color(Color(red: 0.43, green: 0.25, blue: 0.08)))
+        }
+    }
+
+    private func paintRopeWrapBack(in context: inout GraphicsContext,
+                                   center: CGPoint,
+                                   width: CGFloat,
+                                   height: CGFloat,
+                                   turns: Int = 8) {
+        for index in 0..<turns {
+            let divisor = CGFloat(max(1, turns - 1))
+            let y = center.y - height * 0.50 + CGFloat(index) * height / divisor
+            let left = CGPoint(x: center.x - width * 0.50, y: y)
+            let right = CGPoint(x: center.x + width * 0.50, y: y)
+            var back = Path()
+            back.move(to: left)
+            back.addQuadCurve(to: right,
+                              control: CGPoint(x: center.x, y: y - height * 0.105))
+            context.stroke(back,
+                           with: .linearGradient(
+                            Gradient(colors: [Color(red: 0.42, green: 0.26, blue: 0.075),
+                                              Color(red: 0.72, green: 0.52, blue: 0.23),
+                                              Color(red: 0.38, green: 0.22, blue: 0.065)]),
+                            startPoint: left,
+                            endPoint: right),
+                           style: StrokeStyle(lineWidth: max(0.85, height * 0.052), lineCap: .round))
+        }
+    }
+
+    private func paintClimbingNet(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let topLeft = CGPoint(x: w * 0.770, y: h * 0.205)
+        let topRight = CGPoint(x: w * 0.982, y: h * 0.192)
+        let bottomLeft = CGPoint(x: w * 0.755, y: h * 0.430)
+        let bottomRight = CGPoint(x: w * 0.978, y: h * 0.417)
+
+        // Two independent hangers explain how the frame is carried.
+        let hangers: [(CGPoint, CGPoint)] = [
+            (CGPoint(x: w * 0.805, y: h * 0.074), topLeft),
+            (CGPoint(x: w * 0.955, y: h * 0.060), topRight)
+        ]
+        for hanger in hangers {
+            var rope = Path()
+            rope.move(to: hanger.0)
+            rope.addCurve(to: hanger.1,
+                          control1: CGPoint(x: hanger.0.x - w * 0.018, y: h * 0.125),
+                          control2: CGPoint(x: hanger.1.x + w * 0.012, y: h * 0.165))
+            context.stroke(rope,
+                           with: .linearGradient(
+                            Gradient(colors: [Color(red: 0.80, green: 0.61, blue: 0.29), bark]),
+                            startPoint: hanger.0, endPoint: hanger.1),
+                           style: StrokeStyle(lineWidth: isPad ? 3.0 : 1.9, lineCap: .round))
+        }
+
+        // Diamond rope lattice, deliberately slightly irregular.
+        let ropeColor = Color(red: 0.72, green: 0.50, blue: 0.22)
+        for index in 0..<6 {
+            let t = CGFloat(index) / 5
+            var down = Path()
+            down.move(to: CGPoint(x: topLeft.x + (topRight.x - topLeft.x) * t,
+                                  y: topLeft.y + (topRight.y - topLeft.y) * t))
+            down.addLine(to: CGPoint(x: bottomLeft.x + (bottomRight.x - bottomLeft.x) * min(1, t + 0.34),
+                                     y: bottomLeft.y + (bottomRight.y - bottomLeft.y) * min(1, t + 0.34)))
+            context.stroke(down, with: .color(ropeColor.opacity(0.90)),
+                           style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.45, lineCap: .round))
+
+            var up = Path()
+            up.move(to: CGPoint(x: topLeft.x + (topRight.x - topLeft.x) * t,
+                                y: topLeft.y + (topRight.y - topLeft.y) * t))
+            up.addLine(to: CGPoint(x: bottomLeft.x + (bottomRight.x - bottomLeft.x) * max(0, t - 0.34),
+                                   y: bottomLeft.y + (bottomRight.y - bottomLeft.y) * max(0, t - 0.34)))
+            context.stroke(up, with: .color(ropeColor.opacity(0.82)),
+                           style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.45, lineCap: .round))
+        }
+
+        // Knots placed on a staggered grid make the crossings readable.
+        for row in 0..<4 {
+            for column in 0..<4 {
+                let x = w * (0.792 + CGFloat(column) * 0.048 + (row.isMultiple(of: 2) ? 0.0 : 0.022))
+                let y = h * (0.247 + CGFloat(row) * 0.047)
+                let knot = CGRect(x: x - w * 0.006, y: y - w * 0.005,
+                                  width: w * 0.012, height: w * 0.010)
+                context.fill(Path(ellipseIn: knot), with: .color(Color(red: 0.45, green: 0.27, blue: 0.085)))
+                context.stroke(Path(ellipseIn: knot.insetBy(dx: w * 0.002, dy: w * 0.0015)),
+                               with: .color(Color.white.opacity(0.16)), lineWidth: isPad ? 0.9 : 0.55)
+            }
+        }
+
+        let beams: [(CGPoint, CGPoint)] = [
+            (topLeft, topRight), (topRight, bottomRight),
+            (bottomRight, bottomLeft), (bottomLeft, topLeft)
+        ]
+        for beam in beams {
+            var log = Path()
+            log.move(to: beam.0)
+            log.addLine(to: beam.1)
+            context.stroke(log, with: .color(Color.black.opacity(0.24)),
+                           style: StrokeStyle(lineWidth: w * 0.028, lineCap: .round))
+            context.stroke(log,
+                           with: .linearGradient(
+                            Gradient(colors: [bark, barkLight, bark]),
+                            startPoint: beam.0, endPoint: beam.1),
+                           style: StrokeStyle(lineWidth: w * 0.021, lineCap: .round))
+        }
+
+        for corner in [topLeft, topRight, bottomLeft, bottomRight] {
+            let cap = CGRect(x: corner.x - w * 0.011, y: corner.y - w * 0.009,
+                             width: w * 0.022, height: w * 0.018)
+            context.fill(Path(ellipseIn: cap), with: .color(Color(red: 0.67, green: 0.43, blue: 0.16)))
+            context.fill(Path(ellipseIn: cap.insetBy(dx: w * 0.005, dy: w * 0.004)),
+                         with: .color(bark.opacity(0.68)))
+        }
+    }
+
+    private func paintSedgeBank(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let base = CGPoint(x: w * 0.825, y: h * 0.68)
+
+        // Dark soil and rock remain visible immediately left of the bin.
+        let mound = CGRect(x: w * 0.725, y: h * 0.635,
+                           width: w * 0.19, height: h * 0.065)
+        context.fill(Path(ellipseIn: mound),
+                     with: .linearGradient(
+                        Gradient(colors: [sandDeep.opacity(0.88), bark.opacity(0.72)]),
+                        startPoint: CGPoint(x: mound.midX, y: mound.minY),
+                        endPoint: CGPoint(x: mound.midX, y: mound.maxY)
+                     ))
+
+        for index in 0..<13 {
+            let t = CGFloat(index) / 12
+            let x = base.x + (t - 0.5) * w * 0.19
+            let bladeHeight = h * (0.105 + CGFloat((index * 11) % 7) * 0.013)
+            let lean = (t - 0.50) * w * 0.065
+            var blade = Path()
+            blade.move(to: CGPoint(x: x, y: base.y))
+            blade.addCurve(to: CGPoint(x: x + lean, y: base.y - bladeHeight),
+                           control1: CGPoint(x: x - lean * 0.18, y: base.y - bladeHeight * 0.42),
+                           control2: CGPoint(x: x + lean * 0.65, y: base.y - bladeHeight * 0.72))
+            context.stroke(blade,
+                           with: .linearGradient(
+                            Gradient(colors: [savannaGreen, index.isMultiple(of: 3) ? leafLight : palette.leaf]),
+                            startPoint: CGPoint(x: x, y: base.y),
+                            endPoint: CGPoint(x: x + lean, y: base.y - bladeHeight)),
+                           style: StrokeStyle(lineWidth: isPad ? 3.2 : 2.0, lineCap: .round))
+        }
+
+    }
+
+    private func paintLeaf(in context: inout GraphicsContext,
+                           center: CGPoint,
+                           length: CGFloat,
+                           angle: Double,
+                           color: Color) {
+        let direction = CGVector(dx: CGFloat(cos(angle)), dy: CGFloat(sin(angle)))
+        let normal = CGVector(dx: -direction.dy, dy: direction.dx)
+        let tip = CGPoint(x: center.x + direction.dx * length * 0.52,
+                          y: center.y + direction.dy * length * 0.52)
+        let root = CGPoint(x: center.x - direction.dx * length * 0.52,
+                           y: center.y - direction.dy * length * 0.52)
+        var leaf = Path()
+        leaf.move(to: root)
+        leaf.addQuadCurve(to: tip,
+                          control: CGPoint(x: center.x + normal.dx * length * 0.30,
+                                           y: center.y + normal.dy * length * 0.30))
+        leaf.addQuadCurve(to: root,
+                          control: CGPoint(x: center.x - normal.dx * length * 0.30,
+                                           y: center.y - normal.dy * length * 0.30))
+        leaf.closeSubpath()
+        context.fill(leaf, with: .linearGradient(
+            Gradient(colors: [color.opacity(0.96), color.opacity(0.68)]),
+            startPoint: root, endPoint: tip
+        ))
+
+        var vein = Path()
+        vein.move(to: CGPoint(x: root.x + direction.dx * length * 0.16,
+                              y: root.y + direction.dy * length * 0.16))
+        vein.addLine(to: CGPoint(x: tip.x - direction.dx * length * 0.12,
+                                 y: tip.y - direction.dy * length * 0.12))
+        context.stroke(vein,
+                       with: .color(Color.white.opacity(0.14)),
+                       style: StrokeStyle(lineWidth: max(0.5, length * 0.035), lineCap: .round))
+    }
+
+    private func paintHangingVines(in context: inout GraphicsContext, size: CGSize) {
+        let vines: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (0.14, 0.02, 0.16, 0.29), (0.48, 0.01, 0.46, 0.19),
+            (0.68, 0.02, 0.70, 0.25), (0.86, 0.02, 0.83, 0.34)
+        ]
+        for (index, vine) in vines.enumerated() {
+            let start = CGPoint(x: size.width * vine.0, y: size.height * vine.1)
+            let end = CGPoint(x: size.width * vine.2, y: size.height * vine.3)
+            let direction: CGFloat = index.isMultiple(of: 2) ? -1 : 1
+            var strand = Path()
+            strand.move(to: start)
+            strand.addCurve(to: end,
+                            control1: CGPoint(x: start.x + direction * size.width * 0.035,
+                                              y: size.height * vine.3 * 0.35),
+                            control2: CGPoint(x: end.x - direction * size.width * 0.030,
+                                              y: size.height * vine.3 * 0.72))
+            context.stroke(strand,
+                           with: .linearGradient(
+                            Gradient(colors: [savannaGreen, barkLight.opacity(0.90)]),
+                            startPoint: start, endPoint: end),
+                           style: StrokeStyle(lineWidth: isPad ? 2.8 : 1.7, lineCap: .round))
+
+            let curlRadius = size.width * (isPad ? 0.014 : 0.018)
+            var curl = Path()
+            curl.move(to: end)
+            curl.addCurve(to: CGPoint(x: end.x, y: end.y + curlRadius * 1.7),
+                          control1: CGPoint(x: end.x + curlRadius * 1.8, y: end.y - curlRadius * 0.30),
+                          control2: CGPoint(x: end.x + curlRadius * 1.6, y: end.y + curlRadius * 1.9))
+            curl.addCurve(to: CGPoint(x: end.x + curlRadius * 0.35, y: end.y + curlRadius * 0.80),
+                          control1: CGPoint(x: end.x - curlRadius * 0.85, y: end.y + curlRadius * 1.8),
+                          control2: CGPoint(x: end.x - curlRadius * 0.65, y: end.y + curlRadius * 0.72))
+            context.stroke(curl,
+                           with: .color(savannaGreen.opacity(0.88)),
+                           style: StrokeStyle(lineWidth: isPad ? 2.0 : 1.25, lineCap: .round))
+
+            if index != 1 {
+                paintLeaf(in: &context,
+                          center: CGPoint(x: end.x + (index.isMultiple(of: 2) ? -curlRadius : curlRadius),
+                                          y: end.y - curlRadius * 0.30),
+                          length: size.width * 0.026,
+                          angle: index.isMultiple(of: 2) ? -0.45 : 0.45,
+                          color: leafLight)
+            }
+        }
+    }
+
+    private func paintAcacia(in context: inout GraphicsContext,
+                             center: CGPoint,
+                             scale: CGFloat,
+                             distant: Bool) {
+        let trunkColor = bark.opacity(distant ? 0.40 : 0.85)
+        let crownY = center.y - scale * 0.57
+        var trunk = Path()
+        trunk.move(to: center)
+        trunk.addCurve(to: CGPoint(x: center.x - scale * 0.025, y: crownY + scale * 0.10),
+                       control1: CGPoint(x: center.x - scale * 0.035, y: center.y - scale * 0.18),
+                       control2: CGPoint(x: center.x + scale * 0.030, y: center.y - scale * 0.38))
+        context.stroke(trunk, with: .color(trunkColor),
+                       style: StrokeStyle(lineWidth: max(1, scale * 0.045), lineCap: .round))
+
+        for direction in [-1.0, 1.0] {
+            var branch = Path()
+            branch.move(to: CGPoint(x: center.x, y: center.y - scale * 0.34))
+            branch.addCurve(to: CGPoint(x: center.x + CGFloat(direction) * scale * 0.30,
+                                        y: crownY + scale * 0.035),
+                            control1: CGPoint(x: center.x + CGFloat(direction) * scale * 0.08,
+                                              y: center.y - scale * 0.42),
+                            control2: CGPoint(x: center.x + CGFloat(direction) * scale * 0.18,
+                                              y: crownY + scale * 0.10))
+            context.stroke(branch, with: .color(trunkColor),
+                           style: StrokeStyle(lineWidth: max(0.8, scale * 0.022), lineCap: .round))
+
+            var fork = Path()
+            fork.move(to: CGPoint(x: center.x + CGFloat(direction) * scale * 0.16,
+                                  y: crownY + scale * 0.10))
+            fork.addLine(to: CGPoint(x: center.x + CGFloat(direction) * scale * 0.39,
+                                     y: crownY + scale * 0.025))
+            context.stroke(fork, with: .color(trunkColor.opacity(0.90)),
+                           style: StrokeStyle(lineWidth: max(0.65, scale * 0.014), lineCap: .round))
+        }
+
+        // Flat-topped but irregular crown, assembled from overlapping masses
+        // rather than one recognisable ellipse.
+        let lobes: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (-0.34, 0.00, 0.34, 0.15), (-0.18, -0.055, 0.36, 0.18),
+            (0.02, -0.075, 0.38, 0.20), (0.22, -0.035, 0.34, 0.17),
+            (-0.04, 0.035, 0.60, 0.16)
+        ]
+        for (index, lobe) in lobes.enumerated() {
+            let rect = CGRect(x: center.x + scale * lobe.0 - scale * lobe.2 * 0.5,
+                              y: crownY + scale * lobe.1 - scale * lobe.3 * 0.5,
+                              width: scale * lobe.2,
+                              height: scale * lobe.3)
+            context.fill(Path(ellipseIn: rect),
+                         with: .color((index < 2 ? leafLight : savannaGreen)
+                            .opacity(distant ? 0.44 + Double(index) * 0.025 : 0.88)))
+        }
+
+        var crownShadow = Path()
+        crownShadow.move(to: CGPoint(x: center.x - scale * 0.42, y: crownY + scale * 0.065))
+        crownShadow.addQuadCurve(to: CGPoint(x: center.x + scale * 0.43, y: crownY + scale * 0.055),
+                                 control: CGPoint(x: center.x, y: crownY + scale * 0.15))
+        context.stroke(crownShadow,
+                       with: .color(savannaGreen.opacity(distant ? 0.28 : 0.58)),
+                       style: StrokeStyle(lineWidth: max(1.2, scale * 0.035), lineCap: .round))
+    }
+
+    private func paintRock(in context: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
+        var rock = Path()
+        rock.move(to: CGPoint(x: center.x - radius, y: center.y + radius * 0.34))
+        rock.addQuadCurve(to: CGPoint(x: center.x - radius * 0.30, y: center.y - radius * 0.62),
+                          control: CGPoint(x: center.x - radius * 0.76, y: center.y - radius * 0.42))
+        rock.addQuadCurve(to: CGPoint(x: center.x + radius * 0.78, y: center.y + radius * 0.05),
+                          control: CGPoint(x: center.x + radius * 0.30, y: center.y - radius * 0.78))
+        rock.addQuadCurve(to: CGPoint(x: center.x - radius, y: center.y + radius * 0.34),
+                          control: CGPoint(x: center.x + radius * 0.28, y: center.y + radius * 0.58))
+        context.fill(rock, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.48, green: 0.39, blue: 0.26),
+                              Color(red: 0.23, green: 0.18, blue: 0.13)]),
+            startPoint: CGPoint(x: center.x - radius, y: center.y - radius),
+            endPoint: CGPoint(x: center.x + radius, y: center.y + radius)
+        ))
+        var facet = Path()
+        facet.move(to: CGPoint(x: center.x - radius * 0.30, y: center.y - radius * 0.58))
+        facet.addLine(to: CGPoint(x: center.x + radius * 0.10, y: center.y - radius * 0.20))
+        facet.addLine(to: CGPoint(x: center.x + radius * 0.66, y: center.y + radius * 0.02))
+        context.stroke(facet,
+                       with: .color(Color.white.opacity(0.13)),
+                       style: StrokeStyle(lineWidth: max(0.55, radius * 0.055), lineCap: .round))
+        var fissure = Path()
+        fissure.move(to: CGPoint(x: center.x + radius * 0.10, y: center.y - radius * 0.19))
+        fissure.addLine(to: CGPoint(x: center.x - radius * 0.02, y: center.y + radius * 0.12))
+        fissure.addLine(to: CGPoint(x: center.x + radius * 0.13, y: center.y + radius * 0.30))
+        context.stroke(fissure,
+                       with: .color(Color.black.opacity(0.20)),
+                       style: StrokeStyle(lineWidth: max(0.45, radius * 0.040), lineCap: .round))
+    }
+
+    private func paintStump(in context: inout GraphicsContext, rect: CGRect) {
+        context.fill(RoundedRectangle(cornerRadius: rect.width * 0.18, style: .continuous).path(in: rect),
+                     with: .linearGradient(
+                        Gradient(colors: [barkLight, bark, Color(red: 0.19, green: 0.10, blue: 0.04)]),
+                        startPoint: CGPoint(x: rect.minX, y: rect.minY),
+                        endPoint: CGPoint(x: rect.maxX, y: rect.maxY)
+                     ))
+        let top = CGRect(x: rect.minX - rect.width * 0.04,
+                         y: rect.minY - rect.width * 0.15,
+                         width: rect.width * 1.08,
+                         height: rect.width * 0.40)
+        context.fill(Path(ellipseIn: top), with: .color(Color(red: 0.70, green: 0.49, blue: 0.23)))
+        for index in 0..<3 {
+            let inset = top.width * (0.13 + CGFloat(index) * 0.11)
+            context.stroke(Path(ellipseIn: top.insetBy(dx: inset, dy: inset * 0.30)),
+                           with: .color(bark.opacity(0.32)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.3 : 0.9))
+        }
+        for index in 0..<3 {
+            let x = rect.minX + rect.width * (0.28 + CGFloat(index) * 0.22)
+            var grain = Path()
+            grain.move(to: CGPoint(x: x, y: rect.minY + rect.width * 0.30))
+            grain.addCurve(to: CGPoint(x: x - rect.width * 0.05, y: rect.maxY - rect.width * 0.12),
+                           control1: CGPoint(x: x + rect.width * 0.08, y: rect.midY),
+                           control2: CGPoint(x: x - rect.width * 0.08, y: rect.midY))
+            context.stroke(grain, with: .color(Color.white.opacity(0.10)), lineWidth: 1)
+        }
+        for index in 0..<5 {
+            let angle = Double(index) * 1.18 - 0.55
+            let start = CGPoint(x: top.midX + CGFloat(cos(angle)) * top.width * 0.09,
+                                y: top.midY + CGFloat(sin(angle)) * top.height * 0.08)
+            let end = CGPoint(x: top.midX + CGFloat(cos(angle)) * top.width * 0.40,
+                              y: top.midY + CGFloat(sin(angle)) * top.height * 0.38)
+            var split = Path()
+            split.move(to: start)
+            split.addLine(to: end)
+            context.stroke(split,
+                           with: .color(bark.opacity(0.34)),
+                           style: StrokeStyle(lineWidth: isPad ? 1.2 : 0.8, lineCap: .round))
+        }
+
+        // Jagged bark tabs keep the base from ending in a machine-perfect line.
+        for index in 0..<4 {
+            let x = rect.minX + rect.width * (0.14 + CGFloat(index) * 0.24)
+            var tab = Path()
+            tab.move(to: CGPoint(x: x - rect.width * 0.055, y: rect.maxY - rect.width * 0.03))
+            tab.addLine(to: CGPoint(x: x, y: rect.maxY + rect.width * (index.isMultiple(of: 2) ? 0.10 : 0.06)))
+            tab.addLine(to: CGPoint(x: x + rect.width * 0.06, y: rect.maxY - rect.width * 0.025))
+            tab.closeSubpath()
+            context.fill(tab, with: .color(index.isMultiple(of: 2) ? bark : barkLight.opacity(0.72)))
+        }
+    }
+
+    private func paintGrass(in context: inout GraphicsContext, base: CGPoint, height: CGFloat) {
+        for index in 0..<7 {
+            let t = CGFloat(index) / 6
+            let spread = (t - 0.5) * height * 0.92
+            var blade = Path()
+            blade.move(to: base)
+            blade.addQuadCurve(to: CGPoint(x: base.x + spread, y: base.y - height * (0.58 + 0.42 * abs(t - 0.5) * 2)),
+                               control: CGPoint(x: base.x + spread * 0.16, y: base.y - height * 0.58))
+            context.stroke(blade,
+                           with: .color(index.isMultiple(of: 2) ? leafLight : savannaGreen),
+                           style: StrokeStyle(lineWidth: max(1, height * 0.055), lineCap: .round))
+        }
+    }
+}
+
+/// Slow dust and tiny water glints keep the habitat alive without adding
+/// decorative symbols or competing with the moving elephant.
+private struct SanctuaryLivingDetails: View {
     let isPad: Bool
     let reduceMotion: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: reduceMotion)) { timeline in
-            GeometryReader { proxy in
+        TimelineView(.animation(minimumInterval: 1.0 / 12.0, paused: reduceMotion)) { timeline in
+            Canvas { context, size in
                 let time = timeline.date.timeIntervalSinceReferenceDate
-                let sway = reduceMotion ? 0 : sin(time * 0.92)
-                let breathe = reduceMotion ? 0.58 : 0.50 + (sin(time * 1.35) + 1) * 0.08
-                ZStack {
-                    ForEach(0..<5, id: \.self) { index in
-                        Circle()
-                            .fill(.white.opacity(0.22))
-                            .frame(width: isPad ? 4 : 3, height: isPad ? 4 : 3)
-                            .position(
-                                x: proxy.size.width * (0.20 + CGFloat(index) * 0.145),
-                                y: proxy.size.height * (0.22 + CGFloat(index % 3) * 0.10)
-                                    + (reduceMotion ? 0 : CGFloat(sin(time * 0.55 + Double(index))) * 6)
-                            )
-                    }
+                let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
 
-                    Circle()
-                        .fill(character.skyColor.opacity(breathe))
-                        .blur(radius: isPad ? 18 : 12)
-                        .frame(width: isPad ? 70 : 48, height: isPad ? 70 : 48)
-                        .position(x: proxy.size.width * 0.80, y: proxy.size.height * 0.13)
+                paintFlyingBirds(in: &context, size: size, time: time)
 
-                    hangingToy(sway: sway)
-                        .position(x: proxy.size.width * 0.72, y: proxy.size.height * 0.26)
-
-                    Image(systemName: "leaf.fill")
-                        .font(.system(size: isPad ? 31 : 22, weight: .bold))
-                        .foregroundStyle(palette.leafLight)
-                        .rotationEffect(.degrees(sway * 4), anchor: .bottom)
-                        .position(x: proxy.size.width * 0.91, y: proxy.size.height * 0.51)
-                        .shadow(color: .black.opacity(0.20), radius: 2, y: 2)
+                // Slow dust motes add life while remaining far quieter than
+                // the claw and without introducing decorative UI symbols.
+                for index in 0..<6 {
+                    let seed = CGFloat((index * 29) % 91) / 91
+                    let x = size.width * (0.16 + seed * 0.68)
+                    let cycle = (travel + CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1)
+                    let y = size.height * (0.47 - cycle * 0.25)
+                    let mote = CGRect(x: x, y: y,
+                                      width: isPad ? 3.2 : 2.2,
+                                      height: isPad ? 3.2 : 2.2)
+                    context.fill(Path(ellipseIn: mote),
+                                 with: .color(Color.white.opacity(0.16 * Double(1 - cycle))))
                 }
+
+                // Slow travelling wavelets stay inside the irregular water
+                // silhouette. Broken strokes feel reflective rather than like
+                // a loading indicator placed over the scenery.
+                for index in 0..<5 {
+                    let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.82 + Double(index) * 0.91))
+                    let y = size.height * (0.557 + CGFloat(index) * 0.014)
+                        + phase * size.height * 0.0018
+                    let startX = size.width * (0.365 + CGFloat(index) * 0.012)
+                        + phase * size.width * 0.008
+                    let endX = size.width * (0.525 + CGFloat(index) * 0.030)
+                        + phase * size.width * 0.006
+                    let gapCenter = startX + (endX - startX) * (0.44 + phase * 0.06)
+                    let gap = size.width * (0.012 + CGFloat(index) * 0.0015)
+
+                    var leftWave = Path()
+                    leftWave.move(to: CGPoint(x: startX, y: y))
+                    leftWave.addCurve(to: CGPoint(x: gapCenter - gap, y: y),
+                                      control1: CGPoint(x: startX + (gapCenter - startX) * 0.34,
+                                                        y: y - size.height * 0.0035),
+                                      control2: CGPoint(x: startX + (gapCenter - startX) * 0.72,
+                                                        y: y + size.height * 0.0020))
+                    var rightWave = Path()
+                    rightWave.move(to: CGPoint(x: gapCenter + gap, y: y))
+                    rightWave.addCurve(to: CGPoint(x: endX, y: y),
+                                       control1: CGPoint(x: gapCenter + (endX - gapCenter) * 0.32,
+                                                         y: y + size.height * 0.0022),
+                                       control2: CGPoint(x: gapCenter + (endX - gapCenter) * 0.72,
+                                                         y: y - size.height * 0.0030))
+                    let opacity = 0.34 - Double(index) * 0.035
+                    let style = StrokeStyle(lineWidth: isPad ? 1.8 : 1.05, lineCap: .round)
+                    context.stroke(leftWave, with: .color(Color.white.opacity(opacity)), style: style)
+                    context.stroke(rightWave, with: .color(Color.white.opacity(opacity * 0.82)), style: style)
+                }
+
+                // Two overlapping rings continuously appear and dissolve, as
+                // if an occasional drop or insect touches the surface.
+                for index in 0..<2 {
+                    let rawPhase = reduceMotion
+                        ? CGFloat(index) * 0.42
+                        : CGFloat((time * 0.24 + Double(index) * 0.52).truncatingRemainder(dividingBy: 1))
+                    let rippleWidth = size.width * (0.025 + rawPhase * 0.105)
+                    let rippleHeight = size.height * (0.004 + rawPhase * 0.014)
+                    let center = CGPoint(x: size.width * 0.525, y: size.height * 0.588)
+                    let ring = CGRect(x: center.x - rippleWidth,
+                                      y: center.y - rippleHeight,
+                                      width: rippleWidth * 2,
+                                      height: rippleHeight * 2)
+                    context.stroke(Path(ellipseIn: ring),
+                                   with: .color(Color.white.opacity(0.25 * Double(1 - rawPhase))),
+                                   style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+                }
+
+                // The tyre is intentionally part of this living layer rather
+                // than the static habitat Canvas, allowing a very small sway.
+                var swingContext = context
+                let pivot = CGPoint(x: size.width * 0.24, y: 0)
+                let sway = reduceMotion ? 0 : sin(time * 0.68) * 1.65
+                swingContext.translateBy(x: pivot.x, y: pivot.y)
+                swingContext.rotate(by: .degrees(sway))
+                swingContext.translateBy(x: -pivot.x, y: -pivot.y)
+                paintTireSwing(in: &swingContext, size: size)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    private func hangingToy(sway: Double) -> some View {
-        let length: CGFloat = isPad ? 78 : 52
-        return VStack(spacing: 0) {
-            RopeStrand()
-                .stroke(
-                    LinearGradient(colors: [Color(red: 0.82, green: 0.65, blue: 0.34),
-                                            Color(red: 0.38, green: 0.23, blue: 0.09)],
-                                   startPoint: .top, endPoint: .bottom),
-                    style: StrokeStyle(lineWidth: isPad ? 3 : 2.2, lineCap: .round)
-                )
-                .frame(width: isPad ? 10 : 7, height: length)
-            ZStack {
-                Circle()
-                    .fill(character.color)
-                    .frame(width: isPad ? 31 : 22, height: isPad ? 31 : 22)
-                Image(systemName: "pawprint.fill")
-                    .font(.system(size: isPad ? 15 : 10, weight: .bold))
-                    .foregroundStyle(character.skyColor)
-            }
-            .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
-        }
-        .rotationEffect(.degrees(sway * 3.5), anchor: .top)
-    }
-}
+    private func paintFlyingBirds(in context: inout GraphicsContext,
+                                  size: CGSize,
+                                  time: TimeInterval) {
+        let w = size.width
+        let h = size.height
+        for index in 0..<4 {
+            let duration = 13.0 + Double(index) * 2.7
+            let offset = Double(index) * 0.23
+            let progress = reduceMotion
+                ? CGFloat(0.24 + offset * 0.42)
+                : CGFloat((time / duration + offset).truncatingRemainder(dividingBy: 1))
+            let x = w * (-0.08 + progress * 1.16)
+            let baseY = h * (0.245 + CGFloat(index % 3) * 0.038)
+            let bob = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.72 + Double(index))) * h * 0.004
+            let y = baseY + bob
+            let halfSpan = w * (0.011 + CGFloat(index % 2) * 0.004)
+            let flap = reduceMotion
+                ? h * 0.003
+                : CGFloat(sin(time * 3.1 + Double(index) * 1.17)) * h * 0.0048
 
-private struct RopeStrand: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
-                      control1: CGPoint(x: rect.minX, y: rect.height * 0.34),
-                      control2: CGPoint(x: rect.maxX, y: rect.height * 0.68))
-        return path
+            var wings = Path()
+            wings.move(to: CGPoint(x: x - halfSpan, y: y + flap * 0.32))
+            wings.addQuadCurve(to: CGPoint(x: x, y: y),
+                               control: CGPoint(x: x - halfSpan * 0.48, y: y - flap))
+            wings.addQuadCurve(to: CGPoint(x: x + halfSpan, y: y + flap * 0.28),
+                               control: CGPoint(x: x + halfSpan * 0.48, y: y - flap * 0.92))
+            context.stroke(wings,
+                           with: .color(Color(red: 0.13, green: 0.15, blue: 0.12).opacity(0.58)),
+                           style: StrokeStyle(lineWidth: isPad ? 2.0 : 1.15,
+                                              lineCap: .round,
+                                              lineJoin: .round))
+
+            let body = CGRect(x: x - halfSpan * 0.14,
+                              y: y - halfSpan * 0.05,
+                              width: halfSpan * 0.28,
+                              height: halfSpan * 0.18)
+            context.fill(Path(ellipseIn: body),
+                         with: .color(Color(red: 0.12, green: 0.14, blue: 0.11).opacity(0.54)))
+        }
+    }
+
+    private func paintTireSwing(in context: inout GraphicsContext, size: CGSize) {
+        let w = size.width
+        let h = size.height
+        let ropeStart = CGPoint(x: w * 0.24, y: 0)
+        let tireCenter = CGPoint(x: w * 0.255, y: h * 0.255)
+        let bark = Color(red: 0.34, green: 0.19, blue: 0.075)
+        let barkLight = Color(red: 0.61, green: 0.39, blue: 0.16)
+        let vine = Color(red: 0.30, green: 0.43, blue: 0.11)
+
+        var liana = Path()
+        liana.move(to: ropeStart)
+        liana.addCurve(to: CGPoint(x: tireCenter.x, y: tireCenter.y - h * 0.022),
+                       control1: CGPoint(x: w * 0.20, y: h * 0.075),
+                       control2: CGPoint(x: w * 0.30, y: h * 0.15))
+        context.stroke(liana, with: .color(Color.black.opacity(0.30)),
+                       style: StrokeStyle(lineWidth: isPad ? 6 : 4, lineCap: .round))
+        context.stroke(liana,
+                       with: .linearGradient(Gradient(colors: [vine, barkLight, bark]),
+                                             startPoint: ropeStart,
+                                             endPoint: tireCenter),
+                       style: StrokeStyle(lineWidth: isPad ? 4.2 : 2.8, lineCap: .round))
+
+        let diameter = min(w * 0.115, h * 0.105)
+        let tireRect = CGRect(x: tireCenter.x - diameter * 0.50,
+                              y: tireCenter.y - diameter * 0.50,
+                              width: diameter,
+                              height: diameter)
+        let rubberWidth = diameter * 0.245
+        context.stroke(Path(ellipseIn: tireRect.offsetBy(dx: diameter * 0.035,
+                                                         dy: diameter * 0.065)),
+                       with: .color(Color.black.opacity(0.34)),
+                       style: StrokeStyle(lineWidth: rubberWidth * 1.10))
+        context.stroke(Path(ellipseIn: tireRect),
+                       with: .linearGradient(
+                        Gradient(colors: [Color(red: 0.30, green: 0.27, blue: 0.20),
+                                          Color(red: 0.105, green: 0.095, blue: 0.075),
+                                          Color(red: 0.035, green: 0.038, blue: 0.032)]),
+                        startPoint: CGPoint(x: tireRect.minX, y: tireRect.minY),
+                        endPoint: CGPoint(x: tireRect.maxX, y: tireRect.maxY)),
+                       style: StrokeStyle(lineWidth: rubberWidth, lineCap: .round))
+        context.stroke(Path(ellipseIn: tireRect.insetBy(dx: rubberWidth * 0.16,
+                                                        dy: rubberWidth * 0.16)),
+                       with: .color(Color.white.opacity(0.16)),
+                       style: StrokeStyle(lineWidth: isPad ? 1.8 : 1.05))
+        context.stroke(Path(ellipseIn: tireRect.insetBy(dx: rubberWidth * 0.52,
+                                                        dy: rubberWidth * 0.52)),
+                       with: .color(Color.black.opacity(0.52)),
+                       style: StrokeStyle(lineWidth: isPad ? 2.3 : 1.4))
+
+        var sidewallGlint = Path()
+        sidewallGlint.addArc(center: tireCenter,
+                             radius: diameter * 0.50,
+                             startAngle: .degrees(205),
+                             endAngle: .degrees(305),
+                             clockwise: false)
+        context.stroke(sidewallGlint,
+                       with: .color(Color.white.opacity(0.12)),
+                       style: StrokeStyle(lineWidth: rubberWidth * 0.22, lineCap: .round))
+
+        let knotY = tireRect.minY + rubberWidth * 0.12
+        for index in 0..<3 {
+            let knot = CGRect(x: tireCenter.x - rubberWidth * (0.48 + CGFloat(index) * 0.035),
+                              y: knotY + CGFloat(index) * rubberWidth * 0.16,
+                              width: rubberWidth * (0.96 + CGFloat(index) * 0.07),
+                              height: rubberWidth * 0.30)
+            context.stroke(Path(ellipseIn: knot),
+                           with: .color(index == 1 ? barkLight : bark),
+                           style: StrokeStyle(lineWidth: isPad ? 2.4 : 1.55, lineCap: .round))
+        }
     }
 }
 
