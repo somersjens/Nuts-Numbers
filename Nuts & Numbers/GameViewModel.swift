@@ -67,6 +67,7 @@ final class GameViewModel: ObservableObject {
     /// its bubble-style announcement even after an earlier streak was broken.
     @Published private(set) var streakAnnouncementID = 0
     @Published private(set) var clawPuzzle: ClawPuzzle?
+    @Published private(set) var collectedNutIDs: [UUID] = []
     let clock = GameClock()
 
     /// Set by the tutorial, which needs to know about every answer the moment
@@ -356,9 +357,10 @@ final class GameViewModel: ObservableObject {
 
     /// Forwards a nut the elephant dropped in the bin. Any shell with the
     /// standing sum's value scores; gold nuts still pay double.
-    func resolveGrab(nut: ClawNut) {
+    @discardableResult
+    func resolveGrab(nut: ClawNut) -> AnswerOutcome {
         let outcome = engine.resolveGrab(nut: nut)
-        guard outcome != .ignored else { return }
+        guard outcome != .ignored else { return .ignored }
         PlaytimeTracker.shared.registerInteraction()
 
         let token = generation
@@ -373,7 +375,12 @@ final class GameViewModel: ObservableObject {
                 AppAudio.shared.playDoubleScore()
             }
             haptic(.success)
-            delay = GameConfig.nextRoundDelay.correct
+            // The finale starts from the drop itself. Waiting the usual
+            // next-round beat would punch a heavy game-over view update
+            // into the middle of the travel to centre.
+            delay = engine.roundNumber >= engine.maximumRounds
+                ? 0
+                : GameConfig.nextRoundDelay.correct
         case .wrong:
             sync()
             onAnswerResolved?(false, false)
@@ -381,7 +388,7 @@ final class GameViewModel: ObservableObject {
             haptic(.error)
             delay = GameConfig.nextRoundDelay.wrong
         case .ignored:
-            return
+            return .ignored
         }
 
         schedule(after: delay, token: token) { [weak self] in
@@ -402,6 +409,7 @@ final class GameViewModel: ObservableObject {
             }
             self.sync()
         }
+        return outcome
     }
 
     /// Called by the reef at the exact frame a collected currency nut lands
@@ -517,6 +525,7 @@ final class GameViewModel: ObservableObject {
         correctStreak = engine.correctStreak
         isStreakBoostActive = engine.isStreakBoostActive
         clawPuzzle = engine.clawPuzzle
+        collectedNutIDs = engine.collectedNutIDs
         AppAudio.shared.setGameplayRate(1)
     }
 

@@ -1196,6 +1196,15 @@ private struct CardSummaryWidthKey: PreferenceKey {
     }
 }
 
+/// Shared with the topic total so both nuts stay the same size when the
+/// header line shrinks to fit a long unlock prompt.
+struct HeaderNutScaleKey: PreferenceKey {
+    static var defaultValue: CGFloat = 1
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
+    }
+}
+
 /// The quiet line under the player's name. Normally the running card total;
 /// once the player has started collecting, the same slot briefly previews the
 /// next character to earn, so the menu needs no permanent row for it.
@@ -1225,18 +1234,21 @@ struct AlternatingCardSummary: View {
     @State private var availableWidth: CGFloat = 0
 
     private var scale: CGFloat { isPad ? 1.5 : 1 }
-    private var baseFontSize: CGFloat { isPad ? 22 : 14 }
-    private var iconSize: CGFloat { isPad ? 19 : 12 }
+    private var baseFontSize: CGFloat { isPad ? 24 : 14 }
+    private var iconSize: CGFloat { isPad ? 24 : 14 }
     private var artworkSide: CGFloat { 28 * scale }
     /// Both alternatives share this height, so the taller artwork grows around
     /// the text line instead of pushing the player's name upward.
     private var opticalLineHeight: CGFloat { baseFontSize * 1.4 }
 
     var body: some View {
-        HStack(spacing: isPad ? 8 : 6) {
+        let nutScale = contentScale
+        return HStack(spacing: (isPad ? 12 : 8) * nutScale) {
             // The card glyph never takes part in the swap: holding it perfectly
-            // still avoids the dip two crossfading icons would produce.
-            CurrencyIcon(size: iconSize)
+            // still avoids the dip two crossfading icons would produce. It does
+            // follow `contentScale`, so a long unlock prompt cannot leave this
+            // nut smaller than the topic nut below.
+            CurrencyIcon(size: iconSize * nutScale)
                 .scaleEffect(isHighlighted ? 1.32 : 1)
                 .rotationEffect(.degrees(isHighlighted ? -10 : 0))
 
@@ -1255,6 +1267,7 @@ struct AlternatingCardSummary: View {
         }
         .foregroundStyle(accent)
         .lineLimit(1)
+        .preference(key: HeaderNutScaleKey.self, value: nutScale)
         .task(id: cycleID) { await runPreviewCycle() }
     }
 

@@ -9,15 +9,16 @@ import UIKit
 #endif
 
 #if canImport(UIKit)
-/// Keep the compact iPhone experience in portrait, while allowing iPad to use
-/// the orientation of the device. iPad players commonly use a keyboard case or
-/// Stage Manager, so forcing portrait there makes an otherwise adaptive
-/// SwiftUI layout feel like an enlarged phone app.
+/// Keep the compact iPhone experience in portrait. iPad uses the same
+/// portrait lock, including upside-down, so the claw cabinet never has to
+/// reflow for landscape or Stage Manager.
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?)
     -> UIInterfaceOrientationMask {
-        UIDevice.current.userInterfaceIdiom == .pad ? .all : .portrait
+        UIDevice.current.userInterfaceIdiom == .pad
+            ? [.portrait, .portraitUpsideDown]
+            : .portrait
     }
 }
 #endif

@@ -153,7 +153,7 @@ final class AppAudio: NSObject, ObservableObject {
         Effect(key: "takeNut",       file: "sfx_take_nut",       ext: "caf", volume: 0.50, lead: 0.0),
         Effect(key: "releaseGrip",   file: "sfx_release_grip",   ext: "caf", volume: 0.07, lead: 0.0),
         Effect(key: "buttonPress",   file: "sfx_button_press",   ext: "caf", volume: 0.31, lead: 0.0),
-        Effect(key: "move",          file: "sfx_move",           ext: "caf", volume: 0.60, lead: 0.0),
+        Effect(key: "move",          file: "sfx_move",           ext: "caf", volume: 0.24, lead: 0.0),
         // The card flip that opens a round.
         Effect(key: "cardFlip",      file: "sfx_card_flip",      ext: "caf", volume: 0.10, lead: 0.015),
         // The question card turning face up.
@@ -170,6 +170,7 @@ final class AppAudio: NSObject, ObservableObject {
         Effect(key: "cardCount",     file: "sfx_card_count",     ext: "caf", volume: 1.0,  lead: 0.065),
         Effect(key: "cardFlight",    file: "sfx_card_flight",    ext: "caf", volume: 0.812, lead: 0.35),
         Effect(key: "cardTotal",     file: "score_increase",     ext: "caf", volume: 1.0,  lead: 0.0),
+        Effect(key: "cardTotalMenu", file: "score_increase_main", ext: "caf", volume: 0.18, lead: 0.01),
         Effect(key: "select",        file: "sfx_select",         ext: "caf", volume: 0.17, lead: 0.0),
         Effect(key: "switchOn",      file: "sfx_switch_on",      ext: "caf", volume: 0.89, lead: 0.200),
         Effect(key: "switchOff",     file: "sfx_switch_off",     ext: "caf", volume: 1.0,  lead: 0.170)
@@ -723,7 +724,8 @@ final class AppAudio: NSObject, ObservableObject {
     func playCharacterUnlock()  { playEffect("characterUnlock") }
     func playCardCount()        { playEffect("cardCount") }        // cards counting up
     func playCardFlight()       { playEffect("cardFlight") }       // cards flying to the total
-    func playCardTotal()        { playEffect("cardTotal") }        // grand total ticks up
+    func playCardTotal()        { playEffect("cardTotal") }        // in-game HUD tick
+    func playCardTotalMenu()    { playEffect("cardTotalMenu") }    // home header total
 
     func playMenuTap()          { playEffect("select") }
     func playSwitch(on: Bool)   { playEffect(on ? "switchOn" : "switchOff") }

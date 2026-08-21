@@ -40,6 +40,9 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     /// physical position. New sessions restore this snapshot directly instead
     /// of relying on regeneration to happen to produce the same board.
     public let puzzle: ClawPuzzle?
+    /// Shells collected so far, in grab order. Missing on older saves, which
+    /// rebuild the pile from the assigned sequence instead.
+    public let collectedNutIDs: [UUID]?
 
     public init(boardID: String,
                 roundNumber: Int,
@@ -53,7 +56,8 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
                 hasBonusFishPower: Bool? = nil,
                 remainingTime: Double? = nil,
                 puzzleSeed: UInt64? = nil,
-                puzzle: ClawPuzzle? = nil) {
+                puzzle: ClawPuzzle? = nil,
+                collectedNutIDs: [UUID]? = nil) {
         self.boardID = boardID
         self.roundNumber = roundNumber
         self.cards = cards
@@ -67,6 +71,7 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
         self.remainingTime = remainingTime
         self.puzzleSeed = puzzleSeed
         self.puzzle = puzzle
+        self.collectedNutIDs = collectedNutIDs
     }
 
     /// A record is only usable if it describes a session that can still be

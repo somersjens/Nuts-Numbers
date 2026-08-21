@@ -167,7 +167,6 @@ struct GameView: View {
                 .zIndex(3)
             }
         }
-        .animation(.easeInOut(duration: 0.28), value: model.isGameOver)
         .animation(.easeInOut(duration: 0.35), value: showsIntro)
         .onAppear {
             screenInsets = ScreenSafeArea.current
@@ -199,7 +198,9 @@ struct GameView: View {
             } else if model.result.reason == .outOfTime {
                 playsTimeOutFinale = true
             } else {
-                showsResult = true
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    showsResult = true
+                }
             }
         }
         .onDisappear {
@@ -282,6 +283,7 @@ struct GameView: View {
             ClawPlayfield(round: model.round,
                           puzzle: model.clawPuzzle,
                           collectedAnswers: max(0, model.roundNumber - 1),
+                          collectedNutIDs: model.collectedNutIDs,
                           maximumRounds: model.maximumRounds,
                           character: character,
                           isPad: isPad,
@@ -292,13 +294,17 @@ struct GameView: View {
                           playsLevelCompletion: playsLevelCompletion,
                           playsTimeOutFinale: playsTimeOutFinale,
                           reduceMotion: reduceMotion,
+                          isFinalRound: model.roundNumber >= model.maximumRounds,
                           tutorialPlan: tutorial.clawPlan,
                           score: model.cards,
                           topReserve: topInset + (isPad ? 8 : 6),
                           bottomReserve: screenInsets.bottom,
                           scoreTarget: scoreIconCenter,
-                          onGrab: { nut, _ in
-                              model.resolveGrab(nut: nut)
+                          onGrab: { nut in
+                              switch model.resolveGrab(nut: nut) {
+                              case .correct: return true
+                              default: return false
+                              }
                           },
                           onScoreBubbleArrived: model.scoreBubbleArrived,
                           onEntranceComplete: finishFishEntrance,
@@ -323,7 +329,7 @@ struct GameView: View {
             if let message = tutorial.message, !playsLevelCompletion, !playsTimeOutFinale {
                 TutorialMessageCard(text: message, theme: character, isPad: isPad)
                     .padding(.horizontal, max(isPad ? 28 : 14, screenInsets.leading + 12))
-                    .padding(.top, topInset + (isPad ? 88 : 72))
+                    .padding(.top, topInset + (isPad ? 104 : 72))
                     // Scales up in place rather than sliding down: a card that
                     // travelled would cross the HUD on its way in.
                     .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
@@ -451,10 +457,10 @@ struct GameView: View {
         .accessibilityLabel(Text("game.pause"))
     }
 
-    private var hudTimerSize: CGFloat { isPad ? 76 : 58 }
-    private var hudPauseSize: CGFloat { isPad ? 56 : 46 }
-    private var hudPauseMountSize: CGFloat { isPad ? 72 : 58 }
-    private var pauseGlyphSize: CGFloat { isPad ? 22 : 18 }
+    private var hudTimerSize: CGFloat { isPad ? 86 : 58 }
+    private var hudPauseSize: CGFloat { isPad ? 64 : 46 }
+    private var hudPauseMountSize: CGFloat { isPad ? 82 : 58 }
+    private var pauseGlyphSize: CGFloat { isPad ? 25 : 18 }
 
     /// The reef only ticks while the level is actually being played: never
     /// behind the start card or the result card, and never while the app is in
@@ -536,7 +542,7 @@ private struct ClawTimerBadge: View {
                     .rotationEffect(.degrees(-90))
                     .padding(isPad ? 6 : 5)
                 Text(verbatim: LN(seconds))
-                    .font(.system(size: isPad ? 24 : 18, weight: .heavy, design: .rounded))
+                    .font(.system(size: isPad ? 26 : 18, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(palette.character.skyColor)
                     .minimumScaleFactor(0.5)

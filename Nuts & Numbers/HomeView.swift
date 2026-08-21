@@ -97,6 +97,7 @@ struct HomeView: View {
     /// Avoids walking every board of every level on each menu state change
     /// (opening Premium, pausing the backdrop, rotating).
     @State private var topicTotalCache = TopicTotalCache()
+    @State private var headerNutScale: CGFloat = 1
 
     private var character: AnimalCharacter { CharacterCatalog.current(isPremium: premium.isPremium) }
     private var topic: MathTopic { MathTopic(rawValue: topicRaw) ?? MathTopic.allCases[0] }
@@ -115,10 +116,21 @@ struct HomeView: View {
 
     // MARK: - Metrics
 
-    private var menuScale: CGFloat { isPad ? 1.55 : 1 }
     private var menuCardSectionSpacing: CGFloat { isPad ? 18 : 12 }
     private var menuControlSpacing: CGFloat { isPad ? 14 : 10 }
-    private var topicButtonDiameter: CGFloat { isPad ? 70 : 44 }
+    /// Six topic circles share the menu card's inner width. On iPad they grow
+    /// until the leftover gaps are about half of the previous 70-point layout.
+    private var topicButtonDiameter: CGFloat {
+        guard isPad else { return 44 }
+        let count = CGFloat(MathTopic.allCases.count)
+        let inner = max(1, levelGridContentWidth - 44)
+        let previous: CGFloat = 70
+        let previousGap = max(0, (inner - previous * count) / max(count - 1, 1))
+        let targetGap = previousGap * 0.5
+        let raw = min(inner / count, (inner - targetGap * (count - 1)) / count)
+        return min(108, raw)
+    }
+    private var topicGlyphScale: CGFloat { topicButtonDiameter / 44 }
     private var levelGridSpacing: CGFloat { isPad ? 16 : 10 }
     private var levelCardHeight: CGFloat { isPad ? 132 : 96 }
 
@@ -229,9 +241,15 @@ struct HomeView: View {
                             HangingElephantArtwork()
                                 .frame(width: frame.width, height: frame.height)
                                 .position(x: frame.midX, y: frame.midY)
+                        } else {
+                            CroppedCharacterPortrait(character: character,
+                                                     otherCharacterScale: 0.84)
+                                .frame(width: frame.width, height: frame.height)
+                                .position(x: frame.midX, y: frame.midY)
                         }
                     }
                     .frame(width: proxy.size.width, height: proxy.size.height)
+                    .modifier(HomeTutorialDim(isActive: showsTutorialHint))
                 }
             }
             .ignoresSafeArea()
@@ -338,7 +356,7 @@ struct HomeView: View {
                         showNameEditor = true
                     } label: {
                         Text(verbatim: displayName)
-                            .font(.system(size: isPad ? 34 : 20, weight: .heavy, design: .rounded))
+                            .font(.system(size: isPad ? 44 : 20, weight: .heavy, design: .rounded))
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                             .minimumScaleFactor(0.6)
@@ -403,26 +421,10 @@ struct HomeView: View {
 
     private var characterButton: some View {
         let box: CGFloat = isPad ? 118 : 68
-        return ZStack {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(LinearGradient(colors: [character.skyColor, character.tintColor],
-                                     startPoint: .top, endPoint: .bottom))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(.white.opacity(0.9), lineWidth: 2)
-                }
-            // The elephant is drawn by the un-clipped home overlay so its hook
-            // can sit in front of this border. Other characters stay inside.
-            if character.id != "elephant" {
-                CroppedCharacterPortrait(character: character,
-                                         otherCharacterScale: 0.84)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-        }
-        .frame(width: box, height: box)
-        .anchorPreference(key: HomeCharacterAnchorKey.self, value: .bounds) { $0 }
-        .shadow(color: character.deepColor.opacity(0.18), radius: 7, y: 3)
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        return Color.clear
+            .frame(width: box, height: box)
+            .anchorPreference(key: HomeCharacterAnchorKey.self, value: .bounds) { $0 }
+            .contentShape(Rectangle())
         // One exclusive recognizer decides between the two actions. A
         // successful hold can therefore never fall through into the tap that
         // opens the character collection.
@@ -476,6 +478,7 @@ struct HomeView: View {
             openCharacterCollection(initialCharacterID: unlockPrompt.characterID)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: totalCards)
+        .onPreferenceChange(HeaderNutScaleKey.self) { headerNutScale = $0 }
     }
 
     /// Recomputes the next animal to earn. The prompt is a stored value rather
@@ -507,15 +510,15 @@ struct HomeView: View {
         let count = headerCount(start: celebration?.topicStart,
                                 heldStart: lastPlayedTopic,
                                 current: topicTotal)
-        return HStack(alignment: .center, spacing: 8) {
+        return HStack(alignment: .center, spacing: (isPad ? 16 : 12) * headerNutScale) {
             Text(verbatim: L(key: topic.titleKey))
                 .font(.system(size: isPad ? 32 : 20, weight: .heavy, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
-            HStack(spacing: isPad ? 8 : 6) {
+            HStack(spacing: (isPad ? 12 : 8) * headerNutScale) {
                 // The card that flies up from the level card aims here, so the
                 // reward visibly joins this topic before the totals move.
-                CurrencyIcon(size: isPad ? 22 : 14)
+                CurrencyIcon(size: (isPad ? 24 : 14) * headerNutScale)
                     .scaleEffect(highlightsHeaderCards ? 1.32 : 1)
                     .rotationEffect(.degrees(highlightsHeaderCards ? -10 : 0))
                     .reportAnchor("topicTotal")
@@ -524,7 +527,7 @@ struct HomeView: View {
                                startedAt: count.at,
                                duration: Self.headerCountDuration)
             }
-            .font(.system(size: isPad ? 24 : 15, weight: .bold))
+            .font(.system(size: (isPad ? 24 : 15) * headerNutScale, weight: .bold))
             Spacer(minLength: 0)
         }
         .foregroundStyle(character.deepColor)
@@ -619,10 +622,10 @@ struct HomeView: View {
         // Bare glyphs, not the `.circle.fill` variants: the button already
         // provides the circle, so the only solid is the selected one. Per-symbol
         // point sizes even out their differing optical heights.
-        let size = option.symbolPointSize * menuScale
+        let size = option.symbolPointSize * topicGlyphScale
         return Image(systemName: option.symbolName)
             .font(.system(size: size, weight: .bold))
-            .frame(height: 24 * menuScale)
+            .frame(height: 24 * topicGlyphScale)
             .foregroundStyle(isSelected ? .white : character.deepColor)
     }
 
@@ -658,7 +661,7 @@ struct HomeView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                         .frame(maxWidth: .infinity)
-                        .frame(height: isPad ? 56 : 37)
+                    .frame(height: isPad ? 64 : 37)
                         .padding(.horizontal, isPad ? 8 : 2)
                         .background(isSelected ? character.deepColor : .white.opacity(0.7),
                                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -703,7 +706,7 @@ struct HomeView: View {
                     .minimumScaleFactor(0.85)
                     .foregroundStyle(isSelected ? .white : character.deepColor)
                     .frame(maxWidth: .infinity)
-                    .frame(height: isPad ? 56 : 37)
+                    .frame(height: isPad ? 64 : 37)
                     .background(isSelected ? character.deepColor : .white.opacity(0.62),
                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -1138,7 +1141,7 @@ struct HomeView: View {
                                 source: source,
                                 destination: destination,
                                 sourcePointSize: isPad ? 13 : 9,
-                                destinationPointSize: isPad ? 22 : 15,
+                                destinationPointSize: isPad ? 24 : 14,
                                 arcHeight: isPad ? 64 : 44,
                                 color: celebration.revealsMaximum
                                     ? LevelCardView.completedPalette(for: character).hero
@@ -1159,7 +1162,7 @@ struct HomeView: View {
     private func landHeaderCards(for celebration: ScoreCelebration) {
         guard self.celebration?.id == celebration.id else { return }
         cardArrival = Date()
-        AppAudio.shared.playCardTotal()
+        AppAudio.shared.playCardTotalMenu()
         withAnimation(.spring(response: 0.42, dampingFraction: 0.56)) {
             highlightsHeaderCards = true
         }

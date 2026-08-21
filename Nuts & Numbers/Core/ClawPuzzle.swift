@@ -8,7 +8,11 @@
 //  The brick mound is built first. Each sum is then parked on a nut that is
 //  already grabable at that point in the session — sometimes the peak, often
 //  a half-free nut one or two rows down — so later shells can sit on top for
-//  many rounds. Repeated answer values are spread apart where possible.
+//  many rounds. The sums are scheduled in that same peel order: the twelve
+//  distinct table products occupy the free layer first; a repeated 40 stays
+//  buried until that peel has happened. Late in a level every leftover shell
+//  may be free — any matching 40 then counts. Printed numbers never jump: the
+//  live pile is not rebuilt or swapped between sums.
 //
 
 import Foundation
@@ -32,8 +36,8 @@ nonisolated public struct ClawPoint: Equatable, Codable, Sendable {
 
 nonisolated public struct ClawNut: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
-    /// The value printed on the shell. Any nut whose value matches the
-    /// standing sum is a correct grab, even if it was laid for a later question.
+    /// The value printed on the shell. That printed number is the answer:
+    /// any 40 scores for 5×8, even if another 40 was laid for a later sum.
     public let text: String
     /// 0-based index of the sum this nut was laid for. The optional shape is
     /// retained for save compatibility, although new piles contain no decoys.
@@ -119,6 +123,18 @@ nonisolated public struct ClawPuzzle: Equatable, Codable, Sendable {
         return pile
     }
 
+    /// Replays the grabs the player actually made, so a 40 taken from the
+    /// floor is the one that leaves — not a different 40 that was assigned
+    /// to this sum.
+    nonisolated public func remainingNuts(afterGrabbing ids: [UUID]) -> [ClawNut] {
+        var pile = nuts
+        for id in ids {
+            guard let target = pile.first(where: { $0.id == id }) else { break }
+            ClawPuzzleBuilder.applyFall(&pile, removing: target)
+        }
+        return pile
+    }
+
     /// Whether `nut` can be grabbed given the nuts still sitting in the pile.
     ///
     /// Count every remaining shell that overlaps from above — the whole
@@ -184,7 +200,7 @@ nonisolated private enum ClawPuzzleBuilder {
         let random = RandomSource(seed: seed &+ 0xC1A0_9A75)
         let ordered = preservesQuestionOrder
             ? questions
-            : spreadQuestions(questions, random: random)
+            : peelSchedule(questions, random: random)
         let gold = goldIndices(count: ordered.count, random: random)
         let distractors = makeDistractors(for: ordered, random: random)
         let strategy = LayoutStrategy.allCases[
@@ -200,19 +216,34 @@ nonisolated private enum ClawPuzzleBuilder {
         refreshCovering(&nuts)
         repairGrabability(&nuts, answerCount: ordered.count)
         refreshCovering(&nuts)
+        buryGrabableDuplicates(&nuts)
+        refreshCovering(&nuts)
+        repairGrabability(&nuts, answerCount: ordered.count)
+        refreshCovering(&nuts)
         if !isSolvableWithCascade(nuts, answerCount: ordered.count) {
             nuts = placePeakFirst(answers: ordered,
                                   gold: gold,
                                   distractors: distractors,
                                   strategy: .strictPyramid,
                                   random: random)
-            separateSimilarValues(&nuts)
             uniquifyPrintedValues(&nuts)
             refreshCovering(&nuts)
             repairGrabability(&nuts, answerCount: ordered.count)
             refreshCovering(&nuts)
         }
-        let puzzle = ClawPuzzle(questions: ordered, nuts: nuts, seed: seed)
+        var puzzle = ClawPuzzle(questions: ordered, nuts: nuts, seed: seed)
+        if !puzzle.isPlayablePlan(expectedCount: ordered.count) {
+            nuts = placePeakFirst(answers: ordered,
+                                  gold: gold,
+                                  distractors: distractors,
+                                  strategy: .strictPyramid,
+                                  random: random)
+            uniquifyPrintedValues(&nuts)
+            refreshCovering(&nuts)
+            repairGrabability(&nuts, answerCount: ordered.count)
+            refreshCovering(&nuts)
+            puzzle = ClawPuzzle(questions: ordered, nuts: nuts, seed: seed)
+        }
         assert(puzzle.isPlayablePlan(expectedCount: ordered.count),
                "Claw puzzle must be completely planned before play starts")
         return puzzle
@@ -220,22 +251,25 @@ nonisolated private enum ClawPuzzleBuilder {
 
     // MARK: Ordering
 
-    /// Mixes the sums so identical answers never sit next to each other in
-    /// the order they are assigned onto grabable shells.
-    nonisolated static func spreadQuestions(_ questions: [MathQuestion],
-                                            random: RandomSource) -> [MathQuestion] {
-        var remaining = random.shuffled(questions)
-        guard remaining.count > 1 else { return remaining }
-        var ordered: [MathQuestion] = []
-        while !remaining.isEmpty {
-            let last = ordered.last.map { AnswerValue($0.correctAnswer) }
-            if let index = remaining.firstIndex(where: { AnswerValue($0.correctAnswer) != last }) {
-                ordered.append(remaining.remove(at: index))
+    /// Unique printed answers first, then repeats. The first lap (5, 10, …, 60)
+    /// is laid on the shells that are already free; a second 40 only appears
+    /// after those peels, so the surface never shows two identical numbers at
+    /// once and the next sum can be predicted from the peel order.
+    nonisolated static func peelSchedule(_ questions: [MathQuestion],
+                                         random: RandomSource) -> [MathQuestion] {
+        var seen: Set<AnswerValue> = []
+        var unique: [MathQuestion] = []
+        var repeats: [MathQuestion] = []
+        for question in questions {
+            let printed = AnswerValue(question.correctAnswer)
+            if seen.contains(printed) {
+                repeats.append(question)
             } else {
-                ordered.append(remaining.removeFirst())
+                seen.insert(printed)
+                unique.append(question)
             }
         }
-        return ordered
+        return random.shuffled(unique) + random.shuffled(repeats)
     }
 
     // MARK: Gold & distractors
@@ -378,26 +412,51 @@ nonisolated private enum ClawPuzzleBuilder {
                               gold: Set<Int>,
                               distractors: [String],
                               random: RandomSource) {
+        let startGrabableIDs = Set(nuts.filter { ClawPuzzle.isGrabable($0, among: nuts) }.map(\.id))
         var sim = nuts
         // A small exercise can have fewer distinct results than the board has
         // shells (for example a table has twelve). Repeats are then inevitable,
-        // but a later copy should preferably stay buried while an earlier copy
-        // is the standing answer. Remember every shell that was already exposed
-        // during that value's question and avoid assigning the next copy there.
+        // but a later copy must stay buried while an earlier copy is still the
+        // standing answer — otherwise grabbing the "other 25" peels a different
+        // column and the assigned shell is no longer free when it is needed.
         var exposedSlotsByAnswer: [AnswerValue: Set<UUID>] = [:]
         for (index, question) in answers.enumerated() {
             let grabable = sim.filter { ClawPuzzle.isGrabable($0, among: sim) }
             let printed = AnswerValue(question.correctAnswer)
+            let isRepeat = answers.prefix(index).contains {
+                AnswerValue($0.correctAnswer) == printed
+            }
             let previouslyExposed = exposedSlotsByAnswer[printed] ?? []
             let newlyExposed = grabable.filter { !previouslyExposed.contains($0.id) }
-            let candidates = newlyExposed.isEmpty ? grabable : newlyExposed
+            let buriedAtStart = grabable.filter { !startGrabableIDs.contains($0.id) }
+            let surface = grabable.filter { startGrabableIDs.contains($0.id) }
+            let candidates: [ClawNut]
+            if isRepeat {
+                // A second 40 may only sit where it was still buried at the
+                // start, so taking the first 40 is the only peel that can
+                // happen while 5×8 is standing.
+                if !buriedAtStart.isEmpty {
+                    candidates = buriedAtStart
+                } else if !newlyExposed.isEmpty {
+                    candidates = newlyExposed
+                } else {
+                    candidates = grabable
+                }
+            } else if !surface.isEmpty {
+                candidates = surface
+            } else {
+                candidates = newlyExposed.isEmpty ? grabable : newlyExposed
+            }
             let already = nuts.filter { $0.sequenceIndex != nil && value(of: $0) == printed }
             let far = candidates.filter { candidate in
                 !already.contains { closeTogether($0, candidate) }
             }
             let pool = far.isEmpty ? candidates : far
-            let chosen = pickAnswerSlot(pool, pile: sim, random: random) ?? random.element(pool)
-            guard let chosen, ClawPuzzle.isGrabable(chosen, among: sim) else { break }
+            let chosen = pickAnswerSlot(pool, pile: sim, random: random)
+                ?? random.element(pool)
+                ?? random.element(grabable)
+                ?? sim.first
+            guard let chosen else { break }
             exposedSlotsByAnswer[printed, default: []]
                 .formUnion(grabable.map(\.id))
             if let i = nuts.firstIndex(where: { $0.id == chosen.id }) {
@@ -409,6 +468,14 @@ nonisolated private enum ClawPuzzleBuilder {
             if let live = sim.first(where: { $0.id == chosen.id }) {
                 applyFall(&sim, removing: live)
             }
+        }
+        for (index, question) in answers.enumerated()
+        where !nuts.contains(where: { $0.isAssigned(toQuestionIndex: index) }) {
+            guard let i = nuts.firstIndex(where: { $0.sequenceIndex == nil }) else { break }
+            nuts[i] = relabel(nuts[i],
+                              text: question.correctAnswer,
+                              sequenceIndex: index,
+                              isGold: gold.contains(index))
         }
         var decoys = distractors
         for i in nuts.indices where nuts[i].sequenceIndex == nil {
@@ -589,8 +656,8 @@ nonisolated private enum ClawPuzzleBuilder {
     }
 
     /// Distractors never reprint a value that an assigned nut already shows.
-    /// Assigned shells keep their printed answer even when several sums share
-    /// it; decoys that would collide are rewritten.
+    /// Assigned shells keep their printed answer even when a later sum shares
+    /// it; that later copy is buried instead of rewritten.
     static func uniquifyPrintedValues(_ nuts: inout [ClawNut]) {
         var seen: Set<AnswerValue> = []
         var next = 1
@@ -718,8 +785,45 @@ nonisolated private enum ClawPuzzleBuilder {
         }
     }
 
-    /// Walks the whole session: each assigned nut must be at least half-free
-    /// when it is asked, then the cascade is applied before the next sum.
+    /// Later copies of a printed answer are buried when the mound still has
+    /// an interior. This is best-effort: a last-row repeat may stay in the
+    /// open rather than making the level unplayable.
+    static func buryGrabableDuplicates(_ nuts: inout [ClawNut]) {
+        for _ in 0..<40 {
+            let grabable = nuts.filter { ClawPuzzle.isGrabable($0, among: nuts) }
+            var firstID: [AnswerValue: UUID] = [:]
+            var extra: ClawNut?
+            for nut in grabable {
+                let printed = value(of: nut)
+                if let kept = firstID[printed],
+                   let keptNut = nuts.first(where: { $0.id == kept }) {
+                    let keepLater = (nut.sequenceIndex ?? Int.max)
+                        < (keptNut.sequenceIndex ?? Int.max)
+                    extra = keepLater ? keptNut : nut
+                    if keepLater { firstID[printed] = nut.id }
+                    break
+                } else {
+                    firstID[printed] = nut.id
+                }
+            }
+            guard let extra else { break }
+            let printed = value(of: extra)
+            let partners = nuts.filter { candidate in
+                candidate.id != extra.id
+                    && !ClawPuzzle.isGrabable(candidate, among: nuts)
+                    && value(of: candidate) != printed
+            }
+            guard let partner = partners.min(by: { a, b in
+                if a.isDistractor != b.isDistractor { return a.isDistractor }
+                return (a.sequenceIndex ?? Int.max) > (b.sequenceIndex ?? Int.max)
+            }),
+                  let extraSlot = nuts.firstIndex(where: { $0.id == extra.id }),
+                  let partnerSlot = nuts.firstIndex(where: { $0.id == partner.id })
+            else { break }
+            swapPositions(&nuts, extraSlot, partnerSlot)
+        }
+    }
+
     static func isSolvableWithCascade(_ nuts: [ClawNut], answerCount: Int) -> Bool {
         var pile = nuts
         for index in 0..<answerCount {
@@ -733,7 +837,7 @@ nonisolated private enum ClawPuzzleBuilder {
     }
 
     static func repairGrabability(_ nuts: inout [ClawNut], answerCount: Int) {
-        for _ in 0..<24 {
+        for _ in 0..<48 {
             guard !isSolvableWithCascade(nuts, answerCount: answerCount) else { return }
             guard let (index, target, pile) = firstUngrabable(in: nuts, answerCount: answerCount)
             else { return }

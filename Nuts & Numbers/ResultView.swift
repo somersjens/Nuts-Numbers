@@ -178,24 +178,18 @@ struct ResultView: View {
         }
     }
 
-    /// The result uses a calm portrait badge instead of dropping the entire
-    /// hanging sprite into a shallow frame. For the elephant this keeps the
-    /// feet-to-arms silhouette centred and leaves the machine hook out of view.
+    /// The result hangs the selected character the same way the menu does:
+    /// no tile behind it, so it reads as the animal rather than a badge.
     private var resultPortrait: some View {
-        CroppedCharacterPortrait(character: character,
-                                 elephantScale: 1.32,
-                                 elephantYOffset: -0.14,
-                                 otherCharacterScale: 0.88,
-                                 usesHooklessElephant: true)
-            .frame(width: 118 * scale, height: 92 * scale)
-            .background(character.skyColor.opacity(0.82),
-                        in: RoundedRectangle(cornerRadius: 24 * scale, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 24 * scale, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24 * scale, style: .continuous)
-                    .stroke(.white.opacity(0.92), lineWidth: 2)
+        Group {
+            if character.id == "elephant" {
+                HangingElephantArtwork()
+            } else {
+                CroppedCharacterPortrait(character: character,
+                                         otherCharacterScale: 0.88)
             }
-            .shadow(color: character.deepColor.opacity(0.16), radius: 7 * scale, y: 3 * scale)
+        }
+        .frame(width: 118 * scale, height: 92 * scale)
     }
 
     /// "×7 complete!" — where the "×7" is a drawn label (a stacked fraction, or

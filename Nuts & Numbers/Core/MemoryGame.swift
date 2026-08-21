@@ -86,6 +86,10 @@ nonisolated public final class MemoryGame {
     private var plannedRounds: [GameRound] = []
     /// The physical pile that belongs to `plannedRounds`. Nil only before start.
     public private(set) var clawPuzzle: ClawPuzzle?
+    /// Shells already collected, in the order the player took them. Needed so
+    /// a later copy of 40 that was grabbed still stays gone after the pile
+    /// is rebuilt for the next sum.
+    public private(set) var collectedNutIDs: [UUID] = []
 
     // MARK: Observable state (read by the view)
 
@@ -178,6 +182,9 @@ nonisolated public final class MemoryGame {
         correctStreak = session.correctStreak ?? 0
         installPlan(startingAt: session.roundNumber,
                     restoring: session.puzzle)
+        if let ids = session.collectedNutIDs {
+            collectedNutIDs = ids
+        }
         state = .memorising
         return true
     }
@@ -200,7 +207,8 @@ nonisolated public final class MemoryGame {
                              hasBonusFishPower: hasBonusFishPower,
                              remainingTime: remainingTime,
                              puzzleSeed: puzzleSeed,
-                             puzzle: clawPuzzle)
+                             puzzle: clawPuzzle,
+                             collectedNutIDs: collectedNutIDs)
     }
 
     /// The tap that turns the answer cards face down and brings the question
@@ -243,17 +251,18 @@ nonisolated public final class MemoryGame {
                              correctOptionID: round.correctOption?.id ?? optionID)
     }
 
-    /// Resolves a grabbed nut against the standing sum. A claw round owns one
-    /// exact physical shell; keeping that identity intact preserves the
-    /// authored removal and cascade order for every following round.
+    /// Resolves a grabbed nut against the standing sum. The printed number is
+    /// what the player is asked for: every 40 is a correct grab for 5×8.
     @discardableResult
     public func resolveGrab(nut: ClawNut) -> AnswerOutcome {
         guard state == .answering,
               let round,
               selectedOptionID == nil
         else { return .ignored }
-        let matchesValue = AnswerValue(nut.text) == AnswerValue(round.question.correctAnswer)
-        let isCorrect = round.targetNutID.map { nut.id == $0 } ?? matchesValue
+        let isCorrect = AnswerValue(nut.text) == AnswerValue(round.question.correctAnswer)
+        if isCorrect {
+            collectedNutIDs.append(nut.id)
+        }
         let selectedID = isCorrect
             ? (round.targetNutID ?? round.correctOption?.id ?? nut.id)
             : nut.id
@@ -343,6 +352,9 @@ nonisolated public final class MemoryGame {
                               targetNutID: puzzle.assignedNut(forQuestionIndex: index)?.id)
         }
         let start = min(max(1, number), plannedRounds.count)
+        collectedNutIDs = (0..<max(0, start - 1)).compactMap { index in
+            puzzle.assignedNut(forQuestionIndex: index)?.id
+        }
         roundNumber = start
         round = plannedRound(number: start)
         preparedRound = plannedRound(number: start + 1)

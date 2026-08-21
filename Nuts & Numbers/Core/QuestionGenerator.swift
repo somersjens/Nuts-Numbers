@@ -83,6 +83,9 @@ nonisolated public final class QuestionGenerator {
     private var routeStep = 0
     /// The shuffled cycles the Random route runs on, one per purpose.
     private var cycles: [String: ShuffledCycle] = [:]
+    /// Printed answers already used in this session. Tables pick a still-free
+    /// product (×1…×12) before any value is allowed to repeat.
+    private var excludedAnswers: Set<AnswerValue> = []
 
     /// Which operations a Supermix level draws from. Ignored by every other
     /// topic, which has exactly one operation by definition.
@@ -112,9 +115,11 @@ nonisolated public final class QuestionGenerator {
     ///   mode needs. The generator keeps trying until it can supply that many.
     public func next(requiredDistractors: Int,
                      excludingAnswers: Set<AnswerValue> = []) -> MathQuestion {
-        generateValidated(requiredDistractors: requiredDistractors,
-                          forceTopLevel: false,
-                          excludingAnswers: excludingAnswers)
+        excludedAnswers = excludingAnswers
+        defer { excludedAnswers = [] }
+        return generateValidated(requiredDistractors: requiredDistractors,
+                                 forceTopLevel: false,
+                                 excludingAnswers: excludingAnswers)
     }
 
     /// A harder question for the special double card: always drawn from the top
@@ -369,8 +374,14 @@ nonisolated public final class QuestionGenerator {
 
     private func tablesQuestion(source: Int, route: Route, step: Int) -> MathQuestion {
         let table = min(GameConfig.maximumLevel, source)
+        let unusedMultipliers = (1...12).filter {
+            !excludedAnswers.contains(AnswerValue("\(table * $0)"))
+        }
 
-        if route == .shuffled, random.double(in: 0..<1) < Self.zeroMultiplyChance {
+        if unusedMultipliers.isEmpty,
+           route == .shuffled,
+           random.double(in: 0..<1) < Self.zeroMultiplyChance,
+           !excludedAnswers.contains(AnswerValue("0")) {
             let prompt = random.bool() ? "\(table) × 0 = ?" : "0 × \(table) = ?"
             // The tempting mistakes: answering the number itself, or 1.
             return build(prompt: prompt,
@@ -382,16 +393,31 @@ nonisolated public final class QuestionGenerator {
 
         let multiplier: Int
         let swapsSides: Bool
-        switch route {
-        case .fixed:
-            // The endless ×1 … ×12 loop, always with the table in front.
-            multiplier = PracticeRoute.tableMultiplier(step: step)
-            swapsSides = false
-        case .shuffled:
-            // Every multiplier exactly once per lap, and the table may stand on
-            // either side of the ×.
-            multiplier = cycle("table", Array(1...12)).next(random)
-            swapsSides = random.bool()
+        if !unusedMultipliers.isEmpty {
+            // Fill every distinct product (5, 10, …, 60) before any 25 returns.
+            switch route {
+            case .fixed:
+                let planned = PracticeRoute.tableMultiplier(step: step)
+                multiplier = unusedMultipliers.contains(planned)
+                    ? planned
+                    : unusedMultipliers[step % unusedMultipliers.count]
+                swapsSides = false
+            case .shuffled:
+                multiplier = random.element(unusedMultipliers) ?? unusedMultipliers[0]
+                swapsSides = random.bool()
+            }
+        } else {
+            switch route {
+            case .fixed:
+                // The endless ×1 … ×12 loop, always with the table in front.
+                multiplier = PracticeRoute.tableMultiplier(step: step)
+                swapsSides = false
+            case .shuffled:
+                // Every multiplier exactly once per lap, and the table may stand on
+                // either side of the ×.
+                multiplier = cycle("table", Array(1...12)).next(random)
+                swapsSides = random.bool()
+            }
         }
         let answer = table * multiplier
         let (a, b) = swapsSides ? (multiplier, table) : (table, multiplier)

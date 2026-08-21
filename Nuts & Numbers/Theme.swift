@@ -185,8 +185,7 @@ struct HooklessElephantArtwork: View {
 }
 
 /// The complete hanging elephant, rebuilt in the same layer order as the claw
-/// game. Keeping this outside the menu tile's clip makes the entire hook and
-/// its connection to the rope visible above the tile border.
+/// game. Drawn outside the menu card so the hook and rope can sit in open air.
 struct HangingElephantArtwork: View {
     var body: some View {
         GeometryReader { proxy in
