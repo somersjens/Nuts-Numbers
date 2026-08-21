@@ -433,6 +433,7 @@ struct GameView: View {
                     }
             }
             .frame(width: hudPauseMountSize, height: hudPauseMountSize)
+            .shadow(color: palette.character.color.opacity(0.30), radius: isPad ? 12 : 9)
             .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
         }
         .buttonStyle(.plain)

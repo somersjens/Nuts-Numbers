@@ -1263,7 +1263,7 @@ struct ClawPlayfield: View {
 
                 glassChamber(geo: geo)
 
-                CatchBinBackView()
+                CatchBinBackView(accentColor: palette.character.color)
                     .equatable()
                     .frame(width: geo.bin.width, height: geo.bin.height)
                     .position(x: geo.bin.midX, y: geo.bin.midY)
@@ -1282,7 +1282,7 @@ struct ClawPlayfield: View {
                     .position(x: geo.play.midX, y: geo.play.midY)
                 }
 
-                CatchBinFrontView()
+                CatchBinFrontView(accentColor: palette.character.color)
                     .equatable()
                     .frame(width: geo.bin.width, height: geo.bin.height)
                     .position(x: geo.bin.midX, y: geo.bin.midY)
@@ -1580,7 +1580,7 @@ struct ClawPlayfield: View {
     private func finaleBinForeground(
         geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
     ) -> some View {
-        CatchBinFrontView()
+        CatchBinFrontView(accentColor: palette.character.color)
             .equatable()
             .frame(width: geo.bin.width, height: geo.bin.height)
             .position(x: geo.bin.midX, y: geo.bin.midY)
@@ -1662,6 +1662,8 @@ struct ClawPlayfield: View {
                             endPoint: .bottom
                         )
                     )
+                    .shadow(color: palette.character.color.opacity(0.30),
+                            radius: isPad ? 14 : 10)
                     ArcadeShelfSideEdge(topInset: layout.topInset, side: .leading,
                                         thickness: isPad ? 16 : 11)
                         .fill(Color(red: 0.22, green: 0.12, blue: 0.05).opacity(0.45))
@@ -1682,6 +1684,22 @@ struct ClawPlayfield: View {
                         .frame(height: isPad ? 15 : 10)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .clipShape(board)
+
+                    // A broad wash from both cabinet sides makes the console
+                    // share their coloured light without drawing a hard rim.
+                    LinearGradient(
+                        stops: [
+                            .init(color: palette.character.color.opacity(0.24), location: 0),
+                            .init(color: .clear, location: 0.20),
+                            .init(color: .clear, location: 0.80),
+                            .init(color: palette.character.color.opacity(0.24), location: 1)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .blendMode(.screen)
+                    .clipShape(board)
+                    .allowsHitTesting(false)
 
                     // Thick rear console edge: the dark top is the glass seal,
                     // the warmer face is the wooden lip below it.
@@ -1715,7 +1733,7 @@ struct ClawPlayfield: View {
                     .position(x: layout.joystickCenter.x,
                               y: layout.joystickCenter.y)
 
-                ClawPanelScore(score: score, isPad: isPad)
+                ClawPanelScore(score: score, isPad: isPad, palette: palette)
                     .frame(width: layout.scoreWidth,
                            height: layout.scoreHeight)
                     .position(x: layout.scoreCenter.x,
@@ -1742,7 +1760,7 @@ struct ClawPlayfield: View {
     }
 
     private var joystick: some View {
-        ClawJoystickChrome(input: engine.joystickInput)
+        ClawJoystickChrome(input: engine.joystickInput, palette: palette)
             .equatable()
             .aspectRatio(JoystickArt.canvas.width / JoystickArt.canvas.height, contentMode: .fit)
             .overlay {
@@ -1784,9 +1802,20 @@ struct ClawPlayfield: View {
 
         return Button(action: engine.pressGrab) {
             ZStack {
-                grabHousingImage
-                    .resizable()
-                    .interpolation(.high)
+                ZStack {
+                    grabHousingImage
+                        .resizable()
+                        .interpolation(.high)
+                    grabHousingImage
+                        .renderingMode(.template)
+                        .resizable()
+                        .interpolation(.high)
+                        .foregroundStyle(palette.character.color.opacity(0.38))
+                        .blendMode(.color)
+                }
+                .compositingGroup()
+                .shadow(color: palette.character.color.opacity(0.34),
+                        radius: isPad ? 13 : 9)
 
                 ZStack {
                     grabCapImage
@@ -1805,9 +1834,18 @@ struct ClawPlayfield: View {
                 }
                 .offset(y: engine.buttonPressed ? travel : 0)
 
-                grabLipImage
-                    .resizable()
-                    .interpolation(.high)
+                ZStack {
+                    grabLipImage
+                        .resizable()
+                        .interpolation(.high)
+                    grabLipImage
+                        .renderingMode(.template)
+                        .resizable()
+                        .interpolation(.high)
+                        .foregroundStyle(palette.character.color.opacity(0.30))
+                        .blendMode(.color)
+                }
+                .compositingGroup()
             }
             .frame(width: side, height: side)
             .contentShape(Circle())
@@ -1898,6 +1936,7 @@ private enum GrabButtonArt {
 private struct ClawPanelScore: View {
     let score: Int
     let isPad: Bool
+    let palette: ClawPalette
 
     private var digits: [Int] {
         let clamped = min(99, max(0, score))
@@ -1906,9 +1945,20 @@ private struct ClawPanelScore: View {
 
     var body: some View {
         ZStack {
-            scorePadImage
-                .resizable()
-                .interpolation(.high)
+            ZStack {
+                scorePadImage
+                    .resizable()
+                    .interpolation(.high)
+                scorePadImage
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.high)
+                    .foregroundStyle(metalEdgeTint)
+                    .blendMode(.color)
+            }
+            .compositingGroup()
+            .shadow(color: palette.character.color.opacity(0.34),
+                    radius: isPad ? 12 : 8)
             GeometryReader { proxy in
                 let sx = proxy.size.width / ScorePadArt.canvas.width
                 let sy = proxy.size.height / ScorePadArt.canvas.height
@@ -1946,6 +1996,21 @@ private struct ClawPanelScore: View {
 #else
         Image("score_pad")
 #endif
+    }
+
+    private var metalEdgeTint: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: palette.character.color.opacity(0.48), location: 0),
+                .init(color: palette.character.color.opacity(0.20), location: 0.20),
+                .init(color: .clear, location: 0.36),
+                .init(color: .clear, location: 0.64),
+                .init(color: palette.character.color.opacity(0.20), location: 0.80),
+                .init(color: palette.character.color.opacity(0.48), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 }
 
@@ -2582,6 +2647,7 @@ private struct ClawElephantView: View {
 
 private struct ClawJoystickChrome: View, Equatable {
     let input: CGFloat
+    let palette: ClawPalette
 
     var body: some View {
         let leftLit = input < -0.18
@@ -2589,9 +2655,18 @@ private struct ClawJoystickChrome: View, Equatable {
         let tilt = Angle.degrees(Double(input) * JoystickArt.maxTilt)
 
         return ZStack {
-            baseImage
-                .resizable()
-                .allowsHitTesting(false)
+            ZStack {
+                baseImage
+                    .resizable()
+                baseImage
+                    .renderingMode(.template)
+                    .resizable()
+                    .foregroundStyle(metalEdgeTint)
+                    .blendMode(.color)
+            }
+            .compositingGroup()
+            .shadow(color: palette.character.color.opacity(0.32), radius: 9)
+            .allowsHitTesting(false)
 
             lightArrow(lit: leftLit, mirrored: false)
             lightArrow(lit: rightLit, mirrored: true)
@@ -2628,6 +2703,21 @@ private struct ClawJoystickChrome: View, Equatable {
 #else
         Image("base")
 #endif
+    }
+
+    private var metalEdgeTint: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: palette.character.color.opacity(0.46), location: 0),
+                .init(color: palette.character.color.opacity(0.18), location: 0.20),
+                .init(color: .clear, location: 0.36),
+                .init(color: .clear, location: 0.64),
+                .init(color: palette.character.color.opacity(0.18), location: 0.80),
+                .init(color: palette.character.color.opacity(0.46), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private var pokeImage: Image {
@@ -5682,19 +5772,45 @@ private struct SanctuaryLivingDetails: View {
 /// score targets clip the lower run of the same asset; 50-point boards show
 /// every visible source row without stretching the opening or metalwork.
 private struct CatchBinArtworkView: View, Equatable {
+    let accentColor: Color
+
     var body: some View {
         GeometryReader { proxy in
             let fullHeight = proxy.size.width
                 * CatchBinArtwork.sourceHeight
                 / CatchBinArtwork.sourceWidth
-            Image(CatchBinArtwork.imageName)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: proxy.size.width, height: fullHeight)
-                .frame(width: proxy.size.width,
-                       height: proxy.size.height,
-                       alignment: .top)
-                .clipped()
+            ZStack {
+                Image(CatchBinArtwork.imageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: proxy.size.width, height: fullHeight)
+
+                // Tint the authored material itself instead of drawing a new
+                // outline. The stronger right-side wash lands on the metal
+                // column while the wood only picks up a restrained reflection.
+                Image(CatchBinArtwork.imageName)
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.high)
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: [
+                                .init(color: accentColor.opacity(0.14), location: 0),
+                                .init(color: accentColor.opacity(0.22), location: 0.52),
+                                .init(color: accentColor.opacity(0.44), location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .blendMode(.color)
+                    .frame(width: proxy.size.width, height: fullHeight)
+            }
+            .compositingGroup()
+            .frame(width: proxy.size.width,
+                   height: proxy.size.height,
+                   alignment: .top)
+            .clipped()
         }
         .allowsHitTesting(false)
     }
@@ -5763,14 +5879,20 @@ private struct CatchBinSourceSlice: View, Equatable {
 }
 
 private struct CatchBinBackView: View, Equatable {
+    let accentColor: Color
+
     var body: some View {
-        CatchBinArtworkView()
+        CatchBinArtworkView(accentColor: accentColor)
+            .compositingGroup()
+            .shadow(color: accentColor.opacity(0.32), radius: 12)
     }
 }
 
 private struct CatchBinFrontView: View, Equatable {
+    let accentColor: Color
+
     var body: some View {
-        CatchBinArtworkView()
+        CatchBinArtworkView(accentColor: accentColor)
             .mask(CatchBinForegroundMask())
             .allowsHitTesting(false)
     }
