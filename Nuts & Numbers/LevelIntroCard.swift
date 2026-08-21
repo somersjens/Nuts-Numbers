@@ -241,12 +241,13 @@ struct LevelIntroCard: View {
     // MARK: - Pieces
 
     private var characterPortrait: some View {
-        theme.artwork
-            .resizable()
-            .scaledToFit()
-            .padding(5)
+        CroppedCharacterPortrait(
+            character: theme,
+            otherCharacterScale: max(0, 1 - 10 / portraitSize)
+        )
             .frame(width: portraitSize, height: portraitSize)
             .background(theme.skyColor, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(theme.deepColor.opacity(0.12), lineWidth: 1))
     }

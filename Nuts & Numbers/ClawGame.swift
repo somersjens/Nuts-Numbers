@@ -82,6 +82,7 @@ enum ClawConfig {
 /// large canvases; paying decompression on the first gameplay frame is a hitch.
 enum ClawArtworkCache {
     static let nut: UIImage = prepared(named: ClawConfig.nutImageName)
+    static let elephantClaw: UIImage = prepared(named: "1_claw")
     static let elephantBottom: UIImage = prepared(named: "1_bottom")
     static let elephantHead: UIImage = prepared(named: "1_head")
     static let elephantLeftArm: UIImage = prepared(named: "1_left_arm")
@@ -96,6 +97,7 @@ enum ClawArtworkCache {
 
     static func prewarm() {
         _ = nut
+        _ = elephantClaw
         _ = elephantBottom
         _ = elephantHead
         _ = elephantLeftArm
@@ -216,6 +218,7 @@ final class ClawEngine: ObservableObject {
     var buttonPressed = false
     var joystickInput: CGFloat = 0
     var elephantVisible = true
+    var elephantBodyVisible = true
     var promptPulse = 0.0
     private(set) var highlightedNutIDs: Set<UUID> = []
     private var lastHighCadence = true
@@ -331,6 +334,8 @@ final class ClawEngine: ObservableObject {
     }
 
     func install(puzzle: ClawPuzzle?, collected: Int, question: MathQuestion?, targetNutID: UUID?) {
+        elephantVisible = true
+        elephantBodyVisible = true
         currentTargetNutID = targetNutID
         currentAnswer = question.map { AnswerValue($0.correctAnswer) }
         promptPulse = 1
@@ -351,6 +356,7 @@ final class ClawEngine: ObservableObject {
                                                                          pile: pileRect.size))
         }
         refreshReachableCovering()
+        ensureTargetGrabable()
         refreshHighlights()
     }
 
@@ -358,6 +364,7 @@ final class ClawEngine: ObservableObject {
         currentTargetNutID = targetNutID
         currentAnswer = question.map { AnswerValue($0.correctAnswer) }
         promptPulse = 1
+        ensureTargetGrabable()
         refreshHighlights()
     }
 
@@ -401,6 +408,7 @@ final class ClawEngine: ObservableObject {
         trolleyY = -0.55
         swingAngle = 0.35
         elephantVisible = true
+        elephantBodyVisible = true
     }
 
     func beginLevelCompletion(reduceMotion: Bool, completion: @escaping () -> Void) {
@@ -411,6 +419,8 @@ final class ClawEngine: ObservableObject {
         finaleAge = 0
         heldNutID = nil
         input = 0
+        elephantVisible = true
+        elephantBodyVisible = true
     }
 
     func beginTimeUp(reduceMotion: Bool, completion: @escaping () -> Void) {
@@ -422,6 +432,8 @@ final class ClawEngine: ObservableObject {
         heldNutID = nil
         input = 0
         isLive = false
+        elephantVisible = true
+        elephantBodyVisible = true
     }
 
     func stop() {
@@ -709,13 +721,12 @@ final class ClawEngine: ObservableObject {
     private func stepTimeUp(dt: Double) {
         let t = min(1, phaseAge / ClawConfig.timeUpDuration)
         trolleyX += (binUnitX - trolleyX) * min(1, CGFloat(dt) * 3)
-        trolleyY = easeIn(t) * 0.85
+        // The trolley brings the loose claw over the bin. The elephant body
+        // detaches and falls separately in `ClawElephantView`.
+        trolleyY = 0
         swingAngle = sin(t * 9) * 0.18 * (1 - t)
-        if t > 0.72 {
-            elephantVisible = t < 0.92
-        }
         if t >= 1 {
-            elephantVisible = false
+            elephantBodyVisible = false
             onTimeOutFinished?()
             phase = .idle
         }
@@ -726,6 +737,7 @@ final class ClawEngine: ObservableObject {
         swingAngle = sin(t * 10) * 0.22 * (1 - t)
         trolleyX = 0.5 + sin(t * 6) * 0.04
         if t >= 1 {
+            elephantBodyVisible = false
             onLevelCompletionFinished?()
             phase = .idle
         }
@@ -748,6 +760,8 @@ final class ClawEngine: ObservableObject {
         phaseAge = 0
         if next == .idle {
             trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
+            ensureTargetGrabable()
+            refreshHighlights()
         }
         if next == .returning {
             returnFromX = trolleyX
@@ -883,7 +897,10 @@ final class ClawEngine: ObservableObject {
     var trunkPoint: CGPoint {
         let origin = trolleyScreen
         let length = ClawConfig.elephantVisibleHeight(isPad: isPad) * 0.92
-        return CGPoint(x: origin.x + sin(swingAngle) * length,
+        // Screen-space rotation and a mathematical y-up rotation lean in
+        // opposite horizontal directions. Follow the rendered hands so a
+        // walnut cannot drift to the other side of a swinging elephant.
+        return CGPoint(x: origin.x - sin(swingAngle) * length,
                        y: origin.y + cos(swingAngle) * length)
     }
 
@@ -908,6 +925,56 @@ final class ClawEngine: ObservableObject {
             return
         }
         highlightedNutIDs = []
+    }
+
+    /// If the assigned shell is buried, swap it onto a nut the claw can
+    /// actually take — same printed value first, otherwise a decoy or later
+    /// sum. The round still points at the same id; only the slot moves.
+    private func ensureTargetGrabable() {
+        guard heldNutID == nil else { return }
+        guard let targetID = currentTargetNutID,
+              let targetIndex = nuts.firstIndex(where: { $0.id == targetID && $0.isPresent })
+        else { return }
+        let specs = nuts.filter(\.isPresent).map(\.spec)
+        if ClawPuzzle.isGrabable(nuts[targetIndex].spec, among: specs) { return }
+
+        let partners = nuts.indices.filter { index in
+            nuts[index].isPresent
+                && nuts[index].id != targetID
+                && ClawPuzzle.isGrabable(nuts[index].spec, among: specs)
+        }
+        guard let partner = partners.min(by: { a, b in
+            let ra = slotPreference(nuts[a])
+            let rb = slotPreference(nuts[b])
+            if ra.0 != rb.0 { return ra.0 < rb.0 }
+            if ra.1 != rb.1 { return ra.1 < rb.1 }
+            return ra.2 < rb.2
+        }) else { return }
+        swapRuntimeSlots(targetIndex, partner)
+    }
+
+    private func slotPreference(_ nut: ClawNutRuntime) -> (Int, Int, Double) {
+        let sameValue = currentAnswer.map { AnswerValue(nut.spec.text) == $0 } == true ? 0 : 1
+        let decoy = nut.spec.isDistractor ? 0 : 1
+        return (sameValue, decoy, nut.spec.position.y)
+    }
+
+    private func swapRuntimeSlots(_ i: Int, _ j: Int) {
+        let position = nuts[i].spec.position
+        let radius = nuts[i].spec.radius
+        nuts[i].spec.position = nuts[j].spec.position
+        nuts[i].spec.radius = nuts[j].spec.radius
+        nuts[j].spec.position = position
+        nuts[j].spec.radius = radius
+        let rest = nuts[i].rest
+        let screen = nuts[i].position
+        let pixels = nuts[i].pixelRadius
+        nuts[i].rest = nuts[j].rest
+        nuts[i].position = nuts[j].position
+        nuts[i].pixelRadius = nuts[j].pixelRadius
+        nuts[j].rest = rest
+        nuts[j].position = screen
+        nuts[j].pixelRadius = pixels
     }
 
     /// Centre of the open top — the chute mouth the nut must enter and leave.
@@ -1040,6 +1107,9 @@ struct ClawPlayfield: View {
                         phaseAge: engine.phaseAge,
                         motionClock: engine.motionClock,
                         play: geo.play,
+                        bin: geo.bin,
+                        bodyVisible: engine.elephantBodyVisible,
+                        reduceMotion: reduceMotion,
                         isPad: isPad
                     )
                     .frame(width: geo.play.width, height: geo.play.height)
@@ -1937,6 +2007,9 @@ private struct ClawElephantView: View {
     let phaseAge: Double
     let motionClock: Double
     let play: CGRect
+    let bin: CGRect
+    let bodyVisible: Bool
+    let reduceMotion: Bool
     let isPad: Bool
 
     var body: some View {
@@ -1944,24 +2017,35 @@ private struct ClawElephantView: View {
         let local = CGPoint(x: origin.x - play.minX, y: origin.y - play.minY)
         let grip = armGrip
         let bottomLag = Angle.radians(Double(-swing) * 0.11 + sin(motionClock * 2.15) * 0.012)
+        let exit = bodyExit(side: side)
         ZStack(alignment: .topLeading) {
             swayingRope(to: local)
 
             ZStack {
-                elephantLayer(.bottom)
-                    .rotationEffect(bottomLag, anchor: .top)
+                // The mechanical claw remains attached to the rope when the
+                // elephant lets go at the end of a run.
+                elephantLayer(.claw)
 
-                elephantLayer(.leftArm)
-                    .rotationEffect(.degrees(-17 * grip),
-                                    anchor: UnitPoint(x: 0.36, y: 0.76))
+                ZStack {
+                    elephantLayer(.bottom)
+                        .rotationEffect(bottomLag, anchor: .top)
 
-                elephantLayer(.rightArm)
-                    .rotationEffect(.degrees(17 * grip),
-                                    anchor: UnitPoint(x: 0.64, y: 0.76))
+                    elephantLayer(.leftArm)
+                        .rotationEffect(.degrees(-17 * grip),
+                                        anchor: UnitPoint(x: 0.36, y: 0.76))
 
-                // The face deliberately renders last: it hides the arm and
-                // torso seams while those independent layers are moving.
-                elephantLayer(.head)
+                    elephantLayer(.rightArm)
+                        .rotationEffect(.degrees(17 * grip),
+                                        anchor: UnitPoint(x: 0.64, y: 0.76))
+
+                    // The face deliberately renders last: it hides the arm
+                    // and torso seams while the loose layers are moving.
+                    elephantLayer(.head)
+                }
+                .rotationEffect(exit.rotation)
+                .scaleEffect(exit.scale)
+                .offset(exit.offset)
+                .opacity(bodyVisible ? exit.opacity : 0)
             }
                 .frame(width: side, height: side)
                 .rotationEffect(.radians(Double(swing)), anchor: .top)
@@ -1988,6 +2072,48 @@ private struct ClawElephantView: View {
 
     private func smooth(_ value: Double) -> Double {
         value * value * (3 - 2 * value)
+    }
+
+    private struct BodyExit {
+        let offset: CGSize
+        let rotation: Angle
+        let scale: CGFloat
+        let opacity: Double
+    }
+
+    /// On a completed level the elephant performs a sideways flip into the
+    /// bin. When time expires it simply lets go and drops. The independent
+    /// claw stays connected to the rope in both cases.
+    private func bodyExit(side: CGFloat) -> BodyExit {
+        let progress: Double
+        let flips: Bool
+        switch phase {
+        case .celebrating:
+            progress = min(1, max(0, (phaseAge - 0.10) / (ClawConfig.completionDuration - 0.18)))
+            flips = !reduceMotion
+        case .timeUp:
+            progress = min(1, max(0, (phaseAge - 0.34) / (ClawConfig.timeUpDuration - 0.42)))
+            flips = false
+        default:
+            return BodyExit(offset: .zero, rotation: .zero, scale: 1, opacity: 1)
+        }
+
+        let eased = smooth(progress)
+        let targetX = bin.midX - origin.x
+        let targetY = (bin.minY + bin.height * 0.34) - (origin.y + side * 0.58)
+        let arc = flips ? sin(progress * .pi) * Double(side * 0.32) : 0
+        let x = CGFloat(eased) * targetX
+        let yProgress = flips ? eased : progress * progress
+        let y = CGFloat(yProgress) * targetY - CGFloat(arc)
+        let fade = 1 - smooth(min(1, max(0, (progress - 0.70) / 0.27)))
+        let rotation = flips ? Angle.degrees(540 * progress) : .zero
+
+        return BodyExit(
+            offset: CGSize(width: x, height: y),
+            rotation: rotation,
+            scale: 1 - CGFloat(eased) * 0.14,
+            opacity: fade
+        )
     }
 
     /// A flexible two-curve rope makes acceleration travel through the line
@@ -2018,6 +2144,7 @@ private struct ClawElephantView: View {
     }
 
     private enum Layer {
+        case claw
         case bottom
         case head
         case leftArm
@@ -2033,6 +2160,7 @@ private struct ClawElephantView: View {
     private func layerImage(_ layer: Layer) -> Image {
 #if canImport(UIKit)
         switch layer {
+        case .claw: Image(uiImage: ClawArtworkCache.elephantClaw)
         case .bottom: Image(uiImage: ClawArtworkCache.elephantBottom)
         case .head: Image(uiImage: ClawArtworkCache.elephantHead)
         case .leftArm: Image(uiImage: ClawArtworkCache.elephantLeftArm)
@@ -2040,6 +2168,7 @@ private struct ClawElephantView: View {
         }
 #else
         switch layer {
+        case .claw: Image("1_claw")
         case .bottom: Image("1_bottom")
         case .head: Image("1_head")
         case .leftArm: Image("1_left_arm")

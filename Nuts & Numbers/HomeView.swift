@@ -384,10 +384,7 @@ struct HomeView: View {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .stroke(.white.opacity(0.9), lineWidth: 2)
                 }
-            character.artwork
-                .resizable()
-                .scaledToFit()
-                .padding(box * 0.08)
+            CroppedCharacterPortrait(character: character, otherCharacterScale: 0.84)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .frame(width: box, height: box)

@@ -147,6 +147,31 @@ struct AnimalCharacter: Identifiable, Equatable {
     }
 }
 
+/// Square portrait treatment used by the compact menu tile and the level
+/// start/pause card. The elephant deliberately grows past the top edge so its
+/// hanging claw is cropped like the app icon; the other catalog portraits keep
+/// their established fit.
+struct CroppedCharacterPortrait: View {
+    let character: AnimalCharacter
+    var elephantScale: CGFloat = 1.08
+    var elephantYOffset: CGFloat = -0.045
+    var otherCharacterScale: CGFloat = 1
+
+    var body: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            character.artwork
+                .resizable()
+                .scaledToFit()
+                .frame(width: side, height: side)
+                .scaleEffect(character.id == "elephant" ? elephantScale : otherCharacterScale)
+                .offset(y: character.id == "elephant" ? side * elephantYOffset : 0)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .clipped()
+    }
+}
+
 enum CharacterCatalog {
     /// The character available from the very first card.
     static let freeCharacterID = CharacterUnlocks.starterCharacterID

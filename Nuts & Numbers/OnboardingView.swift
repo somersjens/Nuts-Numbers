@@ -54,15 +54,14 @@ struct OnboardingView: View {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        let portrait: CGFloat = isPad
-                            ? (step == 1 ? 160 : 210)
-                            : (step == 1 ? 112 : 150)
-                        welcomeCharacter.artwork
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: portrait, height: portrait)
-                            .padding(.bottom, isPad ? (step == 1 ? 20 : 30) : (step == 1 ? 14 : 22))
-                            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: step)
+                        let hangingStageHeight = min(
+                            isPad ? 390 : 292,
+                            proxy.size.height * (isPad ? 0.39 : 0.36)
+                        )
+                        OnboardingHangingElephant(character: welcomeCharacter,
+                                                  step: step,
+                                                  isPad: isPad)
+                            .frame(height: hangingStageHeight)
 
                         Group {
                             let availableWidth = min(
@@ -81,14 +80,15 @@ struct OnboardingView: View {
                         .frame(maxWidth: contentWidth)
                         .padding(.horizontal, isPad ? 36 : 24)
                     }
-                    .padding(.vertical, isPad ? 40 : 28)
-                    // On normal-height screens this fills the viewport and
-                    // centres the welcome content. On smaller screens the
-                    // content simply grows taller and remains scrollable.
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .center)
+                    .padding(.bottom, isPad ? 40 : 28)
+                    // The hanging stage owns the physical top edge so its rope
+                    // reaches the screen bezel. Smaller screens remain fully
+                    // scrollable below that fixed visual entrance.
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
+            .ignoresSafeArea(edges: .top)
         }
         .foregroundStyle(OnboardingTheme.ink)
         .overlay(alignment: .topLeading) {
@@ -363,6 +363,84 @@ struct OnboardingView: View {
         withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) {
             step = newStep
         }
+    }
+}
+
+/// The same suspended elephant language as the claw game, but staged across
+/// the three welcome screens: medium height, pulled up, then lowered again.
+private struct OnboardingHangingElephant: View {
+    let character: AnimalCharacter
+    let step: Int
+    let isPad: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var swaysRight = false
+
+    private var side: CGFloat { isPad ? 270 : 205 }
+    private var hookY: CGFloat {
+        if isPad {
+            return step == 0 ? 105 : (step == 1 ? 35 : 78)
+        }
+        return step == 0 ? 85 : (step == 1 ? 22 : 63)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let centerX = proxy.size.width / 2
+            let bend: CGFloat = reduceMotion ? 0 : (swaysRight ? 7 : -7)
+            let angle = reduceMotion ? 0 : (swaysRight ? 1.4 : -1.4)
+
+            ZStack(alignment: .topLeading) {
+                OnboardingRopeShape(bend: bend)
+                    .stroke(
+                        LinearGradient(colors: [Color(red: 0.70, green: 0.56, blue: 0.32),
+                                                Color(red: 0.22, green: 0.14, blue: 0.08)],
+                                       startPoint: .top, endPoint: .bottom),
+                        style: StrokeStyle(lineWidth: isPad ? 6 : 4.5, lineCap: .round)
+                    )
+                    .frame(width: 34, height: max(4, hookY + 3))
+                    .position(x: centerX, y: max(4, hookY + 3) / 2)
+                    .shadow(color: .black.opacity(0.24), radius: 1, x: 1, y: 1)
+
+                character.artwork
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: side, height: side)
+                    .rotationEffect(.degrees(angle), anchor: .top)
+                    .position(x: centerX, y: hookY + side / 2)
+            }
+            .animation(.spring(response: 0.62, dampingFraction: 0.78), value: step)
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
+                swaysRight = true
+            }
+        }
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+}
+
+private struct OnboardingRopeShape: Shape {
+    var bend: CGFloat
+
+    var animatableData: CGFloat {
+        get { bend }
+        set { bend = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let start = CGPoint(x: rect.midX, y: rect.minY)
+        let end = CGPoint(x: rect.midX, y: rect.maxY)
+        path.move(to: start)
+        path.addCurve(
+            to: end,
+            control1: CGPoint(x: rect.midX + bend * 0.35, y: rect.minY + rect.height * 0.30),
+            control2: CGPoint(x: rect.midX - bend, y: rect.minY + rect.height * 0.73)
+        )
+        return path
     }
 }
 

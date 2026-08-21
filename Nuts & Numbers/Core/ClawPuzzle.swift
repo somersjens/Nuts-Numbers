@@ -84,12 +84,18 @@ nonisolated public struct ClawPuzzle: Equatable, Sendable {
     }
 
     /// Nuts that still belong in the machine after `collected` correct answers.
-    /// Earlier assigned nuts leave; decoys stay until the level ends.
+    /// Earlier assigned nuts leave; decoys stay until the level ends. Positions
+    /// follow the same cascade as a live session, so a rebuilt playfield does
+    /// not put later answers back under a stack that should already have slid.
     nonisolated public func remainingNuts(afterCollected collected: Int) -> [ClawNut] {
-        nuts.filter { nut in
-            guard let index = nut.sequenceIndex else { return true }
-            return index >= collected
+        var pile = nuts
+        for index in 0..<collected {
+            guard let target = pile.first(where: { $0.isAssigned(toQuestionIndex: index) }) else {
+                break
+            }
+            ClawPuzzleBuilder.applyFall(&pile, removing: target)
         }
+        return pile
     }
 
     /// Whether `nut` can be grabbed given the nuts still sitting in the pile.
@@ -161,6 +167,8 @@ nonisolated private enum ClawPuzzleBuilder {
                          strategy: strategy,
                          random: random)
         uniquifyPrintedValues(&nuts)
+        refreshCovering(&nuts)
+        repairGrabability(&nuts, answerCount: ordered.count)
         refreshCovering(&nuts)
         if !isSolvableWithCascade(nuts, answerCount: ordered.count) {
             nuts = placePeakFirst(answers: ordered,
@@ -535,8 +543,9 @@ nonisolated private enum ClawPuzzleBuilder {
         }
     }
 
-    /// Distractors never reprint a value that already sits in the pile, so at
-    /// most one shell of each answer is visible at a time.
+    /// Distractors never reprint a value that an assigned nut already shows.
+    /// Assigned shells keep their printed answer even when several sums share
+    /// it; decoys that would collide are rewritten.
     static func uniquifyPrintedValues(_ nuts: inout [ClawNut]) {
         var seen: Set<AnswerValue> = []
         var next = 1
@@ -551,10 +560,12 @@ nonisolated private enum ClawPuzzleBuilder {
                 }
             }
         }
-        for i in nuts.indices {
+        for nut in nuts where !nut.isDistractor {
+            seen.insert(value(of: nut))
+        }
+        for i in nuts.indices where nuts[i].isDistractor {
             let printed = value(of: nuts[i])
             if seen.contains(printed) {
-                guard nuts[i].isDistractor else { continue }
                 nuts[i] = ClawNut(id: nuts[i].id,
                                   text: uniqueExtra(),
                                   sequenceIndex: nuts[i].sequenceIndex,
@@ -640,7 +651,10 @@ nonisolated private enum ClawPuzzleBuilder {
         let radius = min(upper.radius, lower.radius)
         let dy = lower.position.y - upper.position.y
         guard dy > radius * 0.7 else { return false }
-        return abs(upper.position.x - lower.position.x) < (upper.radius + lower.radius) * 0.62
+        // Packed ovals overlap a full diameter away (adjacent columns). The
+        // old 0.62 cutoff only saw valley neighbours at 0.5 diameter, so a 32
+        // under both 16 and 12 counted as half-free.
+        return abs(upper.position.x - lower.position.x) < (upper.radius + lower.radius) * 1.08
     }
 
     static func occluderCount(on nut: ClawNut, among remaining: [ClawNut]) -> Int {
