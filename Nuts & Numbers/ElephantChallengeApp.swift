@@ -106,6 +106,10 @@ struct ElephantChallengeApp: App {
         // the in-app switch overrides, so Arabic and Hebrew must be told
         // explicitly to lay out right-to-left.
         .environment(\.layoutDirection, language.layoutDirection)
+        // Palettes and copy are authored for light surfaces. Without this,
+        // Dark Mode turns system fills black and inverts `.primary` /
+        // `.secondary` labels against those same light colours.
+        .preferredColorScheme(.light)
         .sheet(isPresented: Binding(
             get: { promotedPurchase.isAwaitingParentApproval },
             set: { isPresented in
@@ -119,6 +123,7 @@ struct ElephantChallengeApp: App {
                 deepColor: character.deepColor,
                 onApproved: { promotedPurchase.approveDeferredPurchase() }
             )
+            .gameEnvironment()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }

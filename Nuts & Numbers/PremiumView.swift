@@ -111,6 +111,7 @@ struct PremiumView: View {
                     startPurchase()
                 }
             )
+            .gameEnvironment()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }

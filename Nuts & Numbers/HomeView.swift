@@ -248,6 +248,7 @@ struct HomeView: View {
                 let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { playerName = trimmed }
             }
+            .gameEnvironment()
             // A short sheet that rises over the menu, tinted to the character.
             .presentationDetents([.height(isPad ? 380 : 300)])
             .presentationDragIndicator(.visible)
