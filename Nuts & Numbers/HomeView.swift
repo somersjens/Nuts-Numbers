@@ -142,7 +142,7 @@ struct HomeView: View {
     /// softening while the tutorial is actually pointing at a card.
     @ViewBuilder
     private var menuBackdrop: some View {
-        let backdrop = ClawMachineBackground(character: character)
+        let backdrop = ClawMachineBackground(character: character).equatable()
         if showsTutorialHint {
             backdrop.blur(radius: 8)
         } else {

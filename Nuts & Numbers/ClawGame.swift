@@ -245,6 +245,25 @@ struct FlyingScore: Identifiable {
     let duration: Double
 }
 
+/// A deliberately separate invalidation channel for values that change on a
+/// display-link tick. `ClawEngine.objectWillChange` is reserved for structural
+/// scene changes (phase, layout and a new puzzle), so the large static cabinet
+/// and habitat no longer re-enter SwiftUI's diffing pipeline 30–60 times a
+/// second. Only the small views observing this signal redraw every frame.
+private final class ClawFrameSignal: ObservableObject {
+    func send() { objectWillChange.send() }
+}
+
+/// Establishes a narrow observation boundary around a frame-driven fragment.
+/// The stored closure is reevaluated when `signal` fires, without invalidating
+/// the parent playfield that owns the expensive static scenery.
+private struct ClawFrameDrivenView<Content: View>: View {
+    @ObservedObject var signal: ClawFrameSignal
+    @ViewBuilder let content: () -> Content
+
+    var body: some View { content() }
+}
+
 enum ClawPhase: Equatable {
     case idle
     case descending
@@ -289,11 +308,13 @@ final class ClawEngine: ObservableObject {
     private var timer: Timer?
 #endif
 
-    // Per-frame pose is *not* `@Published`. Assigning twelve published
-    // properties (and then sending `objectWillChange` as well) made SwiftUI
-    // invalidate the whole cabinet 60 times a second. One coalesced send at
-    // the end of `tick` is enough for the moving layers; static scenery is
-    // Equatable and skips those invalidations.
+    fileprivate let frameSignal = ClawFrameSignal()
+    fileprivate let nutSignal = ClawFrameSignal()
+    fileprivate let controlSignal = ClawFrameSignal()
+
+    // Per-frame pose is *not* `@Published`. The dedicated `frameSignal`
+    // invalidates only the moving layers; publishing the engine itself here
+    // would make SwiftUI revisit the entire detailed cabinet every frame.
     var trolleyX: CGFloat = 0.5
     var trolleyY: CGFloat = 0
     var swingAngle: CGFloat = 0
@@ -350,6 +371,8 @@ final class ClawEngine: ObservableObject {
     private var spitFrom: CGPoint = .zero
     private var spitTo: CGPoint = .zero
     private var spitFlightTime = ClawConfig.spitDuration
+    private var spitStartRotation: Double = 0
+    private var spitEndRotation: Double = 0
     private var currentTargetNutID: UUID?
     private var currentAnswer: AnswerValue?
     private var tutorialPlan = ClawTutorialPlan()
@@ -374,6 +397,8 @@ final class ClawEngine: ObservableObject {
                 bottomReserve: CGFloat,
                 isPad: Bool,
                 maximumPoints: Int) {
+        objectWillChange.send()
+        defer { nutSignal.send() }
         self.size = size
         self.isPad = isPad
         let post: CGFloat = isPad ? 38 : 26
@@ -433,6 +458,8 @@ final class ClawEngine: ObservableObject {
     }
 
     func install(puzzle: ClawPuzzle?, collected: Int, question: MathQuestion?, targetNutID: UUID?) {
+        objectWillChange.send()
+        defer { nutSignal.send() }
         elephantVisible = true
         elephantBodyVisible = true
         currentTargetNutID = targetNutID
@@ -460,6 +487,8 @@ final class ClawEngine: ObservableObject {
     }
 
     func setQuestion(_ question: MathQuestion?, targetNutID: UUID?) {
+        objectWillChange.send()
+        defer { nutSignal.send() }
         currentTargetNutID = targetNutID
         currentAnswer = question.map { AnswerValue($0.correctAnswer) }
         promptPulse = 1
@@ -471,7 +500,14 @@ final class ClawEngine: ObservableObject {
 
     func setRunning(_ running: Bool) {
         isRunning = running
-        if running { startLink() } else { stopLink(); input = 0; joystickInput = 0 }
+        if running {
+            startLink()
+        } else {
+            stopLink()
+            input = 0
+            joystickInput = 0
+            controlSignal.send()
+        }
     }
 
     func setScoreTarget(_ target: CGPoint?) { scoreTarget = target }
@@ -485,6 +521,7 @@ final class ClawEngine: ObservableObject {
         let clamped = max(-1, min(1, value))
         // Always snap the stick back, even if a grab started mid-drag.
         joystickInput = clamped
+        controlSignal.send()
         guard phase == .idle || phase == .returning else { return }
         input = clamped
         if abs(input) > 0.25, tutorialPlan.wantsMove, !hasReportedMove {
@@ -498,6 +535,7 @@ final class ClawEngine: ObservableObject {
         onTutorialEvent?(.pressedGrab)
         buttonPressed = true
         buttonPressAge = 0
+        controlSignal.send()
         startGrab()
     }
 
@@ -622,6 +660,7 @@ final class ClawEngine: ObservableObject {
 #endif
 
     private func tick(dt: Double) {
+        let nutsWereAnimating = heldNutID != nil || !slides.isEmpty
         motionClock += dt
         if promptPulse > 0 {
             promptPulse = max(0, promptPulse - dt * 1.8)
@@ -647,7 +686,10 @@ final class ClawEngine: ObservableObject {
         stepFlights(dt: dt)
         stepButtonPress(dt: dt)
         applyCadence()
-        objectWillChange.send()
+        if nutsWereAnimating || heldNutID != nil || !slides.isEmpty {
+            nutSignal.send()
+        }
+        frameSignal.send()
     }
 
     private func stepTrolley(dt: Double) {
@@ -749,13 +791,17 @@ final class ClawEngine: ObservableObject {
             }
             let t = min(1, phaseAge / spitFlightTime)
             nuts[index].position = ballistic(from: spitFrom, to: spitTo, t: t, duration: spitFlightTime)
-            nuts[index].rotation += dt * 2.6
+            // Finish on an exact full turn so a rejected walnut settles back
+            // into the pile upright instead of keeping its in-flight tilt.
+            nuts[index].rotation = spitStartRotation
+                + (spitEndRotation - spitStartRotation) * Double(easeOut(t))
             if !reversingSlides, phaseAge >= spitFlightTime - reverseHandoffLead {
                 reverseCascade()
             }
             if t >= 1 {
                 nuts[index].position = spitTo
                 nuts[index].rest = spitTo
+                nuts[index].rotation = 0
                 nuts[index].isPresent = true
                 heldNutID = nil
                 if !reversingSlides { reverseCascade() }
@@ -801,6 +847,13 @@ final class ClawEngine: ObservableObject {
             spitTo = nuts[index].rest
             nuts[index].position = spitFrom
             spitFlightTime = flightTime(from: spitFrom, to: spitTo)
+            spitStartRotation = nuts[index].rotation
+            let fullTurn = Double.pi * 2
+            var uprightTurn = ceil(spitStartRotation / fullTurn) * fullTurn
+            if uprightTurn - spitStartRotation < Double.pi {
+                uprightTurn += fullTurn
+            }
+            spitEndRotation = uprightTurn
             onGrabResolved?(nut, false)
             enter(.spitBack)
         }
@@ -922,6 +975,7 @@ final class ClawEngine: ObservableObject {
         if next >= 0.28 {
             buttonPressed = false
             buttonPressAge = nil
+            controlSignal.send()
         } else {
             buttonPressAge = next
         }
@@ -1271,15 +1325,23 @@ struct ClawPlayfield: View {
                 binLowerContinuation(geo: geo, size: size)
 
                 if !engine.phase.heldNutIsForeground {
-                    ClawNutPile(
-                        nuts: engine.nuts,
-                        highlightedIDs: engine.highlightedNutIDs,
-                        heldNutID: engine.heldNutID,
-                        playOrigin: CGPoint(x: geo.play.minX, y: geo.play.minY),
-                        selection: .held
-                    )
-                    .frame(width: geo.play.width, height: geo.play.height)
-                    .position(x: geo.play.midX, y: geo.play.midY)
+                    ClawFrameDrivenView(signal: engine.nutSignal) {
+                        ClawNutPile(
+                            nuts: engine.nuts,
+                            highlightedIDs: engine.highlightedNutIDs,
+                            heldNutID: engine.heldNutID,
+                            // After release the walnut must pass behind the
+                            // bin's front rim, but it still belongs in front of
+                            // the cabinet posts. A chamber-sized Canvas clipped
+                            // it at the right bamboo edge and made it appear to
+                            // jump behind that post as soon as `.dropping`
+                            // started.
+                            playOrigin: .zero,
+                            selection: .held
+                        )
+                    }
+                    .frame(width: size.width, height: size.height)
+                    .position(x: size.width / 2, y: size.height / 2)
                 }
 
                 CatchBinFrontView(accentColor: palette.character.color)
@@ -1292,61 +1354,76 @@ struct ClawPlayfield: View {
                 // The mound itself belongs fully in the foreground. A released
                 // walnut still uses the separate held layer above so it alone
                 // can pass behind the bin's front wall during the drop.
-                ClawNutPile(
-                    nuts: engine.nuts,
-                    highlightedIDs: engine.highlightedNutIDs,
-                    heldNutID: engine.heldNutID,
-                    playOrigin: CGPoint(x: geo.play.minX, y: geo.play.minY),
-                    selection: .resting
-                )
-                .frame(width: geo.play.width, height: geo.play.height)
-                .position(x: geo.play.midX, y: geo.play.midY)
-
-                if engine.phase.heldNutIsForeground {
+                ClawFrameDrivenView(signal: engine.nutSignal) {
                     ClawNutPile(
                         nuts: engine.nuts,
                         highlightedIDs: engine.highlightedNutIDs,
                         heldNutID: engine.heldNutID,
                         playOrigin: CGPoint(x: geo.play.minX, y: geo.play.minY),
-                        selection: .held
+                        selection: .resting
                     )
-                    .frame(width: geo.play.width, height: geo.play.height)
-                    .position(x: geo.play.midX, y: geo.play.midY)
+                }
+                .frame(width: geo.play.width, height: geo.play.height)
+                .position(x: geo.play.midX, y: geo.play.midY)
+
+                if engine.phase.heldNutIsForeground {
+                    ClawFrameDrivenView(signal: engine.nutSignal) {
+                        ClawNutPile(
+                            nuts: engine.nuts,
+                            highlightedIDs: engine.highlightedNutIDs,
+                            heldNutID: engine.heldNutID,
+                            // Use the complete stage as the foreground canvas. A
+                            // play-rect-sized Canvas clips the carried walnut at
+                            // the cabinet's right post even when its layer is above
+                            // that post.
+                            playOrigin: .zero,
+                            selection: .held
+                        )
+                    }
+                    .frame(width: size.width, height: size.height)
+                    .position(x: size.width / 2, y: size.height / 2)
                 }
 
-                if engine.elephantVisible {
-                    ClawElephantView(
-                        origin: engine.trolleyScreen,
-                        swing: engine.swingAngle,
-                        phase: engine.phase,
-                        phaseAge: engine.phaseAge,
-                        motionClock: engine.motionClock,
-                        play: geo.play,
-                        bin: geo.bin,
-                        bodyVisible: engine.elephantBodyVisible,
-                        reduceMotion: reduceMotion,
-                        isPad: isPad
-                    )
-                    .frame(width: geo.play.width, height: geo.play.height)
-                    .position(x: geo.play.midX, y: geo.play.midY)
+                ClawFrameDrivenView(signal: engine.frameSignal) {
+                    if engine.elephantVisible {
+                        ClawElephantView(
+                            origin: engine.trolleyScreen,
+                            swing: engine.swingAngle,
+                            phase: engine.phase,
+                            phaseAge: engine.phaseAge,
+                            motionClock: engine.motionClock,
+                            // The elephant is a true foreground actor. Giving it
+                            // the full stage prevents its artwork from being cut
+                            // off by the chamber canvas at the right outer post.
+                            play: CGRect(origin: .zero, size: size),
+                            bin: geo.bin,
+                            bodyVisible: engine.elephantBodyVisible,
+                            reduceMotion: reduceMotion,
+                            isPad: isPad
+                        )
+                        .frame(width: size.width, height: size.height)
+                        .position(x: size.width / 2, y: size.height / 2)
+                    }
                 }
 
                 if engine.phase == .celebrating || engine.phase == .timeUp {
                     finaleBinForeground(geo: geo)
                 }
 
-                ClawPromptPlaque(
-                    text: round?.question.prompt ?? "",
-                    pulse: engine.promptPulse > 0.02 ? engine.promptPulse : 0,
-                    isPad: isPad,
-                    palette: palette,
-                    roundNumber: round?.number ?? 1,
-                    maximumRounds: maximumRounds
-                )
+                ClawFrameDrivenView(signal: engine.frameSignal) {
+                    ClawPromptPlaque(
+                        text: round?.question.prompt ?? "",
+                        pulse: engine.promptPulse > 0.02 ? engine.promptPulse : 0,
+                        isPad: isPad,
+                        palette: palette,
+                        roundNumber: round?.number ?? 1,
+                        maximumRounds: maximumRounds
+                    )
                     .equatable()
-                    .frame(width: geo.header.width, height: geo.header.height)
-                    .position(x: geo.header.midX, y: geo.header.midY)
-                    .allowsHitTesting(false)
+                }
+                .frame(width: geo.header.width, height: geo.header.height)
+                .position(x: geo.header.midX, y: geo.header.midY)
+                .allowsHitTesting(false)
 
                 let controlSafeTop = geo.panel.height > 1
                     ? max(0, geo.panel.minY - ClawConfig.controlSafetyMargin(isPad: isPad))
@@ -1534,13 +1611,18 @@ struct ClawPlayfield: View {
                 .drawingGroup()
                 .frame(width: geo.play.width, height: geo.play.height)
 
-            SanctuaryLivingDetails(
-                isPad: isPad,
-                reduceMotion: reduceMotion
-            )
+            ClawFrameDrivenView(signal: engine.frameSignal) {
+                SanctuaryLivingDetails(
+                    isPad: isPad,
+                    reduceMotion: reduceMotion,
+                    time: engine.motionClock
+                )
+            }
             .frame(width: geo.play.width, height: geo.play.height)
 
-            trolleyRail(in: geo.play)
+            ClawFrameDrivenView(signal: engine.frameSignal) {
+                trolleyRail(in: geo.play)
+            }
 
             RoundedRectangle(cornerRadius: corner, style: .continuous)
                 .strokeBorder(.white.opacity(0.22), lineWidth: 1.4)
@@ -1727,11 +1809,13 @@ struct ClawPlayfield: View {
                           y: layout.shelfTop + layout.shelfHeight / 2)
                 .allowsHitTesting(false)
 
-                joystick
-                    .frame(width: layout.joystickWidth,
-                           height: layout.joystickHeight)
-                    .position(x: layout.joystickCenter.x,
-                              y: layout.joystickCenter.y)
+                ClawFrameDrivenView(signal: engine.controlSignal) {
+                    joystick
+                }
+                .frame(width: layout.joystickWidth,
+                       height: layout.joystickHeight)
+                .position(x: layout.joystickCenter.x,
+                          y: layout.joystickCenter.y)
 
                 ClawPanelScore(score: score, isPad: isPad, palette: palette)
                     .frame(width: layout.scoreWidth,
@@ -1739,9 +1823,11 @@ struct ClawPlayfield: View {
                     .position(x: layout.scoreCenter.x,
                               y: layout.scoreCenter.y)
 
-                grabButton(side: layout.grabSide)
-                    .position(x: layout.grabCenter.x,
-                              y: layout.grabCenter.y)
+                ClawFrameDrivenView(signal: engine.controlSignal) {
+                    grabButton(side: layout.grabSide)
+                }
+                .position(x: layout.grabCenter.x,
+                          y: layout.grabCenter.y)
             }
         }
     }
@@ -2026,7 +2112,7 @@ private struct SevenSegmentDigit: View {
 
     private static let gold = Color(red: 1.0, green: 0.86, blue: 0.38)
     private static let core = Color(red: 1.0, green: 0.96, blue: 0.62)
-    private static let dim = Color(red: 0.16, green: 0.17, blue: 0.18).opacity(0.9)
+    private static let dim = Color(red: 0.27, green: 0.26, blue: 0.22).opacity(0.72)
 
     var body: some View {
         GeometryReader { proxy in
@@ -5565,91 +5651,92 @@ private struct SavannaHabitatArtwork: View, Equatable {
 private struct SanctuaryLivingDetails: View {
     let isPad: Bool
     let reduceMotion: Bool
+    let time: TimeInterval
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 12.0, paused: reduceMotion)) { timeline in
-            Canvas { context, size in
-                let time = timeline.date.timeIntervalSinceReferenceDate
-                let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
+        // Share the claw's display-link instead of running a competing 12 Hz
+        // TimelineView. The tyre and birds now sample on the exact same frames
+        // as the foreground: 30 Hz while idle and 60 Hz during an action.
+        Canvas { context, size in
+            let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
 
-                paintFlyingBirds(in: &context, size: size, time: time)
+            paintFlyingBirds(in: &context, size: size, time: time)
 
-                // Slow dust motes add life while remaining far quieter than
-                // the claw and without introducing decorative UI symbols.
-                for index in 0..<6 {
-                    let seed = CGFloat((index * 29) % 91) / 91
-                    let x = size.width * (0.16 + seed * 0.68)
-                    let cycle = (travel + CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1)
-                    let y = size.height * (0.47 - cycle * 0.25)
-                    let mote = CGRect(x: x, y: y,
-                                      width: isPad ? 3.2 : 2.2,
-                                      height: isPad ? 3.2 : 2.2)
-                    context.fill(Path(ellipseIn: mote),
-                                 with: .color(Color.white.opacity(0.16 * Double(1 - cycle))))
-                }
-
-                // Slow travelling wavelets stay inside the irregular water
-                // silhouette. Broken strokes feel reflective rather than like
-                // a loading indicator placed over the scenery.
-                for index in 0..<5 {
-                    let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.82 + Double(index) * 0.91))
-                    let y = size.height * (0.557 + CGFloat(index) * 0.014)
-                        + phase * size.height * 0.0018
-                    let startX = size.width * (0.365 + CGFloat(index) * 0.012)
-                        + phase * size.width * 0.008
-                    let endX = size.width * (0.525 + CGFloat(index) * 0.030)
-                        + phase * size.width * 0.006
-                    let gapCenter = startX + (endX - startX) * (0.44 + phase * 0.06)
-                    let gap = size.width * (0.012 + CGFloat(index) * 0.0015)
-
-                    var leftWave = Path()
-                    leftWave.move(to: CGPoint(x: startX, y: y))
-                    leftWave.addCurve(to: CGPoint(x: gapCenter - gap, y: y),
-                                      control1: CGPoint(x: startX + (gapCenter - startX) * 0.34,
-                                                        y: y - size.height * 0.0035),
-                                      control2: CGPoint(x: startX + (gapCenter - startX) * 0.72,
-                                                        y: y + size.height * 0.0020))
-                    var rightWave = Path()
-                    rightWave.move(to: CGPoint(x: gapCenter + gap, y: y))
-                    rightWave.addCurve(to: CGPoint(x: endX, y: y),
-                                       control1: CGPoint(x: gapCenter + (endX - gapCenter) * 0.32,
-                                                         y: y + size.height * 0.0022),
-                                       control2: CGPoint(x: gapCenter + (endX - gapCenter) * 0.72,
-                                                         y: y - size.height * 0.0030))
-                    let opacity = 0.34 - Double(index) * 0.035
-                    let style = StrokeStyle(lineWidth: isPad ? 1.8 : 1.05, lineCap: .round)
-                    context.stroke(leftWave, with: .color(Color.white.opacity(opacity)), style: style)
-                    context.stroke(rightWave, with: .color(Color.white.opacity(opacity * 0.82)), style: style)
-                }
-
-                // Two overlapping rings continuously appear and dissolve, as
-                // if an occasional drop or insect touches the surface.
-                for index in 0..<2 {
-                    let rawPhase = reduceMotion
-                        ? CGFloat(index) * 0.42
-                        : CGFloat((time * 0.24 + Double(index) * 0.52).truncatingRemainder(dividingBy: 1))
-                    let rippleWidth = size.width * (0.025 + rawPhase * 0.105)
-                    let rippleHeight = size.height * (0.004 + rawPhase * 0.014)
-                    let center = CGPoint(x: size.width * 0.525, y: size.height * 0.588)
-                    let ring = CGRect(x: center.x - rippleWidth,
-                                      y: center.y - rippleHeight,
-                                      width: rippleWidth * 2,
-                                      height: rippleHeight * 2)
-                    context.stroke(Path(ellipseIn: ring),
-                                   with: .color(Color.white.opacity(0.25 * Double(1 - rawPhase))),
-                                   style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
-                }
-
-                // The tyre is intentionally part of this living layer rather
-                // than the static habitat Canvas, allowing a very small sway.
-                var swingContext = context
-                let pivot = CGPoint(x: size.width * 0.24, y: 0)
-                let sway = reduceMotion ? 0 : sin(time * 0.68) * 1.65
-                swingContext.translateBy(x: pivot.x, y: pivot.y)
-                swingContext.rotate(by: .degrees(sway))
-                swingContext.translateBy(x: -pivot.x, y: -pivot.y)
-                paintTireSwing(in: &swingContext, size: size)
+            // Slow dust motes add life while remaining far quieter than
+            // the claw and without introducing decorative UI symbols.
+            for index in 0..<6 {
+                let seed = CGFloat((index * 29) % 91) / 91
+                let x = size.width * (0.16 + seed * 0.68)
+                let cycle = (travel + CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1)
+                let y = size.height * (0.47 - cycle * 0.25)
+                let mote = CGRect(x: x, y: y,
+                                  width: isPad ? 3.2 : 2.2,
+                                  height: isPad ? 3.2 : 2.2)
+                context.fill(Path(ellipseIn: mote),
+                             with: .color(Color.white.opacity(0.16 * Double(1 - cycle))))
             }
+
+            // Slow travelling wavelets stay inside the irregular water
+            // silhouette. Broken strokes feel reflective rather than like
+            // a loading indicator placed over the scenery.
+            for index in 0..<5 {
+                let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.82 + Double(index) * 0.91))
+                let y = size.height * (0.557 + CGFloat(index) * 0.014)
+                    + phase * size.height * 0.0018
+                let startX = size.width * (0.365 + CGFloat(index) * 0.012)
+                    + phase * size.width * 0.008
+                let endX = size.width * (0.525 + CGFloat(index) * 0.030)
+                    + phase * size.width * 0.006
+                let gapCenter = startX + (endX - startX) * (0.44 + phase * 0.06)
+                let gap = size.width * (0.012 + CGFloat(index) * 0.0015)
+
+                var leftWave = Path()
+                leftWave.move(to: CGPoint(x: startX, y: y))
+                leftWave.addCurve(to: CGPoint(x: gapCenter - gap, y: y),
+                                  control1: CGPoint(x: startX + (gapCenter - startX) * 0.34,
+                                                    y: y - size.height * 0.0035),
+                                  control2: CGPoint(x: startX + (gapCenter - startX) * 0.72,
+                                                    y: y + size.height * 0.0020))
+                var rightWave = Path()
+                rightWave.move(to: CGPoint(x: gapCenter + gap, y: y))
+                rightWave.addCurve(to: CGPoint(x: endX, y: y),
+                                   control1: CGPoint(x: gapCenter + (endX - gapCenter) * 0.32,
+                                                     y: y + size.height * 0.0022),
+                                   control2: CGPoint(x: gapCenter + (endX - gapCenter) * 0.72,
+                                                     y: y - size.height * 0.0030))
+                let opacity = 0.34 - Double(index) * 0.035
+                let style = StrokeStyle(lineWidth: isPad ? 1.8 : 1.05, lineCap: .round)
+                context.stroke(leftWave, with: .color(Color.white.opacity(opacity)), style: style)
+                context.stroke(rightWave, with: .color(Color.white.opacity(opacity * 0.82)), style: style)
+            }
+
+            // Two overlapping rings continuously appear and dissolve, as
+            // if an occasional drop or insect touches the surface.
+            for index in 0..<2 {
+                let rawPhase = reduceMotion
+                    ? CGFloat(index) * 0.42
+                    : CGFloat((time * 0.24 + Double(index) * 0.52).truncatingRemainder(dividingBy: 1))
+                let rippleWidth = size.width * (0.025 + rawPhase * 0.105)
+                let rippleHeight = size.height * (0.004 + rawPhase * 0.014)
+                let center = CGPoint(x: size.width * 0.525, y: size.height * 0.588)
+                let ring = CGRect(x: center.x - rippleWidth,
+                                  y: center.y - rippleHeight,
+                                  width: rippleWidth * 2,
+                                  height: rippleHeight * 2)
+                context.stroke(Path(ellipseIn: ring),
+                               with: .color(Color.white.opacity(0.25 * Double(1 - rawPhase))),
+                               style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+            }
+
+            // The tyre is intentionally part of this living layer rather
+            // than the static habitat Canvas, allowing a very small sway.
+            var swingContext = context
+            let pivot = CGPoint(x: size.width * 0.24, y: 0)
+            let sway = reduceMotion ? 0 : sin(time * 0.68) * 1.65
+            swingContext.translateBy(x: pivot.x, y: pivot.y)
+            swingContext.rotate(by: .degrees(sway))
+            swingContext.translateBy(x: -pivot.x, y: -pivot.y)
+            paintTireSwing(in: &swingContext, size: size)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
