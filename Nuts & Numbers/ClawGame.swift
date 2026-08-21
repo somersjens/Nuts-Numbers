@@ -47,8 +47,12 @@ enum ClawConfig {
     static let dropGravity: CGFloat = 2400
 
     static let entranceDuration = 0.85
-    static let completionDuration = 1.15
+    static let completionDuration = 1.78
     static let timeUpDuration = 1.35
+    static let celebrationJerkEnd = 0.20
+    static let celebrationRelease = 0.62
+    static let celebrationMouthArrival = 1.26
+    static let timeUpRelease = 0.58
 
     /// The four animated elephant layers share one square canvas. Keep the
     /// assembled character at the same optical height as the previous sprite.
@@ -270,6 +274,7 @@ final class ClawEngine: ObservableObject {
     private var scoreTarget: CGPoint?
     private var entranceAge: Double?
     private var finaleAge: Double?
+    private var finaleStartX: CGFloat = 0.5
     private var reduceMotion = false
     private var slides: [ClawPuzzle.Fall] = []
     private var slideStart: [UUID: CGPoint] = [:]
@@ -419,6 +424,11 @@ final class ClawEngine: ObservableObject {
         finaleAge = 0
         heldNutID = nil
         input = 0
+        trolleyX = binUnitX
+        lastTrolleyX = trolleyX
+        trolleyY = 0
+        swingVelocity = 0
+        swingAngle = 0
         elephantVisible = true
         elephantBodyVisible = true
     }
@@ -431,6 +441,9 @@ final class ClawEngine: ObservableObject {
         finaleAge = 0
         heldNutID = nil
         input = 0
+        finaleStartX = trolleyX
+        trolleyY = 0
+        swingVelocity = 0
         isLive = false
         elephantVisible = true
         elephantBodyVisible = true
@@ -719,13 +732,12 @@ final class ClawEngine: ObservableObject {
     }
 
     private func stepTimeUp(dt: Double) {
-        let t = min(1, phaseAge / ClawConfig.timeUpDuration)
-        trolleyX += (binUnitX - trolleyX) * min(1, CGFloat(dt) * 3)
-        // The trolley brings the loose claw over the bin. The elephant body
-        // detaches and falls separately in `ClawElephantView`.
+        let move = smoothStep(min(1, phaseAge / 0.48))
+        trolleyX = finaleStartX + (binUnitX - finaleStartX) * CGFloat(move)
         trolleyY = 0
-        swingAngle = sin(t * 9) * 0.18 * (1 - t)
-        if t >= 1 {
+        swingAngle = CGFloat(sin(move * .pi)) * 0.10 * (1 - CGFloat(move))
+        lastTrolleyX = trolleyX
+        if phaseAge >= ClawConfig.timeUpDuration {
             elephantBodyVisible = false
             onTimeOutFinished?()
             phase = .idle
@@ -733,10 +745,33 @@ final class ClawEngine: ObservableObject {
     }
 
     private func stepCelebration(dt: Double) {
-        let t = min(1, phaseAge / ClawConfig.completionDuration)
-        swingAngle = sin(t * 10) * 0.22 * (1 - t)
-        trolleyX = 0.5 + sin(t * 6) * 0.04
-        if t >= 1 {
+        let parked = binUnitX
+        let pulledLeft = max(trolleyMinX, parked - 0.065)
+
+        if reduceMotion {
+            trolleyX = parked
+            swingAngle = 0
+        } else if phaseAge < ClawConfig.celebrationJerkEnd {
+            let p = smoothStep(phaseAge / ClawConfig.celebrationJerkEnd)
+            trolleyX = parked + (pulledLeft - parked) * CGFloat(p)
+            // Positive screen-space rotation puts the elephant to the left.
+            swingAngle = 0.25 * CGFloat(p)
+        } else if phaseAge < ClawConfig.celebrationRelease {
+            let span = ClawConfig.celebrationRelease - ClawConfig.celebrationJerkEnd
+            let p = smoothStep((phaseAge - ClawConfig.celebrationJerkEnd) / span)
+            trolleyX = pulledLeft
+            // The trolley stops; momentum carries the body back to the right.
+            swingAngle = 0.25 + (-0.34 - 0.25) * CGFloat(p)
+        } else {
+            trolleyX = pulledLeft
+            let recoil = smoothStep(min(1, (phaseAge - ClawConfig.celebrationRelease) / 0.30))
+            // Only the empty claw settles after it lets go.
+            swingAngle = -0.34 * (1 - CGFloat(recoil))
+        }
+        trolleyY = 0
+        lastTrolleyX = trolleyX
+
+        if phaseAge >= ClawConfig.completionDuration {
             elephantBodyVisible = false
             onLevelCompletionFinished?()
             phase = .idle
@@ -1053,6 +1088,10 @@ final class ClawEngine: ObservableObject {
     private func easeInOut(_ t: Double) -> CGFloat {
         CGFloat(t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2)
     }
+    private func smoothStep(_ value: Double) -> Double {
+        let t = min(1, max(0, value))
+        return t * t * (3 - 2 * t)
+    }
 }
 
 // MARK: - Playfield
@@ -1114,6 +1153,10 @@ struct ClawPlayfield: View {
                     )
                     .frame(width: geo.play.width, height: geo.play.height)
                     .position(x: geo.play.midX, y: geo.play.midY)
+                }
+
+                if engine.phase == .celebrating || engine.phase == .timeUp {
+                    finaleBinForeground(geo: geo)
                 }
 
                 ClawPromptPlaque(
@@ -1363,6 +1406,21 @@ struct ClawPlayfield: View {
         }
         .shadow(color: .black.opacity(0.30), radius: isPad ? 7 : 4, y: 3)
         .position(x: geo.play.midX, y: geo.play.midY)
+    }
+
+    /// During the finale the bin is composited once more above the detached
+    /// body. Its authored lid and front wall become the mouth mask, so the
+    /// elephant genuinely passes behind the rim instead of fading away.
+    private func finaleBinForeground(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
+    ) -> some View {
+        ZStack {
+            CatchBinBackView(palette: palette, isPad: isPad)
+            CatchBinFrontView(palette: palette, isPad: isPad)
+        }
+        .frame(width: geo.bin.width, height: geo.bin.height)
+        .position(x: geo.bin.midX, y: geo.bin.midY)
+        .allowsHitTesting(false)
     }
 
     private func trolleyRail(in play: CGRect) -> some View {
@@ -2016,40 +2074,44 @@ private struct ClawElephantView: View {
         let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
         let local = CGPoint(x: origin.x - play.minX, y: origin.y - play.minY)
         let grip = armGrip
-        let bottomLag = Angle.radians(Double(-swing) * 0.11 + sin(motionClock * 2.15) * 0.012)
-        let exit = bodyExit(side: side)
+        let isFinale = phase == .celebrating || phase == .timeUp
+        let bottomLag = isFinale
+            ? Angle.zero
+            : Angle.radians(Double(-swing) * 0.11 + sin(motionClock * 2.15) * 0.012)
+        let motion = bodyMotion(side: side)
         ZStack(alignment: .topLeading) {
             swayingRope(to: local)
 
-            ZStack {
-                // The mechanical claw remains attached to the rope when the
-                // elephant lets go at the end of a run.
-                elephantLayer(.claw)
-
-                ZStack {
-                    elephantLayer(.bottom)
-                        .rotationEffect(bottomLag, anchor: .top)
-
-                    elephantLayer(.leftArm)
-                        .rotationEffect(.degrees(-17 * grip),
-                                        anchor: UnitPoint(x: 0.36, y: 0.76))
-
-                    elephantLayer(.rightArm)
-                        .rotationEffect(.degrees(17 * grip),
-                                        anchor: UnitPoint(x: 0.64, y: 0.76))
-
-                    // The face deliberately renders last: it hides the arm
-                    // and torso seams while the loose layers are moving.
-                    elephantLayer(.head)
-                }
-                .rotationEffect(exit.rotation)
-                .scaleEffect(exit.scale)
-                .offset(exit.offset)
-                .opacity(bodyVisible ? exit.opacity : 0)
-            }
+            // Once the body lets go, this empty mechanical claw continues to
+            // follow the trolley and settles independently.
+            elephantLayer(.claw)
                 .frame(width: side, height: side)
                 .rotationEffect(.radians(Double(swing)), anchor: .top)
                 .position(x: local.x, y: local.y + side * 0.50)
+
+            ZStack {
+                elephantLayer(.bottom)
+                    .rotationEffect(bottomLag, anchor: .top)
+
+                elephantLayer(.leftArm)
+                    .rotationEffect(.degrees(-17 * grip),
+                                    anchor: UnitPoint(x: 0.36, y: 0.76))
+
+                elephantLayer(.rightArm)
+                    .rotationEffect(.degrees(17 * grip),
+                                    anchor: UnitPoint(x: 0.64, y: 0.76))
+
+                // The face deliberately renders last: it hides the arm and
+                // torso seams while the loose layers are moving.
+                elephantLayer(.head)
+            }
+            .frame(width: side, height: side)
+            .scaleEffect(motion.scale, anchor: .top)
+            .rotationEffect(motion.attachmentRotation, anchor: .top)
+            .rotationEffect(motion.spinRotation, anchor: .center)
+            .position(x: local.x + motion.offset.width,
+                      y: local.y + side * 0.50 + motion.offset.height)
+            .opacity(bodyVisible ? 1 : 0)
         }
         .frame(width: play.width, height: play.height)
         .allowsHitTesting(false)
@@ -2065,6 +2127,10 @@ private struct ClawElephantView: View {
             return 1
         case .dropping:
             return 1 - smooth(min(1, phaseAge / 0.16))
+        case .celebrating:
+            // Pull the front legs together before the release so the body
+            // forms one clean diving silhouette through the bin mouth.
+            return smooth(min(1, phaseAge / 0.24))
         default:
             return 0
         }
@@ -2074,45 +2140,125 @@ private struct ClawElephantView: View {
         value * value * (3 - 2 * value)
     }
 
-    private struct BodyExit {
+    private struct BodyMotion {
         let offset: CGSize
-        let rotation: Angle
+        let attachmentRotation: Angle
+        let spinRotation: Angle
         let scale: CGFloat
-        let opacity: Double
     }
 
-    /// On a completed level the elephant performs a sideways flip into the
-    /// bin. When time expires it simply lets go and drops. The independent
-    /// claw stays connected to the rope in both cases.
-    private func bodyExit(side: CGFloat) -> BodyExit {
-        let progress: Double
-        let flips: Bool
+    /// The body remains mechanically attached through the leftward wind-up
+    /// and the return swing. It gets its own centre-axis rotation only after
+    /// the rightward release, then reaches the authored mouth before plunging
+    /// behind the foreground bin. Time-up uses the same exact target without
+    /// the somersault.
+    private func bodyMotion(side: CGFloat) -> BodyMotion {
         switch phase {
         case .celebrating:
-            progress = min(1, max(0, (phaseAge - 0.10) / (ClawConfig.completionDuration - 0.18)))
-            flips = !reduceMotion
+            guard phaseAge >= ClawConfig.celebrationRelease else {
+                return attachedBody
+            }
+
+            let releaseAngle: CGFloat = reduceMotion ? 0 : -0.34
+            let approachDuration = ClawConfig.celebrationMouthArrival - ClawConfig.celebrationRelease
+            let approach = min(1, max(0,
+                (phaseAge - ClawConfig.celebrationRelease) / approachDuration
+            ))
+            let approachEase = smooth(approach)
+            let mouth = CGPoint(x: bin.minX + bin.width * 0.36,
+                                y: bin.minY + bin.height * 0.15)
+            let approachScale: CGFloat = reduceMotion ? 0.68 : 0.62
+            let mouthOffset = CGSize(
+                width: mouth.x - origin.x,
+                height: mouth.y - origin.y - side * 0.78 * approachScale
+            )
+            let continuation = CGSize(
+                width: mouthOffset.width + side * 0.14,
+                height: min(mouthOffset.height, 0) - side * 0.08
+            )
+
+            if approach < 1 {
+                return BodyMotion(
+                    offset: quadraticBezier(from: .zero,
+                                            control: continuation,
+                                            to: mouthOffset,
+                                            progress: CGFloat(approachEase)),
+                    attachmentRotation: .radians(Double(releaseAngle * CGFloat(1 - approachEase))),
+                    spinRotation: reduceMotion ? .zero : .degrees(360 * approachEase),
+                    scale: 1 + (approachScale - 1) * CGFloat(approachEase)
+                )
+            }
+
+            let plungeDuration = ClawConfig.completionDuration - ClawConfig.celebrationMouthArrival
+            let plunge = smooth(min(1, max(0,
+                (phaseAge - ClawConfig.celebrationMouthArrival) / plungeDuration
+            )))
+            let finalScale = diveScale(side: side)
+            let insideOffset = CGSize(
+                width: mouth.x - origin.x,
+                height: bin.minY + bin.height * 0.31 - origin.y
+            )
+            return BodyMotion(
+                offset: interpolate(mouthOffset, insideOffset, CGFloat(plunge)),
+                attachmentRotation: .zero,
+                spinRotation: reduceMotion ? .zero : .degrees(360),
+                scale: approachScale + (finalScale - approachScale) * CGFloat(plunge)
+            )
+
         case .timeUp:
-            progress = min(1, max(0, (phaseAge - 0.34) / (ClawConfig.timeUpDuration - 0.42)))
-            flips = false
+            guard phaseAge >= ClawConfig.timeUpRelease else {
+                return attachedBody
+            }
+            let duration = ClawConfig.timeUpDuration - ClawConfig.timeUpRelease
+            let raw = min(1, max(0, (phaseAge - ClawConfig.timeUpRelease) / duration))
+            let eased = smooth(raw)
+            let mouthX = bin.minX + bin.width * 0.36
+            let finalScale = diveScale(side: side)
+            return BodyMotion(
+                offset: CGSize(
+                    width: (mouthX - origin.x) * CGFloat(eased),
+                    height: (bin.minY + bin.height * 0.31 - origin.y) * CGFloat(raw * raw)
+                ),
+                attachmentRotation: .radians(Double(swing * CGFloat(1 - eased))),
+                spinRotation: .zero,
+                scale: 1 + (finalScale - 1) * CGFloat(eased)
+            )
+
         default:
-            return BodyExit(offset: .zero, rotation: .zero, scale: 1, opacity: 1)
+            return attachedBody
         }
+    }
 
-        let eased = smooth(progress)
-        let targetX = bin.midX - origin.x
-        let targetY = (bin.minY + bin.height * 0.34) - (origin.y + side * 0.58)
-        let arc = flips ? sin(progress * .pi) * Double(side * 0.32) : 0
-        let x = CGFloat(eased) * targetX
-        let yProgress = flips ? eased : progress * progress
-        let y = CGFloat(yProgress) * targetY - CGFloat(arc)
-        let fade = 1 - smooth(min(1, max(0, (progress - 0.70) / 0.27)))
-        let rotation = flips ? Angle.degrees(540 * progress) : .zero
+    private var attachedBody: BodyMotion {
+        BodyMotion(offset: .zero,
+                   attachmentRotation: .radians(Double(swing)),
+                   spinRotation: .zero,
+                   scale: 1)
+    }
 
-        return BodyExit(
-            offset: CGSize(width: x, height: y),
-            rotation: rotation,
-            scale: 1 - CGFloat(eased) * 0.14,
-            opacity: fade
+    private func diveScale(side: CGFloat) -> CGFloat {
+        max(0.38, min(0.52, bin.width / max(1, side * 0.78)))
+    }
+
+    private func interpolate(_ from: CGSize, _ to: CGSize, _ progress: CGFloat) -> CGSize {
+        CGSize(width: from.width + (to.width - from.width) * progress,
+               height: from.height + (to.height - from.height) * progress)
+    }
+
+    private func quadraticBezier(
+        from: CGSize,
+        control: CGSize,
+        to: CGSize,
+        progress: CGFloat
+    ) -> CGSize {
+        let inverse = 1 - progress
+        return CGSize(
+            width: inverse * inverse * from.width
+                + 2 * inverse * progress * control.width
+                + progress * progress * to.width,
+            height: inverse * inverse * from.height
+                + 2 * inverse * progress * control.height
+                + progress * progress * to.height
         )
     }
 

@@ -52,41 +52,49 @@ struct OnboardingView: View {
             onboardingBackground
 
             GeometryReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        let hangingStageHeight = min(
-                            isPad ? 390 : 292,
-                            proxy.size.height * (isPad ? 0.39 : 0.36)
-                        )
-                        OnboardingHangingElephant(character: welcomeCharacter,
-                                                  step: step,
-                                                  isPad: isPad)
-                            .frame(height: hangingStageHeight)
+                ZStack(alignment: .top) {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            // Preserve the exact portrait space from the
+                            // original centred welcome layout. The hanging
+                            // artwork is drawn independently above it, so a
+                            // longer rope never pushes the copy upward again.
+                            let portrait: CGFloat = isPad
+                                ? (step == 1 ? 160 : 210)
+                                : (step == 1 ? 112 : 150)
+                            Color.clear
+                                .frame(width: portrait, height: portrait)
+                                .padding(.bottom, isPad ? (step == 1 ? 20 : 30) : (step == 1 ? 14 : 22))
 
-                        Group {
-                            let availableWidth = min(
-                                contentWidth,
-                                max(0, proxy.size.width - (isPad ? 72 : 48))
-                            )
-                            switch step {
-                            case 0: nameStep
-                            case 1:
-                                subjectStep(usesTwoColumns: isPad && proxy.size.width > proxy.size.height)
-                            default: practiceModeStep(availableWidth: availableWidth)
+                            Group {
+                                let availableWidth = min(
+                                    contentWidth,
+                                    max(0, proxy.size.width - (isPad ? 72 : 48))
+                                )
+                                switch step {
+                                case 0: nameStep
+                                case 1:
+                                    subjectStep(usesTwoColumns: isPad && proxy.size.width > proxy.size.height)
+                                default: practiceModeStep(availableWidth: availableWidth)
+                                }
                             }
+                            .id(step)
+                            .transition(.opacity.combined(with: .move(edge: .trailing)))
+                            .frame(maxWidth: contentWidth)
+                            .padding(.horizontal, isPad ? 36 : 24)
                         }
-                        .id(step)
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
-                        .frame(maxWidth: contentWidth)
-                        .padding(.horizontal, isPad ? 36 : 24)
+                        .padding(.vertical, isPad ? 40 : 28)
+                        .frame(maxWidth: .infinity,
+                               minHeight: proxy.size.height,
+                               alignment: .center)
                     }
-                    .padding(.bottom, isPad ? 40 : 28)
-                    // The hanging stage owns the physical top edge so its rope
-                    // reaches the screen bezel. Smaller screens remain fully
-                    // scrollable below that fixed visual entrance.
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
+                    .scrollBounceBehavior(.basedOnSize)
+
+                    OnboardingHangingElephant(character: welcomeCharacter,
+                                              step: step,
+                                              isPad: isPad)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
                 }
-                .scrollBounceBehavior(.basedOnSize)
             }
             .ignoresSafeArea(edges: .top)
         }
@@ -377,29 +385,32 @@ private struct OnboardingHangingElephant: View {
     @State private var swaysRight = false
 
     private var side: CGFloat { isPad ? 270 : 205 }
-    private var hookY: CGFloat {
+    private var ropeLength: CGFloat {
         if isPad {
-            return step == 0 ? 105 : (step == 1 ? 35 : 78)
+            return step == 0 ? 175 : (step == 1 ? 52 : 145)
         }
-        return step == 0 ? 85 : (step == 1 ? 22 : 63)
+        return step == 0 ? 150 : (step == 1 ? 34 : 112)
     }
 
     var body: some View {
         GeometryReader { proxy in
             let centerX = proxy.size.width / 2
-            let bend: CGFloat = reduceMotion ? 0 : (swaysRight ? 7 : -7)
-            let angle = reduceMotion ? 0 : (swaysRight ? 1.4 : -1.4)
+            let angle: CGFloat = reduceMotion ? 0 : (swaysRight ? 1.4 : -1.4)
+            let radians = angle * .pi / 180
+            let hook = CGPoint(
+                x: centerX - sin(radians) * ropeLength,
+                y: cos(radians) * ropeLength
+            )
 
             ZStack(alignment: .topLeading) {
-                OnboardingRopeShape(bend: bend)
+                OnboardingRopeShape(hook: hook)
                     .stroke(
                         LinearGradient(colors: [Color(red: 0.70, green: 0.56, blue: 0.32),
                                                 Color(red: 0.22, green: 0.14, blue: 0.08)],
                                        startPoint: .top, endPoint: .bottom),
                         style: StrokeStyle(lineWidth: isPad ? 6 : 4.5, lineCap: .round)
                     )
-                    .frame(width: 34, height: max(4, hookY + 3))
-                    .position(x: centerX, y: max(4, hookY + 3) / 2)
+                    .frame(width: proxy.size.width, height: max(4, ropeLength + 8))
                     .shadow(color: .black.opacity(0.24), radius: 1, x: 1, y: 1)
 
                 character.artwork
@@ -407,7 +418,7 @@ private struct OnboardingHangingElephant: View {
                     .scaledToFit()
                     .frame(width: side, height: side)
                     .rotationEffect(.degrees(angle), anchor: .top)
-                    .position(x: centerX, y: hookY + side / 2)
+                    .position(x: hook.x, y: hook.y + side / 2)
             }
             .animation(.spring(response: 0.62, dampingFraction: 0.78), value: step)
         }
@@ -423,22 +434,24 @@ private struct OnboardingHangingElephant: View {
 }
 
 private struct OnboardingRopeShape: Shape {
-    var bend: CGFloat
+    var hook: CGPoint
 
-    var animatableData: CGFloat {
-        get { bend }
-        set { bend = newValue }
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(hook.x, hook.y) }
+        set { hook = CGPoint(x: newValue.first, y: newValue.second) }
     }
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
         let start = CGPoint(x: rect.midX, y: rect.minY)
-        let end = CGPoint(x: rect.midX, y: rect.maxY)
+        let end = hook
+        let dx = end.x - start.x
+        let dy = max(1, end.y - start.y)
         path.move(to: start)
         path.addCurve(
             to: end,
-            control1: CGPoint(x: rect.midX + bend * 0.35, y: rect.minY + rect.height * 0.30),
-            control2: CGPoint(x: rect.midX - bend, y: rect.minY + rect.height * 0.73)
+            control1: CGPoint(x: start.x + dx * 0.16, y: start.y + dy * 0.34),
+            control2: CGPoint(x: start.x + dx * 0.68, y: start.y + dy * 0.76)
         )
         return path
     }
