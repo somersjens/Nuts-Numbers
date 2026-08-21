@@ -184,7 +184,7 @@ struct HomeView: View {
                 GeometryReader { proxy in
                     Color.clear
                         .onAppear { viewportWidth = proxy.size.width }
-                        .onChange(of: proxy.size.width) { _, width in viewportWidth = width }
+                        .onChange(of: proxy.size.width) { width in viewportWidth = width }
                 }
             )
             .onPreferenceChange(ControlAnchorKey.self) { controlAnchors = $0 }
@@ -217,16 +217,25 @@ struct HomeView: View {
                 if let anchor {
                     let frame = proxy[anchor]
                     let ropeWidth: CGFloat = isPad ? 2 : 1.5
-                    MenuHangingRope(
-                        // Run one point into the antialiased top edge so no
-                        // background seam can open between rope and housing.
-                        endPoint: CGPoint(x: frame.midX,
-                                          y: frame.minY + 1),
-                        lineWidth: ropeWidth
-                    )
+                    ZStack(alignment: .topLeading) {
+                        MenuHangingRope(
+                            // Run one point behind the hook so no background
+                            // seam can open at their connection.
+                            endPoint: CGPoint(x: frame.midX,
+                                              y: frame.minY + 1),
+                            lineWidth: ropeWidth
+                        )
+                        if character.id == "elephant" {
+                            HangingElephantArtwork()
+                                .frame(width: frame.width, height: frame.height)
+                                .position(x: frame.midX, y: frame.midY)
+                        }
+                    }
+                    .frame(width: proxy.size.width, height: proxy.size.height)
                 }
             }
             .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
         // The rope is an overlay so it can hang outside the scroll content.
         // Place the returning tutorial message after that overlay, ensuring the
@@ -280,17 +289,17 @@ struct HomeView: View {
             synchronizeUnlockPrompt(animated: false)
             openTutorialLevelIfRequested()
         }
-        .onChange(of: isCoveredByFirstSession) { wasCovered, isCovered in
+        .onChange(of: isCoveredByFirstSession) { isCovered in
             // The first game lives at the app root, so there is no cover
             // dismiss. Wait for that overlay to finish fading out, then run
             // the same return the cover's onDismiss would have.
-            if wasCovered && !isCovered {
+            if !isCovered {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
                     handleSessionDismissed()
                 }
             }
         }
-        .onChange(of: totalCards) { _, _ in
+        .onChange(of: totalCards) { _ in
             // A returning session banks its cards before any of the celebration
             // is visible. Hold the old prompt until that flow releases it;
             // iCloud or restored progress may update it right away.
@@ -308,7 +317,7 @@ struct HomeView: View {
             }
 #endif
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             AppAudio.shared.startMusic()
         }
@@ -402,14 +411,13 @@ struct HomeView: View {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .stroke(.white.opacity(0.9), lineWidth: 2)
                 }
-            // Match the app-icon crop: the black attachment and gold housing
-            // remain above the tile, while the blue gripping arms still show
-            // that the elephant is hanging from the rope.
-            CroppedCharacterPortrait(character: character,
-                                     elephantScale: 1.12,
-                                     elephantYOffset: -0.115,
-                                     otherCharacterScale: 0.84)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            // The elephant is drawn by the un-clipped home overlay so its hook
+            // can sit in front of this border. Other characters stay inside.
+            if character.id != "elephant" {
+                CroppedCharacterPortrait(character: character,
+                                         otherCharacterScale: 0.84)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
         }
         .frame(width: box, height: box)
         .anchorPreference(key: HomeCharacterAnchorKey.self, value: .bounds) { $0 }

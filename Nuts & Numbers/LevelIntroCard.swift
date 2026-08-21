@@ -247,8 +247,8 @@ struct LevelIntroCard: View {
     private var characterPortrait: some View {
         CroppedCharacterPortrait(
             character: theme,
-            elephantScale: 1.32,
-            elephantYOffset: -0.14,
+            elephantScale: 1.188,
+            elephantYOffset: -0.126,
             otherCharacterScale: max(0, 1 - 10 / portraitSize),
             usesHooklessElephant: true
         )

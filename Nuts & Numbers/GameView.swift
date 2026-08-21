@@ -185,7 +185,7 @@ struct GameView: View {
             }
         }
 #endif
-        .onChange(of: model.isGameOver) { _, isOver in
+        .onChange(of: model.isGameOver) { isOver in
             // There is nothing left to teach on a finished board.
             if isOver { tutorial.finish() }
             guard isOver else {

@@ -2978,7 +2978,7 @@ struct ReefPlayfield: View {
                 }
                 onEngineReady?(engine)
             }
-            .onChange(of: size) { _, newSize in
+            .onChange(of: size) { newSize in
                 engine.layout(size: newSize,
                               spawnLine: max(0, newSize.height - bandHeight),
                               topReserve: topReserve,
@@ -2989,38 +2989,38 @@ struct ReefPlayfield: View {
         }
         // A new sum clears the water and starts a fresh set of answers. A wrong
         // answer keeps the same round, so this deliberately does not fire.
-        .onChange(of: round?.id) { _, _ in
+        .onChange(of: round?.id) { _ in
             engine.load(round: round)
         }
-        .onChange(of: isLive) { _, live in
+        .onChange(of: isLive) { live in
             engine.setLive(live)
         }
-        .onChange(of: isRunning) { _, running in
+        .onChange(of: isRunning) { running in
             engine.setRunning(running)
         }
-        .onChange(of: hasBonusFishPower) { _, active in
+        .onChange(of: hasBonusFishPower) { active in
             engine.setBonusAura(active)
         }
-        .onChange(of: isHeartFishAvailable) { _, available in
+        .onChange(of: isHeartFishAvailable) { available in
             engine.setHeartFishAvailable(available)
         }
-        .onChange(of: isStreakBoostActive) { _, active in
+        .onChange(of: isStreakBoostActive) { active in
             engine.setSpeedMultiplier(active ? GameConfig.streakSpeedMultiplier : 1)
         }
-        .onChange(of: scoreTarget) { _, target in
+        .onChange(of: scoreTarget) { target in
             engine.setScoreTarget(target)
         }
-        .onChange(of: tutorialPlan) { _, plan in
+        .onChange(of: tutorialPlan) { plan in
             withAnimation(.easeInOut(duration: 0.25)) {
                 engine.applyTutorial(plan)
             }
         }
-        .onChange(of: playsFishEntrance) { _, shouldPlay in
+        .onChange(of: playsFishEntrance) { shouldPlay in
             if shouldPlay {
                 engine.beginFishEntrance(completion: onFishEntranceComplete)
             }
         }
-        .onChange(of: playsLevelCompletion) { _, shouldPlay in
+        .onChange(of: playsLevelCompletion) { shouldPlay in
             if shouldPlay {
                 engine.beginLevelCompletion(reduceMotion: reduceMotion,
                                             completion: onLevelCompletionFinished)
@@ -4484,7 +4484,7 @@ private struct CoralQuestion: View {
         .onAppear {
             shownPrompt = prompt
         }
-        .onChange(of: roundID) { _, _ in revealNewQuestion() }
+        .onChange(of: roundID) { _ in revealNewQuestion() }
         .accessibilityIdentifier("question-card")
         .accessibilityLabel(Text(L("game.question \(prompt)")))
     }

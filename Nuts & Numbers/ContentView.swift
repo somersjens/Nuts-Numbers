@@ -8,6 +8,10 @@
 import SwiftUI
 import RealityKit
 
+/// RealityKit sample retained for development experiments. The production app
+/// starts in `ElephantChallengeApp`; keeping the availability on the sample
+/// itself prevents its iOS 18 APIs from raising the app's deployment target.
+@available(iOS 18.0, *)
 struct ContentView: View {
     let boxEntity = Entity()
 
@@ -142,5 +146,9 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    if #available(iOS 18.0, *) {
+        ContentView()
+    } else {
+        Text("RealityKit sample requires iOS 18")
+    }
 }

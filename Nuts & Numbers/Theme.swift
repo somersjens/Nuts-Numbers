@@ -184,6 +184,26 @@ struct HooklessElephantArtwork: View {
     }
 }
 
+/// The complete hanging elephant, rebuilt in the same layer order as the claw
+/// game. Keeping this outside the menu tile's clip makes the entire hook and
+/// its connection to the rope visible above the tile border.
+struct HangingElephantArtwork: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            ZStack {
+                Image("1_claw")
+                    .resizable()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HooklessElephantArtwork()
+            }
+            .frame(width: side, height: side)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+}
+
 /// Square portrait treatment used by compact character slots. The main-menu
 /// elephant can keep its complete hanging artwork, while cards may explicitly
 /// request the body-only composition above.

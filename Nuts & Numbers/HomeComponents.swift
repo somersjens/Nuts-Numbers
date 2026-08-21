@@ -527,7 +527,7 @@ struct LevelCardView: View {
         .buttonStyle(.plain)
         .disabled(isLocked)
         .onAppear { animateIfCelebrating() }
-        .onChange(of: celebrationStartedAt) { _, _ in animateIfCelebrating() }
+        .onChange(of: celebrationStartedAt) { _ in animateIfCelebrating() }
         .accessibilityIdentifier("level-\(level.index)")
         .accessibilityLabel(Text(L("home.levelAccessibility \(level.index)")))
         .accessibilityValue(Text(verbatim: pausedCards.map {

@@ -1227,6 +1227,15 @@ final class ClawEngine: ObservableObject {
 // MARK: - Playfield
 
 struct ClawPlayfield: View {
+    /// Drives an initial puzzle installation as well as later rebuilds. Unlike
+    /// `onChange`, a task also runs when the puzzle finished preparing in the
+    /// narrow window between this view's first render and `onAppear`.
+    private struct InstallationID: Equatable {
+        let seed: UInt64?
+        let collectedAnswers: Int
+        let roundID: UUID?
+    }
+
     let round: GameRound?
     let puzzle: ClawPuzzle?
     let collectedAnswers: Int
@@ -1256,6 +1265,11 @@ struct ClawPlayfield: View {
     @State private var didTriggerScreenGrab = false
 
     private var palette: ClawPalette { ClawPalette(character: character) }
+    private var installationID: InstallationID {
+        InstallationID(seed: puzzle?.seed,
+                       collectedAnswers: collectedAnswers,
+                       roundID: round?.id)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -1427,7 +1441,7 @@ struct ClawPlayfield: View {
                                        completion: onTimeOutFinished)
                 }
             }
-            .onChange(of: size) { _, newSize in
+            .onChange(of: size) { newSize in
                 engine.layout(size: newSize,
                               topReserve: topReserve,
                               bottomReserve: bottomReserve,
@@ -1435,40 +1449,30 @@ struct ClawPlayfield: View {
                               maximumPoints: maximumRounds)
             }
         }
-        .onChange(of: round?.id) { _, _ in
-            engine.setQuestion(round?.question, targetNutID: round?.targetNutID)
-        }
-        .onChange(of: puzzle?.seed) { _, _ in
+        // Run once for the initial value too. On slower devices the prepared
+        // puzzle and first round can each arrive between the first body
+        // evaluation and `onAppear`; relying only on edge-triggered `onChange`
+        // callbacks can then leave either the pile or its standing answer nil.
+        .task(id: installationID) {
             engine.install(puzzle: puzzle,
                            collected: collectedAnswers,
                            question: round?.question,
                            targetNutID: round?.targetNutID)
         }
-        // Preparation deliberately shows the complete pile behind the intro
-        // card. A resumed session receives its saved round only when Begin
-        // installs the prepared engine; the puzzle seed itself is unchanged,
-        // so observing only that seed left all already-collected nuts visible.
-        // Rebuild from the immutable plan whenever this count catches up.
-        .onChange(of: collectedAnswers) { _, collected in
-            engine.install(puzzle: puzzle,
-                           collected: collected,
-                           question: round?.question,
-                           targetNutID: round?.targetNutID)
-        }
-        .onChange(of: isLive) { _, live in engine.setLive(live) }
-        .onChange(of: isRunning) { _, running in engine.setRunning(running) }
-        .onChange(of: scoreTarget) { _, target in engine.setScoreTarget(target) }
-        .onChange(of: tutorialPlan) { _, plan in engine.applyTutorial(plan) }
-        .onChange(of: playsEntrance) { _, should in
+        .onChange(of: isLive) { live in engine.setLive(live) }
+        .onChange(of: isRunning) { running in engine.setRunning(running) }
+        .onChange(of: scoreTarget) { target in engine.setScoreTarget(target) }
+        .onChange(of: tutorialPlan) { plan in engine.applyTutorial(plan) }
+        .onChange(of: playsEntrance) { should in
             if should { engine.beginEntrance(completion: onEntranceComplete) }
         }
-        .onChange(of: playsLevelCompletion) { _, should in
+        .onChange(of: playsLevelCompletion) { should in
             if should {
                 engine.beginLevelCompletion(reduceMotion: reduceMotion,
                                             completion: onLevelCompletionFinished)
             }
         }
-        .onChange(of: playsTimeOutFinale) { _, should in
+        .onChange(of: playsTimeOutFinale) { should in
             if should {
                 engine.beginTimeUp(reduceMotion: reduceMotion,
                                    completion: onTimeOutFinished)

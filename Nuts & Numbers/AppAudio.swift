@@ -596,28 +596,52 @@ final class AppAudio: NSObject, ObservableObject {
         startMusicLoopMonitoringIfNeeded()
     }
 
-    /// `AVAudioPlayer` can only loop at a file's physical end. A lightweight
-    /// timer moves it back to the start during the silent tail, while the
-    /// player's own endless loop remains a safe fallback if the app is busy.
+    /// `AVAudioPlayer` can only loop at a file's physical end. One scheduled
+    /// wake-up moves it back to the start during the silent tail; polling every
+    /// few milliseconds here would otherwise wake the main thread throughout
+    /// the entire game. The player's endless loop remains a safe fallback if
+    /// the app is busy when the timer fires.
     private func startMusicLoopMonitoringIfNeeded() {
-        guard musicLoopTimer == nil else { return }
-        let timer = Timer(timeInterval: 0.025, repeats: true) { [weak self] _ in
-            guard let self,
-                  let player = self.musicPlayer,
-                  self.musicEnabled,
-                  self.wantsMusicPlayback,
-                  player.isPlaying,
-                  player.currentTime >= self.musicLoopEndTime else { return }
-            // The file ends near silence but starts with a strong first beat.
-            // Preserve the active menu/game/duck level and ease that beat in,
-            // otherwise the sudden jump can sound like a brief volume spike.
-            let volumeBeforeLoop = player.volume
-            player.volume = 0
-            player.currentTime = 0
-            player.setVolume(volumeBeforeLoop, fadeDuration: 0.4)
+        guard musicLoopTimer == nil,
+              let player = musicPlayer,
+              musicEnabled,
+              wantsMusicPlayback,
+              player.isPlaying else { return }
+
+        let playbackRate = player.enableRate ? max(Double(player.rate), 0.5) : 1
+        let interval = max(0.01, (musicLoopEndTime - player.currentTime) / playbackRate)
+        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restartMusicLoopIfNeeded() }
         }
+        // A little coalescing saves another wake-up without making the musical
+        // breath noticeably longer.
+        timer.tolerance = min(0.015, interval * 0.02)
         RunLoop.main.add(timer, forMode: .common)
         musicLoopTimer = timer
+    }
+
+    private func restartMusicLoopIfNeeded() {
+        musicLoopTimer = nil
+        guard let player = musicPlayer,
+              musicEnabled,
+              wantsMusicPlayback,
+              player.isPlaying else { return }
+
+        // Rate changes and timer coalescing can make this wake-up slightly
+        // early. Reschedule the remainder instead of polling until the marker.
+        guard player.currentTime >= musicLoopEndTime else {
+            startMusicLoopMonitoringIfNeeded()
+            return
+        }
+
+        // The file ends near silence but starts with a strong first beat.
+        // Preserve the active menu/game/duck level and ease that beat in,
+        // otherwise the sudden jump can sound like a brief volume spike.
+        let volumeBeforeLoop = player.volume
+        player.volume = 0
+        player.currentTime = 0
+        player.setVolume(volumeBeforeLoop, fadeDuration: 0.4)
+        startMusicLoopMonitoringIfNeeded()
     }
 
     private func stopMusicLoopMonitoring() {
@@ -643,6 +667,10 @@ final class AppAudio: NSObject, ObservableObject {
         guard clamped != appliedGameplayRate else { return }
         appliedGameplayRate = clamped
         player.rate = clamped
+        if musicLoopTimer != nil {
+            stopMusicLoopMonitoring()
+            startMusicLoopMonitoringIfNeeded()
+        }
     }
 
     /// Fades the music out and stops it — used only when sound is switched off
