@@ -127,17 +127,29 @@ enum ClawArtworkCache {
 struct ClawPalette: Equatable {
     let character: AnimalCharacter
 
-    var wood: Color { Color(red: 0.55, green: 0.34, blue: 0.16) }
-    var woodDeep: Color { Color(red: 0.32, green: 0.18, blue: 0.08) }
-    var woodLight: Color { Color(red: 0.76, green: 0.56, blue: 0.32) }
-    var leaf: Color { Color(red: 0.28, green: 0.58, blue: 0.24) }
-    var leafLight: Color { Color(red: 0.45, green: 0.74, blue: 0.32) }
+    // Keep the material recognisably wood and foliage, but stain every cabinet
+    // with the selected animal's colours. The old fixed brown/green treatment
+    // made changing character feel like changing only a badge.
+    var wood: Color { mix(character.primaryRGB, (0.55, 0.34, 0.16), 0.66) }
+    var woodDeep: Color { mix(character.deepRGB, (0.27, 0.14, 0.055), 0.58) }
+    var woodLight: Color { mix(character.tintRGB, (0.82, 0.60, 0.31), 0.58) }
+    var leaf: Color { mix(character.deepRGB, (0.22, 0.54, 0.19), 0.72) }
+    var leafLight: Color { mix(character.primaryRGB, (0.49, 0.79, 0.31), 0.68) }
     var glass: Color { character.skyColor.opacity(0.35) }
-    var interior: Color { Color(red: 0.78, green: 0.88, blue: 0.94) }
+    var interior: Color { mix(character.skyRGB, (0.82, 0.86, 0.78), 0.18) }
     var bin: Color { character.color }
     var binDeep: Color { character.deepColor }
     var button: Color { Color(red: 0.86, green: 0.18, blue: 0.16) }
     var buttonDeep: Color { Color(red: 0.62, green: 0.08, blue: 0.08) }
+
+    private func mix(_ base: (Double, Double, Double),
+                     _ material: (Double, Double, Double),
+                     _ materialAmount: Double) -> Color {
+        let t = min(1, max(0, materialAmount))
+        return Color(red: base.0 + (material.0 - base.0) * t,
+                     green: base.1 + (material.1 - base.1) * t,
+                     blue: base.2 + (material.2 - base.2) * t)
+    }
 }
 
 // MARK: - Tutorial
@@ -1136,6 +1148,17 @@ struct ClawPlayfield: View {
                     .drawingGroup()
 
                 let geo = engine.geometry
+                CabinetTopAssembly(
+                    palette: palette,
+                    size: size,
+                    header: geo.header,
+                    playTop: geo.play.minY,
+                    isPad: isPad
+                )
+                .equatable()
+
+                CabinetLivingDetails(palette: palette, reduceMotion: reduceMotion)
+
                 glassChamber(geo: geo)
 
                 if engine.elephantVisible {
@@ -1356,6 +1379,14 @@ struct ClawPlayfield: View {
                 .drawingGroup()
                 .frame(width: geo.play.width, height: geo.play.height)
 
+            SanctuaryLivingDetails(
+                palette: palette,
+                character: character,
+                isPad: isPad,
+                reduceMotion: reduceMotion
+            )
+            .frame(width: geo.play.width, height: geo.play.height)
+
             trolleyRail(in: geo.play)
 
             CatchBinBackView(palette: palette, isPad: isPad)
@@ -1456,9 +1487,9 @@ struct ClawPlayfield: View {
                 ZStack {
                     board.fill(
                         LinearGradient(
-                            colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
-                                     Color(red: 0.64, green: 0.42, blue: 0.22),
-                                     Color(red: 0.78, green: 0.56, blue: 0.32)],
+                            colors: [palette.woodDeep,
+                                     palette.wood,
+                                     palette.woodLight],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -1468,7 +1499,7 @@ struct ClawPlayfield: View {
                         .fill(Color(red: 0.22, green: 0.12, blue: 0.05).opacity(0.45))
                     ArcadeShelfSideEdge(topInset: layout.topInset, side: .trailing,
                                         thickness: isPad ? 16 : 11)
-                        .fill(Color(red: 0.48, green: 0.32, blue: 0.14).opacity(0.28))
+                        .fill(palette.woodDeep.opacity(0.36))
                     woodGrain
                         .clipShape(board)
                     LinearGradient(colors: [Color.black.opacity(0.42), .clear],
@@ -1488,10 +1519,10 @@ struct ClawPlayfield: View {
                     // the warmer face is the wooden lip below it.
                     RoundedRectangle(cornerRadius: isPad ? 5 : 3, style: .continuous)
                         .fill(
-                            LinearGradient(colors: [Color(red: 0.20, green: 0.10, blue: 0.035),
-                                                    Color(red: 0.48, green: 0.27, blue: 0.10),
-                                                    Color(red: 0.70, green: 0.46, blue: 0.21),
-                                                    Color(red: 0.31, green: 0.15, blue: 0.045)],
+                            LinearGradient(colors: [palette.woodDeep,
+                                                    palette.wood,
+                                                    palette.woodLight,
+                                                    palette.woodDeep],
                                            startPoint: .top, endPoint: .bottom)
                         )
                         .frame(height: isPad ? 18 : 13)
@@ -2037,9 +2068,9 @@ private struct ClawPromptPlaque: View, Equatable {
             .background {
                 RoundedRectangle(cornerRadius: isPad ? 16 : 12, style: .continuous)
                     .fill(
-                        LinearGradient(colors: [Color(red: 0.42, green: 0.26, blue: 0.12),
-                                                Color(red: 0.26, green: 0.14, blue: 0.06),
-                                                Color(red: 0.16, green: 0.08, blue: 0.04)],
+                        LinearGradient(colors: [palette.wood,
+                                                palette.woodDeep,
+                                                Color.black.opacity(0.74)],
                                        startPoint: .top, endPoint: .bottom)
                     )
                     .overlay {
@@ -2521,22 +2552,239 @@ private struct MachineCabinet: View, Equatable {
                                             palette.woodDeep],
                                    startPoint: .leading, endPoint: .trailing)
                 )
-            VStack(spacing: size.height * 0.09) {
-                ForEach(0..<7, id: \.self) { index in
-                    ZStack {
-                        Capsule()
-                            .stroke(Color(red: 0.48, green: 0.34, blue: 0.16).opacity(0.7), lineWidth: 4)
-                            .frame(width: width * 0.94, height: 11)
-                        if index % 2 == 0 {
-                            Image(systemName: "pawprint.fill")
-                                .font(.system(size: width * 0.36, weight: .bold))
-                                .foregroundStyle(palette.woodDeep.opacity(0.48))
-                        }
-                    }
+                .overlay {
+                    Capsule()
+                        .stroke(palette.woodLight.opacity(0.45), lineWidth: 1.5)
+                        .padding(2)
+                }
+
+            Canvas { context, postSize in
+                for index in 0..<12 {
+                    let y = postSize.height * (0.04 + CGFloat(index) * 0.082)
+                    var grain = Path()
+                    grain.move(to: CGPoint(x: postSize.width * 0.18, y: y))
+                    grain.addCurve(
+                        to: CGPoint(x: postSize.width * 0.82, y: y + CGFloat(index % 3 - 1) * 3),
+                        control1: CGPoint(x: postSize.width * 0.34, y: y - 3),
+                        control2: CGPoint(x: postSize.width * 0.64, y: y + 4)
+                    )
+                    context.stroke(grain,
+                                   with: .color(palette.woodDeep.opacity(0.20)),
+                                   style: StrokeStyle(lineWidth: 1, lineCap: .round))
                 }
             }
+
+            VStack {
+                postJoint(width: width, paw: true)
+                Spacer()
+                RopeBinding(width: width, palette: palette)
+                Spacer()
+                postJoint(width: width, paw: false)
+                Spacer()
+                RopeBinding(width: width, palette: palette)
+                Spacer()
+                postJoint(width: width, paw: true)
+            }
+            .padding(.vertical, size.height * 0.035)
         }
         .frame(width: width)
+        .shadow(color: .black.opacity(0.38), radius: 3, x: 0, y: 2)
+    }
+
+    private func postJoint(width: CGFloat, paw: Bool) -> some View {
+        ZStack {
+            Capsule()
+                .fill(
+                    LinearGradient(colors: [palette.woodLight, palette.wood, palette.woodDeep],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: width * 1.06, height: max(10, width * 0.34))
+                .overlay {
+                    Capsule().stroke(.black.opacity(0.28), lineWidth: 1)
+                }
+            if paw {
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: width * 0.32, weight: .bold))
+                    .foregroundStyle(palette.woodDeep.opacity(0.58))
+            } else {
+                HStack(spacing: width * 0.34) {
+                    Circle().fill(palette.woodDeep.opacity(0.66))
+                    Circle().fill(palette.woodDeep.opacity(0.66))
+                }
+                .frame(width: width * 0.72, height: 4)
+            }
+        }
+    }
+}
+
+/// One continuous fascia behind pause, prompt and timer. The controls still
+/// live in the HUD for input, but now read as instruments mounted into the same
+/// cabinet instead of three unrelated objects floating over a brown field.
+private struct CabinetTopAssembly: View, Equatable {
+    let palette: ClawPalette
+    let size: CGSize
+    let header: CGRect
+    let playTop: CGFloat
+    let isPad: Bool
+
+    var body: some View {
+        let height = max(playTop + (isPad ? 18 : 12), header.maxY + 12)
+        let post = max(isPad ? 38 : 26, size.width * 0.078)
+        let instrumentTop = max(isPad ? 18 : 44, header.minY - (isPad ? 16 : 11))
+        let instrumentHeight = header.height + (isPad ? 32 : 23)
+
+        ZStack(alignment: .topLeading) {
+            CabinetCanopyShape(drop: isPad ? 24 : 17)
+                .fill(
+                    LinearGradient(colors: [palette.woodLight,
+                                            palette.wood,
+                                            palette.woodDeep],
+                                   startPoint: .topLeading,
+                                   endPoint: .bottomTrailing)
+                )
+                .overlay {
+                    CabinetCanopyShape(drop: isPad ? 24 : 17)
+                        .stroke(.black.opacity(0.46), lineWidth: isPad ? 4 : 3)
+                }
+
+            Canvas { context, canvasSize in
+                for index in 0..<7 {
+                    let y = canvasSize.height * (0.12 + CGFloat(index) * 0.105)
+                    var grain = Path()
+                    grain.move(to: CGPoint(x: post * 0.55, y: y))
+                    grain.addCurve(
+                        to: CGPoint(x: canvasSize.width - post * 0.55,
+                                    y: y + CGFloat(index % 3 - 1) * 2),
+                        control1: CGPoint(x: canvasSize.width * 0.32, y: y - 4),
+                        control2: CGPoint(x: canvasSize.width * 0.67, y: y + 4)
+                    )
+                    context.stroke(grain,
+                                   with: .color(palette.woodDeep.opacity(0.16)),
+                                   style: StrokeStyle(lineWidth: 1.1, lineCap: .round))
+                }
+            }
+
+            RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [palette.character.deepColor.opacity(0.96),
+                                            Color.black.opacity(0.80)],
+                                   startPoint: .top,
+                                   endPoint: .bottom)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 25 : 18, style: .continuous)
+                        .stroke(
+                            LinearGradient(colors: [palette.woodLight,
+                                                    palette.wood,
+                                                    palette.woodDeep],
+                                           startPoint: .top,
+                                           endPoint: .bottom),
+                            lineWidth: isPad ? 7 : 5
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 20 : 14, style: .continuous)
+                        .inset(by: isPad ? 9 : 7)
+                        .stroke(.white.opacity(0.10), lineWidth: 1)
+                }
+                .frame(width: max(1, size.width - post * 1.38),
+                       height: instrumentHeight)
+                .position(x: size.width / 2,
+                          y: instrumentTop + instrumentHeight / 2)
+                .shadow(color: .black.opacity(0.40), radius: 5, y: 3)
+
+            HStack {
+                carvedEndCap(mirrored: false)
+                Spacer()
+                carvedEndCap(mirrored: true)
+            }
+            .padding(.horizontal, post * 0.64)
+            .padding(.top, instrumentTop + instrumentHeight * 0.30)
+
+            HStack {
+                fastener
+                Spacer()
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: isPad ? 18 : 13, weight: .black))
+                    .foregroundStyle(palette.woodDeep.opacity(0.52))
+                Spacer()
+                fastener
+            }
+            .padding(.horizontal, post * 0.48)
+            .padding(.top, height - (isPad ? 28 : 20))
+        }
+        .frame(width: size.width, height: height)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func carvedEndCap(mirrored: Bool) -> some View {
+        HStack(spacing: isPad ? 5 : 3) {
+            Image(systemName: "leaf.fill")
+            Image(systemName: "leaf.fill")
+                .scaleEffect(0.72)
+                .rotationEffect(.degrees(36))
+        }
+        .font(.system(size: isPad ? 17 : 12, weight: .bold))
+        .foregroundStyle(palette.character.color.opacity(0.54))
+        .scaleEffect(x: mirrored ? -1 : 1, y: 1)
+    }
+
+    private var fastener: some View {
+        Circle()
+            .fill(palette.woodDeep)
+            .frame(width: isPad ? 10 : 7, height: isPad ? 10 : 7)
+            .overlay {
+                Capsule()
+                    .fill(palette.woodLight.opacity(0.72))
+                    .frame(width: isPad ? 7 : 5, height: 1)
+                    .rotationEffect(.degrees(-18))
+            }
+    }
+}
+
+private struct CabinetCanopyShape: Shape {
+    let drop: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let d = min(drop, rect.height * 0.24)
+        var path = Path()
+        path.move(to: .zero)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - d))
+        path.addQuadCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
+                          control: CGPoint(x: rect.width * 0.76, y: rect.maxY - d * 0.15))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - d),
+                          control: CGPoint(x: rect.width * 0.24, y: rect.maxY - d * 0.15))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct RopeBinding: View {
+    let width: CGFloat
+    let palette: ClawPalette
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<4, id: \.self) { index in
+                Capsule()
+                    .stroke(
+                        LinearGradient(colors: [Color(red: 0.84, green: 0.67, blue: 0.35),
+                                                Color(red: 0.43, green: 0.27, blue: 0.10)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: max(2, width * 0.075)
+                    )
+                    .frame(width: width * 1.04, height: width * 0.20)
+                    .offset(y: CGFloat(index - 2) * width * 0.09)
+            }
+            Circle()
+                .fill(Color(red: 0.49, green: 0.30, blue: 0.11))
+                .frame(width: width * 0.22, height: width * 0.22)
+                .overlay(Circle().stroke(palette.woodLight.opacity(0.45), lineWidth: 1))
+                .offset(x: width * 0.38, y: width * 0.08)
+        }
+        .frame(height: width * 0.58)
     }
 }
 
@@ -2560,25 +2808,96 @@ private struct VinesOverlay: View {
     private func drawVine(context: inout GraphicsContext, size: CGSize, x: CGFloat, lean: CGFloat) {
         var path = Path()
         path.move(to: CGPoint(x: x, y: size.height * 0.06))
+        path.addCurve(to: CGPoint(x: x + lean * 5, y: size.height * 0.42),
+                      control1: CGPoint(x: x - lean * 22, y: size.height * 0.17),
+                      control2: CGPoint(x: x + lean * 25, y: size.height * 0.29))
         path.addCurve(to: CGPoint(x: x + lean * 10, y: size.height * 0.92),
-                      control1: CGPoint(x: x - lean * 16, y: size.height * 0.32),
-                      control2: CGPoint(x: x + lean * 18, y: size.height * 0.64))
+                      control1: CGPoint(x: x - lean * 28, y: size.height * 0.58),
+                      control2: CGPoint(x: x + lean * 27, y: size.height * 0.75))
         context.stroke(path,
-                       with: .color(palette.leaf.opacity(0.85)),
-                       style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                       with: .linearGradient(
+                           Gradient(colors: [palette.leafLight, palette.leaf, palette.woodDeep]),
+                           startPoint: CGPoint(x: x, y: 0),
+                           endPoint: CGPoint(x: x, y: size.height)
+                       ),
+                       style: StrokeStyle(lineWidth: 5.5, lineCap: .round))
+
+        // Loose spiral tendrils make the greenery feel grown around the frame,
+        // rather than pasted on as a straight decorative stripe.
+        for index in 0..<5 {
+            let cy = size.height * (0.12 + CGFloat(index) * 0.17)
+            let radius = CGFloat(8 + index % 2 * 4)
+            var curl = Path()
+            curl.move(to: CGPoint(x: x, y: cy))
+            curl.addCurve(to: CGPoint(x: x + lean * radius * 0.25, y: cy + radius * 1.8),
+                          control1: CGPoint(x: x + lean * radius * 1.8, y: cy - radius),
+                          control2: CGPoint(x: x + lean * radius * 2.0, y: cy + radius * 2.0))
+            curl.addCurve(to: CGPoint(x: x + lean * radius * 0.65, y: cy + radius * 0.75),
+                          control1: CGPoint(x: x - lean * radius * 0.9, y: cy + radius * 1.75),
+                          control2: CGPoint(x: x - lean * radius * 0.7, y: cy + radius * 0.55))
+            context.stroke(curl,
+                           with: .color(palette.leaf.opacity(0.82)),
+                           style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+        }
     }
 
     private func vineLeaves(width: CGFloat, height: CGFloat, lean: CGFloat, x: CGFloat) -> some View {
         ForEach(0..<8, id: \.self) { index in
             let y = height * (0.10 + CGFloat(index) * 0.10)
-            Image(systemName: "leaf.fill")
-                .font(.system(size: index.isMultiple(of: 2) ? 24 : 17, weight: .bold))
-                .foregroundStyle(LinearGradient(colors: [palette.leafLight, palette.leaf],
-                                                startPoint: .top, endPoint: .bottom))
-                .rotationEffect(.degrees(Double(22 * lean + (index.isMultiple(of: 2) ? -14 : 16))))
-                .shadow(color: .black.opacity(0.22), radius: 2, y: 1)
-                .position(x: width * x + lean * CGFloat(8 + index % 3 * 4), y: y)
+            ZStack {
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: index.isMultiple(of: 2) ? 26 : 18, weight: .bold))
+                    .foregroundStyle(LinearGradient(colors: [palette.leafLight, palette.leaf],
+                                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: "leaf")
+                    .font(.system(size: index.isMultiple(of: 2) ? 20 : 13, weight: .thin))
+                    .foregroundStyle(.white.opacity(0.22))
+            }
+            .rotationEffect(.degrees(Double(22 * lean + (index.isMultiple(of: 2) ? -14 : 16))))
+            .shadow(color: .black.opacity(0.25), radius: 2, y: 2)
+            .position(x: width * x + lean * CGFloat(8 + index % 3 * 4), y: y)
         }
+    }
+}
+
+/// A very small living layer over the carved posts. It is deliberately kept
+/// separate from the rasterised cabinet so the rest of the scenery stays cheap.
+private struct CabinetLivingDetails: View {
+    let palette: ClawPalette
+    let reduceMotion: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 18.0, paused: reduceMotion)) { timeline in
+            GeometryReader { proxy in
+                let time = timeline.date.timeIntervalSinceReferenceDate
+                let sway = reduceMotion ? 0 : sin(time * 0.78) * 3.2
+                ZStack {
+                    leafCluster(mirrored: false)
+                        .rotationEffect(.degrees(sway), anchor: .bottom)
+                        .position(x: proxy.size.width * 0.055, y: proxy.size.height * 0.18)
+                    leafCluster(mirrored: true)
+                        .rotationEffect(.degrees(-sway * 0.82), anchor: .bottom)
+                        .position(x: proxy.size.width * 0.945, y: proxy.size.height * 0.72)
+                }
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func leafCluster(mirrored: Bool) -> some View {
+        ZStack(alignment: .bottom) {
+            ForEach(0..<3, id: \.self) { index in
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: 16 + CGFloat(index) * 4, weight: .bold))
+                    .foregroundStyle(index == 0 ? palette.leafLight : palette.leaf)
+                    .rotationEffect(.degrees(Double(index * 34 - 30)))
+                    .offset(x: CGFloat(index - 1) * 10, y: -CGFloat(index % 2) * 5)
+            }
+        }
+        .scaleEffect(x: mirrored ? -1 : 1, y: 1)
+        .shadow(color: .black.opacity(0.24), radius: 2, y: 2)
     }
 }
 
@@ -2590,11 +2909,13 @@ private struct SanctuaryScene: View, Equatable {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [Color(red: 0.93, green: 0.84, blue: 0.66),
-                         Color(red: 0.86, green: 0.74, blue: 0.52),
-                         Color(red: 0.62, green: 0.42, blue: 0.22)],
+                colors: [character.skyColor,
+                         palette.interior,
+                         palette.wood.opacity(0.94)],
                 startPoint: .top, endPoint: .bottom
             )
+
+            recessedRoom
 
             VStack(spacing: 6) {
                 ForEach(0..<10, id: \.self) { index in
@@ -2607,33 +2928,94 @@ private struct SanctuaryScene: View, Equatable {
             .padding(.vertical, 12)
 
             pawWall
+            ceilingBeams
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                woodenFloor
+                    .frame(height: isPad ? 74 : 50)
+            }
+            habitatArchitecture
             hangingLamps
             tireSwing
 
-            VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: isPad ? 12 : 8) {
-                    VStack(alignment: .leading, spacing: isPad ? 8 : 5) {
-                        warningSign
-                        birdhouse
-                    }
-                    Spacer(minLength: 0)
-                    window
-                    Spacer(minLength: 0)
-                    VStack(alignment: .trailing, spacing: isPad ? 8 : 5) {
-                        homePoster
-                        catCubby
-                    }
-                }
-                .padding(.horizontal, isPad ? 16 : 8)
-                .padding(.top, isPad ? 28 : 20)
-
-                Spacer(minLength: 0)
-
-                woodenFloor
-                    .frame(height: isPad ? 40 : 26)
-            }
+            foregroundPlants
         }
         .allowsHitTesting(false)
+    }
+
+    /// Side walls, ceiling and a darker back panel create a real room behind
+    /// the glass. Their converging edges remain readable even when the walnut
+    /// pile covers the lower half of the sanctuary.
+    private var recessedRoom: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            let inset = w * (isPad ? 0.105 : 0.09)
+            ZStack {
+                Path { path in
+                    path.move(to: .zero)
+                    path.addLine(to: CGPoint(x: inset, y: h * 0.10))
+                    path.addLine(to: CGPoint(x: inset, y: h * 0.88))
+                    path.addLine(to: CGPoint(x: 0, y: h))
+                    path.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(colors: [palette.woodDeep.opacity(0.80),
+                                            character.deepColor.opacity(0.24)],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
+
+                Path { path in
+                    path.move(to: CGPoint(x: w, y: 0))
+                    path.addLine(to: CGPoint(x: w - inset, y: h * 0.10))
+                    path.addLine(to: CGPoint(x: w - inset, y: h * 0.88))
+                    path.addLine(to: CGPoint(x: w, y: h))
+                    path.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(colors: [character.deepColor.opacity(0.25),
+                                            palette.woodDeep.opacity(0.84)],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
+
+                Path { path in
+                    path.move(to: .zero)
+                    path.addLine(to: CGPoint(x: w, y: 0))
+                    path.addLine(to: CGPoint(x: w - inset, y: h * 0.10))
+                    path.addLine(to: CGPoint(x: inset, y: h * 0.10))
+                    path.closeSubpath()
+                }
+                .fill(LinearGradient(colors: [palette.woodDeep, palette.wood],
+                                     startPoint: .top, endPoint: .bottom))
+
+                RoundedRectangle(cornerRadius: isPad ? 18 : 12, style: .continuous)
+                    .stroke(character.deepColor.opacity(0.18), lineWidth: isPad ? 3 : 2)
+                    .padding(.horizontal, inset)
+                    .padding(.top, h * 0.095)
+                    .padding(.bottom, h * 0.115)
+                    .shadow(color: .black.opacity(0.18), radius: 6)
+            }
+        }
+    }
+
+    private var ceilingBeams: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(0..<4, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(
+                            LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                           startPoint: .top, endPoint: .bottom)
+                        )
+                        .frame(width: proxy.size.width * 0.22,
+                               height: isPad ? 8 : 5)
+                        .rotationEffect(.degrees(index < 2 ? 8 : -8))
+                        .position(x: proxy.size.width * (0.17 + CGFloat(index) * 0.22),
+                                  y: proxy.size.height * 0.065)
+                        .shadow(color: .black.opacity(0.28), radius: 2, y: 2)
+                }
+            }
+        }
     }
 
     private var hangingLamps: some View {
@@ -2687,6 +3069,433 @@ private struct SanctuaryScene: View, Equatable {
         }
     }
 
+    /// Large, readable furniture replaces the former collection of tiny signs
+    /// and icon-sized huts. Each object occupies real floor or wall space and
+    /// overlaps another depth plane, so the chamber reads as a habitat at a
+    /// glance even behind the walnut pile.
+    private var habitatArchitecture: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack {
+                outdoorOpening
+                    .frame(width: w * 0.42, height: h * 0.48)
+                    .position(x: w * 0.51, y: h * 0.37)
+
+                feedingStation
+                    .frame(width: w * 0.22, height: h * 0.42)
+                    .position(x: w * 0.16, y: h * 0.48)
+
+                animalShelter
+                    .frame(width: w * 0.24, height: h * 0.34)
+                    .position(x: w * 0.78, y: h * 0.49)
+
+                climbingNet
+                    .frame(width: w * 0.19, height: h * 0.23)
+                    .position(x: w * 0.82, y: h * 0.28)
+
+                enrichmentToys
+                    .frame(width: w * 0.30, height: h * 0.13)
+                    .position(x: w * 0.66, y: h * 0.73)
+
+                habitatFloorZone
+                    .frame(width: w * 0.24, height: h * 0.10)
+                    .position(x: w * 0.27, y: h * 0.76)
+            }
+        }
+    }
+
+    private var outdoorOpening: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack(alignment: .bottom) {
+                UnevenRoundedRectangle(cornerRadii: .init(topLeading: w * 0.46,
+                                                         bottomLeading: w * 0.08,
+                                                         bottomTrailing: w * 0.08,
+                                                         topTrailing: w * 0.46),
+                                       style: .continuous)
+                    .fill(
+                        LinearGradient(colors: [character.skyColor,
+                                                character.tintColor,
+                                                palette.leafLight.opacity(0.74)],
+                                       startPoint: .top,
+                                       endPoint: .bottom)
+                    )
+
+                Circle()
+                    .fill(.white.opacity(0.56))
+                    .frame(width: w * 0.20, height: w * 0.20)
+                    .position(x: w * 0.69, y: h * 0.25)
+
+                ForEach(0..<3, id: \.self) { index in
+                    Ellipse()
+                        .fill(index == 0 ? palette.leafLight.opacity(0.72)
+                                         : palette.leaf.opacity(0.82))
+                        .frame(width: w * (0.72 - CGFloat(index) * 0.12),
+                               height: h * (0.32 - CGFloat(index) * 0.05))
+                        .offset(x: CGFloat(index - 1) * w * 0.20,
+                                y: h * (0.10 + CGFloat(index) * 0.035))
+                }
+
+                HStack(alignment: .bottom, spacing: w * 0.04) {
+                    ForEach(0..<5, id: \.self) { index in
+                        Capsule()
+                            .fill(palette.woodDeep.opacity(0.62))
+                            .frame(width: w * 0.045,
+                                   height: h * (0.18 + CGFloat(index % 3) * 0.06))
+                            .overlay(alignment: .top) {
+                                Circle()
+                                    .fill(palette.leaf)
+                                    .frame(width: w * 0.14, height: w * 0.12)
+                            }
+                    }
+                }
+                .padding(.bottom, h * 0.05)
+
+                HStack(alignment: .top, spacing: -w * 0.035) {
+                    ForEach(0..<7, id: \.self) { index in
+                        Image(systemName: "leaf.fill")
+                            .font(.system(size: w * (0.14 + CGFloat(index % 2) * 0.035),
+                                          weight: .bold))
+                            .foregroundStyle(index.isMultiple(of: 2)
+                                             ? palette.leafLight
+                                             : palette.leaf)
+                            .rotationEffect(.degrees(Double(index * 27 - 78)))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .offset(y: -h * 0.035)
+            }
+            .clipShape(UnevenRoundedRectangle(cornerRadii: .init(topLeading: w * 0.46,
+                                                                  bottomLeading: w * 0.08,
+                                                                  bottomTrailing: w * 0.08,
+                                                                  topTrailing: w * 0.46),
+                                                style: .continuous))
+            .overlay {
+                UnevenRoundedRectangle(cornerRadii: .init(topLeading: w * 0.46,
+                                                          bottomLeading: w * 0.08,
+                                                          bottomTrailing: w * 0.08,
+                                                          topTrailing: w * 0.46),
+                                       style: .continuous)
+                    .stroke(
+                        LinearGradient(colors: [palette.woodLight,
+                                                palette.wood,
+                                                palette.woodDeep],
+                                       startPoint: .topLeading,
+                                       endPoint: .bottomTrailing),
+                        lineWidth: isPad ? 11 : 7
+                    )
+            }
+            .overlay(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(height: isPad ? 17 : 11)
+                    .offset(y: isPad ? 6 : 4)
+            }
+            .shadow(color: .black.opacity(0.30), radius: 6, y: 4)
+        }
+    }
+
+    private var feedingStation: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack(alignment: .bottom) {
+                Capsule()
+                    .fill(
+                        LinearGradient(colors: [palette.woodLight,
+                                                palette.wood,
+                                                palette.woodDeep],
+                                       startPoint: .leading,
+                                       endPoint: .trailing)
+                    )
+                    .frame(width: w * 0.24, height: h * 0.94)
+                    .overlay {
+                        VStack(spacing: h * 0.12) {
+                            ForEach(0..<4, id: \.self) { _ in
+                                Capsule()
+                                    .fill(palette.woodDeep.opacity(0.24))
+                                    .frame(width: w * 0.16, height: 1.5)
+                            }
+                        }
+                    }
+
+                VStack(spacing: h * 0.08) {
+                    feederShelf(width: w, foodCount: 3)
+                    feederShelf(width: w * 0.86, foodCount: 2)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, h * 0.12)
+
+                RopeBinding(width: w * 0.34, palette: palette)
+                    .offset(y: -h * 0.21)
+            }
+            .shadow(color: .black.opacity(0.28), radius: 4, y: 3)
+        }
+    }
+
+    private func feederShelf(width: CGFloat, foodCount: Int) -> some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(width: width * 0.92, height: isPad ? 13 : 8)
+                .shadow(color: .black.opacity(0.24), radius: 2, y: 2)
+            HStack(spacing: width * 0.04) {
+                ForEach(0..<foodCount, id: \.self) { index in
+                    ZStack {
+                        Circle()
+                            .fill(index.isMultiple(of: 2) ? character.color : palette.leafLight)
+                        Image(systemName: "leaf.fill")
+                            .font(.system(size: isPad ? 8 : 5, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.70))
+                    }
+                    .frame(width: width * 0.18, height: width * 0.18)
+                }
+            }
+            .offset(y: -(width * 0.12))
+        }
+    }
+
+    private var animalShelter: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack(alignment: .bottom) {
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: h * 0.29))
+                    path.addLine(to: CGPoint(x: w * 0.50, y: 0))
+                    path.addLine(to: CGPoint(x: w, y: h * 0.29))
+                    path.addLine(to: CGPoint(x: w * 0.88, y: h * 0.37))
+                    path.addLine(to: CGPoint(x: w * 0.50, y: h * 0.15))
+                    path.addLine(to: CGPoint(x: w * 0.12, y: h * 0.37))
+                    path.closeSubpath()
+                }
+                .fill(LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                     startPoint: .top, endPoint: .bottom))
+                .shadow(color: .black.opacity(0.30), radius: 4, y: 3)
+
+                RoundedRectangle(cornerRadius: isPad ? 13 : 9, style: .continuous)
+                    .fill(LinearGradient(colors: [palette.wood, palette.woodDeep],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: w * 0.82, height: h * 0.70)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: isPad ? 22 : 15, style: .continuous)
+                            .fill(Color.black.opacity(0.55))
+                            .padding(.horizontal, w * 0.14)
+                            .padding(.top, h * 0.18)
+                            .padding(.bottom, h * 0.08)
+                    }
+                    .overlay(alignment: .bottom) {
+                        Capsule()
+                            .fill(character.color.opacity(0.72))
+                            .frame(width: w * 0.58, height: h * 0.16)
+                            .padding(.bottom, h * 0.07)
+                    }
+
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: min(w, h) * 0.22, weight: .black))
+                    .foregroundStyle(palette.woodLight.opacity(0.72))
+                    .offset(y: -h * 0.36)
+            }
+        }
+    }
+
+    private var enrichmentToys: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: h * 0.18, style: .continuous)
+                    .fill(palette.woodDeep.opacity(0.80))
+                    .frame(height: h * 0.28)
+                HStack(alignment: .bottom, spacing: w * 0.025) {
+                    ForEach(0..<4, id: \.self) { index in
+                        ZStack {
+                            Circle()
+                                .fill(index.isMultiple(of: 2) ? character.color : palette.leafLight)
+                            Circle()
+                                .stroke(.white.opacity(0.35), lineWidth: 1)
+                                .padding(3)
+                            Image(systemName: index == 1 ? "leaf.fill" : "pawprint.fill")
+                                .font(.system(size: h * 0.18, weight: .bold))
+                                .foregroundStyle(character.skyColor.opacity(0.82))
+                        }
+                        .frame(width: h * (0.48 + CGFloat(index % 2) * 0.14),
+                               height: h * (0.48 + CGFloat(index % 2) * 0.14))
+                        .rotationEffect(.degrees(Double(index * 11 - 16)))
+                    }
+                }
+                .padding(.bottom, h * 0.12)
+            }
+            .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+        }
+    }
+
+    private var climbingNet: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack {
+                RoundedRectangle(cornerRadius: isPad ? 8 : 5, style: .continuous)
+                    .stroke(
+                        LinearGradient(colors: [palette.woodLight, palette.woodDeep],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: isPad ? 7 : 4.5
+                    )
+                Canvas { context, size in
+                    let rope = Color(red: 0.72, green: 0.53, blue: 0.27).opacity(0.82)
+                    for index in -2...4 {
+                        var down = Path()
+                        down.move(to: CGPoint(x: CGFloat(index) * size.width * 0.24, y: 0))
+                        down.addLine(to: CGPoint(x: CGFloat(index + 3) * size.width * 0.24,
+                                                 y: size.height))
+                        context.stroke(down, with: .color(rope), lineWidth: isPad ? 2.4 : 1.6)
+
+                        var up = Path()
+                        up.move(to: CGPoint(x: CGFloat(index) * size.width * 0.24,
+                                           y: size.height))
+                        up.addLine(to: CGPoint(x: CGFloat(index + 3) * size.width * 0.24, y: 0))
+                        context.stroke(up, with: .color(rope), lineWidth: isPad ? 2.4 : 1.6)
+                    }
+                }
+                .padding(isPad ? 7 : 5)
+
+                VStack {
+                    HStack {
+                        ropeKnot
+                        Spacer()
+                        ropeKnot
+                    }
+                    Spacer()
+                    HStack {
+                        ropeKnot
+                        Spacer()
+                        ropeKnot
+                    }
+                }
+                .padding(isPad ? 5 : 3)
+
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: min(w, h) * 0.22, weight: .black))
+                    .foregroundStyle(character.color)
+                    .padding(min(w, h) * 0.10)
+                    .background(character.skyColor.opacity(0.92), in: Circle())
+                    .shadow(color: .black.opacity(0.24), radius: 3, y: 2)
+            }
+            .rotationEffect(.degrees(3))
+            .shadow(color: .black.opacity(0.25), radius: 4, y: 3)
+        }
+    }
+
+    private var ropeKnot: some View {
+        Circle()
+            .fill(Color(red: 0.49, green: 0.30, blue: 0.11))
+            .frame(width: isPad ? 9 : 6, height: isPad ? 9 : 6)
+            .overlay(Circle().stroke(palette.woodLight.opacity(0.60), lineWidth: 1))
+    }
+
+    private var habitatFloorZone: some View {
+        let aquatic = ["octopus", "crab", "frog", "penguin"].contains(character.id)
+        return ZStack {
+            Capsule()
+                .fill(
+                    aquatic
+                        ? LinearGradient(colors: [character.skyColor, character.color.opacity(0.55)],
+                                         startPoint: .top, endPoint: .bottom)
+                        : LinearGradient(colors: [Color(red: 0.56, green: 0.37, blue: 0.17),
+                                                 Color(red: 0.29, green: 0.18, blue: 0.08)],
+                                         startPoint: .top, endPoint: .bottom)
+                )
+                .overlay(Capsule().stroke(.white.opacity(0.28), lineWidth: 1))
+            Image(systemName: aquatic ? "water.waves" : "leaf.fill")
+                .font(.system(size: isPad ? 18 : 12, weight: .bold))
+                .foregroundStyle(aquatic ? character.deepColor : palette.leafLight)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 3, y: 2)
+    }
+
+    private var habitatNook: some View {
+        GeometryReader { proxy in
+            let aquatic = ["octopus", "crab", "frog", "penguin"].contains(character.id)
+            ZStack {
+                if aquatic {
+                    Ellipse()
+                        .fill(
+                            RadialGradient(colors: [character.skyColor.opacity(0.85),
+                                                    character.color.opacity(0.34),
+                                                    character.deepColor.opacity(0.18)],
+                                           center: .center,
+                                           startRadius: 2,
+                                           endRadius: isPad ? 72 : 50)
+                        )
+                        .overlay(Ellipse().stroke(.white.opacity(0.42), lineWidth: 1.5))
+                        .frame(width: isPad ? 116 : 78, height: isPad ? 34 : 23)
+                    Image(systemName: character.id == "penguin" ? "snowflake" : "water.waves")
+                        .font(.system(size: isPad ? 23 : 15, weight: .bold))
+                        .foregroundStyle(character.deepColor.opacity(0.70))
+                } else {
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: isPad ? 20 : 13, style: .continuous)
+                            .fill(
+                                LinearGradient(colors: [palette.woodDeep,
+                                                        Color(red: 0.13, green: 0.08, blue: 0.04)],
+                                               startPoint: .top, endPoint: .bottom)
+                            )
+                            .frame(width: isPad ? 118 : 80, height: isPad ? 66 : 44)
+                            .overlay(alignment: .top) {
+                                Capsule()
+                                    .fill(character.color.opacity(0.58))
+                                    .frame(width: isPad ? 88 : 58, height: isPad ? 17 : 11)
+                                    .padding(.top, isPad ? 38 : 25)
+                            }
+                        Image(systemName: "pawprint.fill")
+                            .font(.system(size: isPad ? 21 : 14, weight: .bold))
+                            .foregroundStyle(palette.woodLight.opacity(0.52))
+                            .padding(.bottom, isPad ? 29 : 19)
+                    }
+                }
+            }
+            .position(x: proxy.size.width * 0.18, y: proxy.size.height * 0.69)
+            .shadow(color: .black.opacity(0.24), radius: 4, y: 3)
+        }
+    }
+
+    private var foregroundPlants: some View {
+        GeometryReader { proxy in
+            HStack(alignment: .bottom) {
+                plantCluster(mirrored: false)
+                Spacer()
+                plantCluster(mirrored: true)
+            }
+            .padding(.horizontal, isPad ? 8 : 4)
+            .padding(.bottom, isPad ? 26 : 18)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)
+        }
+    }
+
+    private func plantCluster(mirrored: Bool) -> some View {
+        ZStack(alignment: .bottom) {
+            Capsule()
+                .fill(LinearGradient(colors: [palette.wood, palette.woodDeep],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(width: isPad ? 48 : 34, height: isPad ? 24 : 17)
+            ForEach(0..<4, id: \.self) { index in
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: (isPad ? 25 : 17) + CGFloat(index % 2) * 5,
+                                  weight: .bold))
+                    .foregroundStyle(index.isMultiple(of: 2) ? palette.leafLight : palette.leaf)
+                    .rotationEffect(.degrees(Double(index * 31 - 48)))
+                    .offset(x: CGFloat(index - 2) * (isPad ? 9 : 6),
+                            y: -(isPad ? 15 : 10) - CGFloat(index % 2) * 5)
+            }
+        }
+        .scaleEffect(x: mirrored ? -1 : 1, y: 1)
+        .shadow(color: .black.opacity(0.25), radius: 2, y: 2)
+    }
+
     private var pawWall: some View {
         GeometryReader { proxy in
             ForEach(0..<6, id: \.self) { index in
@@ -2715,6 +3524,17 @@ private struct SanctuaryScene: View, Equatable {
                 }
                 .overlay {
                     Rectangle().fill(.white.opacity(0.22)).frame(width: 3)
+                }
+                .overlay(alignment: .bottom) {
+                    HStack(alignment: .bottom, spacing: 1) {
+                        ForEach(0..<5, id: \.self) { index in
+                            Capsule()
+                                .fill(character.deepColor.opacity(0.25))
+                                .frame(width: isPad ? 8 : 5,
+                                       height: (isPad ? 18 : 12) + CGFloat(index % 3) * 5)
+                        }
+                    }
+                    .padding(.bottom, isPad ? 9 : 6)
                 }
             Circle()
                 .fill(.white.opacity(0.45))
@@ -2812,12 +3632,101 @@ private struct SanctuaryScene: View, Equatable {
                                 Color(red: 0.36, green: 0.20, blue: 0.08)],
                        startPoint: .top, endPoint: .bottom)
             .overlay {
-                HStack(spacing: 5) {
-                    ForEach(0..<9, id: \.self) { _ in
-                        Rectangle().fill(Color.black.opacity(0.08))
+                GeometryReader { proxy in
+                    ForEach(0..<9, id: \.self) { index in
+                        Path { path in
+                            let x = proxy.size.width * CGFloat(index) / 8
+                            path.move(to: CGPoint(x: proxy.size.width / 2, y: 0))
+                            path.addLine(to: CGPoint(x: x, y: proxy.size.height))
+                        }
+                        .stroke(Color.black.opacity(0.14), lineWidth: 1)
                     }
                 }
             }
+    }
+}
+
+/// Swaying toys, breathing lamp light and drifting dust make the sanctuary feel
+/// occupied without competing with the moving elephant or changing game input.
+private struct SanctuaryLivingDetails: View {
+    let palette: ClawPalette
+    let character: AnimalCharacter
+    let isPad: Bool
+    let reduceMotion: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: reduceMotion)) { timeline in
+            GeometryReader { proxy in
+                let time = timeline.date.timeIntervalSinceReferenceDate
+                let sway = reduceMotion ? 0 : sin(time * 0.92)
+                let breathe = reduceMotion ? 0.58 : 0.50 + (sin(time * 1.35) + 1) * 0.08
+                ZStack {
+                    ForEach(0..<5, id: \.self) { index in
+                        Circle()
+                            .fill(.white.opacity(0.22))
+                            .frame(width: isPad ? 4 : 3, height: isPad ? 4 : 3)
+                            .position(
+                                x: proxy.size.width * (0.20 + CGFloat(index) * 0.145),
+                                y: proxy.size.height * (0.22 + CGFloat(index % 3) * 0.10)
+                                    + (reduceMotion ? 0 : CGFloat(sin(time * 0.55 + Double(index))) * 6)
+                            )
+                    }
+
+                    Circle()
+                        .fill(character.skyColor.opacity(breathe))
+                        .blur(radius: isPad ? 18 : 12)
+                        .frame(width: isPad ? 70 : 48, height: isPad ? 70 : 48)
+                        .position(x: proxy.size.width * 0.80, y: proxy.size.height * 0.13)
+
+                    hangingToy(sway: sway)
+                        .position(x: proxy.size.width * 0.72, y: proxy.size.height * 0.26)
+
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: isPad ? 31 : 22, weight: .bold))
+                        .foregroundStyle(palette.leafLight)
+                        .rotationEffect(.degrees(sway * 4), anchor: .bottom)
+                        .position(x: proxy.size.width * 0.91, y: proxy.size.height * 0.51)
+                        .shadow(color: .black.opacity(0.20), radius: 2, y: 2)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func hangingToy(sway: Double) -> some View {
+        let length: CGFloat = isPad ? 78 : 52
+        return VStack(spacing: 0) {
+            RopeStrand()
+                .stroke(
+                    LinearGradient(colors: [Color(red: 0.82, green: 0.65, blue: 0.34),
+                                            Color(red: 0.38, green: 0.23, blue: 0.09)],
+                                   startPoint: .top, endPoint: .bottom),
+                    style: StrokeStyle(lineWidth: isPad ? 3 : 2.2, lineCap: .round)
+                )
+                .frame(width: isPad ? 10 : 7, height: length)
+            ZStack {
+                Circle()
+                    .fill(character.color)
+                    .frame(width: isPad ? 31 : 22, height: isPad ? 31 : 22)
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: isPad ? 15 : 10, weight: .bold))
+                    .foregroundStyle(character.skyColor)
+            }
+            .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
+        }
+        .rotationEffect(.degrees(sway * 3.5), anchor: .top)
+    }
+}
+
+private struct RopeStrand: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
+                      control1: CGPoint(x: rect.minX, y: rect.height * 0.34),
+                      control2: CGPoint(x: rect.maxX, y: rect.height * 0.68))
+        return path
     }
 }
 
@@ -2849,8 +3758,8 @@ private struct CatchBinBackView: View, Equatable {
                     path.closeSubpath()
                 }
                 .fill(
-                    LinearGradient(colors: [Color(red: 0.20, green: 0.38, blue: 0.68),
-                                            Color(red: 0.08, green: 0.16, blue: 0.32)],
+                    LinearGradient(colors: [palette.bin,
+                                            palette.binDeep],
                                    startPoint: .top, endPoint: .bottom)
                 )
 
@@ -2861,7 +3770,7 @@ private struct CatchBinBackView: View, Equatable {
                     path.addLine(to: CGPoint(x: depth * 0.42, y: h * 0.12))
                     path.closeSubpath()
                 }
-                .stroke(Color(red: 0.32, green: 0.52, blue: 0.86), lineWidth: isPad ? 5 : 3.5)
+                .stroke(palette.bin.opacity(0.90), lineWidth: isPad ? 5 : 3.5)
             }
         }
         .allowsHitTesting(false)

@@ -119,6 +119,7 @@ struct GameView: View {
     }
 
     private var character: AnimalCharacter { CharacterCatalog.current(isPremium: premium.isPremium) }
+    private var clawPalette: ClawPalette { ClawPalette(character: character) }
     private var isPad: Bool { AppLayout.isPad }
 
     var body: some View {
@@ -358,12 +359,14 @@ struct GameView: View {
             Spacer(minLength: 0)
             ClawTimerBadge(clock: model.clock,
                            isPad: isPad,
-                           size: hudTimerSize)
+                           size: hudTimerSize,
+                           palette: clawPalette)
         }
     }
 
     private var pauseButton: some View {
-        Button {
+        let palette = clawPalette
+        return Button {
             AppAudio.shared.playMenuTap()
             model.pause()
             showsPauseCard = true
@@ -371,49 +374,62 @@ struct GameView: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: isPad ? 7 : 5, style: .continuous)
-                    .fill(Color(red: 0.34, green: 0.18, blue: 0.07))
+                    .fill(palette.woodDeep)
                     .frame(width: hudPauseMountSize * 0.32,
                            height: hudPauseMountSize * 0.38)
                     .offset(y: hudPauseMountSize * 0.43)
 
                 RoundedRectangle(cornerRadius: isPad ? 18 : 14, style: .continuous)
                     .fill(
-                        LinearGradient(colors: [Color(red: 0.82, green: 0.61, blue: 0.34),
-                                                Color(red: 0.55, green: 0.33, blue: 0.14),
-                                                Color(red: 0.30, green: 0.16, blue: 0.06)],
+                        LinearGradient(colors: [palette.woodLight,
+                                                palette.wood,
+                                                palette.woodDeep],
                                        startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                     .frame(width: hudPauseMountSize, height: hudPauseMountSize)
                     .overlay {
                         RoundedRectangle(cornerRadius: isPad ? 18 : 14, style: .continuous)
-                            .strokeBorder(Color(red: 0.24, green: 0.12, blue: 0.04),
+                            .strokeBorder(palette.woodDeep,
                                           lineWidth: isPad ? 3 : 2)
                     }
                     .overlay {
                         CabinetMountFasteners(size: isPad ? 5 : 4,
-                                              inset: isPad ? 8 : 6)
+                                              inset: isPad ? 8 : 6,
+                                              palette: palette)
+                    }
+                    .overlay {
+                        CabinetHUDWoodGrain(color: palette.woodDeep)
+                            .clipShape(RoundedRectangle(cornerRadius: isPad ? 18 : 14,
+                                                       style: .continuous))
                     }
 
                 RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
                     .fill(
-                        LinearGradient(colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
-                                                Color(red: 0.22, green: 0.12, blue: 0.05)],
+                        LinearGradient(colors: [palette.character.deepColor,
+                                                Color.black.opacity(0.86)],
                                        startPoint: .top, endPoint: .bottom)
                     )
                     .frame(width: hudPauseSize, height: hudPauseSize)
                     .overlay {
                         Image(systemName: "pause.fill")
                             .font(.system(size: pauseGlyphSize, weight: .bold))
-                            .foregroundStyle(Color(red: 1.0, green: 0.90, blue: 0.62))
+                            .foregroundStyle(palette.character.skyColor)
+                            .shadow(color: palette.character.color.opacity(0.55), radius: 3)
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
                             .stroke(
-                                LinearGradient(colors: [Color(red: 0.92, green: 0.72, blue: 0.43),
-                                                        Color(red: 0.26, green: 0.13, blue: 0.05)],
+                                LinearGradient(colors: [palette.woodLight,
+                                                        palette.woodDeep],
                                                startPoint: .top, endPoint: .bottom),
                                 lineWidth: 2
                             )
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "leaf.fill")
+                            .font(.system(size: isPad ? 10 : 7, weight: .bold))
+                            .foregroundStyle(palette.character.color.opacity(0.72))
+                            .padding(isPad ? 5 : 4)
                     }
             }
             .frame(width: hudPauseMountSize, height: hudPauseMountSize)
@@ -442,6 +458,7 @@ private struct ClawTimerBadge: View {
     @ObservedObject var clock: GameClock
     let isPad: Bool
     let size: CGFloat
+    let palette: ClawPalette
 
     private var remaining: Double { clock.remaining }
     private var total: Double { clock.total }
@@ -457,53 +474,59 @@ private struct ClawTimerBadge: View {
         let mountSize = size + (isPad ? 16 : 12)
         return ZStack {
             RoundedRectangle(cornerRadius: isPad ? 7 : 5, style: .continuous)
-                .fill(Color(red: 0.34, green: 0.18, blue: 0.07))
+                .fill(palette.woodDeep)
                 .frame(width: mountSize * 0.28, height: mountSize * 0.34)
                 .offset(y: mountSize * 0.43)
 
             Circle()
                 .fill(
-                    LinearGradient(colors: [Color(red: 0.84, green: 0.63, blue: 0.36),
-                                            Color(red: 0.50, green: 0.29, blue: 0.12),
-                                            Color(red: 0.27, green: 0.13, blue: 0.04)],
+                    LinearGradient(colors: [palette.woodLight,
+                                            palette.wood,
+                                            palette.woodDeep],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                 )
                 .frame(width: mountSize, height: mountSize)
                 .overlay {
                     Circle()
-                        .strokeBorder(Color(red: 0.22, green: 0.11, blue: 0.04),
+                        .strokeBorder(palette.woodDeep,
                                       lineWidth: isPad ? 3 : 2)
                 }
                 .overlay {
                     CabinetMountFasteners(size: isPad ? 5 : 4,
-                                          inset: isPad ? 7 : 6)
+                                          inset: isPad ? 7 : 6,
+                                          palette: palette)
+                        .clipShape(Circle())
+                }
+                .overlay {
+                    CabinetHUDWoodGrain(color: palette.woodDeep)
                         .clipShape(Circle())
                 }
 
             ZStack {
                 Circle()
                     .fill(
-                        LinearGradient(colors: [Color(red: 0.46, green: 0.28, blue: 0.13),
-                                                Color(red: 0.16, green: 0.09, blue: 0.04)],
+                        LinearGradient(colors: [palette.character.deepColor,
+                                                Color.black.opacity(0.88)],
                                        startPoint: .top, endPoint: .bottom)
                     )
                 Circle()
                     .stroke(
-                        LinearGradient(colors: [Color(red: 0.92, green: 0.72, blue: 0.43),
-                                                Color(red: 0.28, green: 0.14, blue: 0.05)],
+                        LinearGradient(colors: [palette.woodLight,
+                                                palette.woodDeep],
                                        startPoint: .top, endPoint: .bottom),
                         lineWidth: isPad ? 5 : 4
                     )
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(Color(red: 0.35, green: 0.62, blue: 0.95),
+                    .stroke(palette.character.color,
                             style: StrokeStyle(lineWidth: isPad ? 6 : 5, lineCap: .round))
+                    .shadow(color: palette.character.skyColor.opacity(0.75), radius: 3)
                     .rotationEffect(.degrees(-90))
                     .padding(isPad ? 6 : 5)
                 Text(verbatim: LN(seconds))
                     .font(.system(size: isPad ? 24 : 18, weight: .heavy, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.character.skyColor)
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
                     .padding(.horizontal, 6)
@@ -520,6 +543,7 @@ private struct ClawTimerBadge: View {
 private struct CabinetMountFasteners: View {
     let size: CGFloat
     let inset: CGFloat
+    let palette: ClawPalette
 
     var body: some View {
         VStack {
@@ -541,14 +565,37 @@ private struct CabinetMountFasteners: View {
 
     private var fastener: some View {
         Circle()
-            .fill(Color(red: 0.20, green: 0.11, blue: 0.05))
+            .fill(palette.woodDeep)
             .frame(width: size, height: size)
             .overlay {
                 Capsule()
-                    .fill(Color(red: 0.86, green: 0.66, blue: 0.38).opacity(0.72))
+                    .fill(palette.woodLight.opacity(0.72))
                     .frame(width: size * 0.66, height: 1)
                     .rotationEffect(.degrees(-18))
             }
+    }
+}
+
+private struct CabinetHUDWoodGrain: View {
+    let color: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            Canvas { context, size in
+                for index in 0..<4 {
+                    let y = size.height * (0.22 + CGFloat(index) * 0.18)
+                    var path = Path()
+                    path.move(to: CGPoint(x: size.width * 0.12, y: y))
+                    path.addCurve(to: CGPoint(x: size.width * 0.88, y: y + CGFloat(index % 2) * 2),
+                                  control1: CGPoint(x: size.width * 0.34, y: y - 2),
+                                  control2: CGPoint(x: size.width * 0.64, y: y + 3))
+                    context.stroke(path,
+                                   with: .color(color.opacity(0.18)),
+                                   style: StrokeStyle(lineWidth: 0.8, lineCap: .round))
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
