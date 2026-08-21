@@ -141,11 +141,8 @@ struct HomeView: View {
     /// A `blur(radius: 0)` still books an offscreen pass. Only apply the
     /// softening while the tutorial is actually pointing at a card.
     @ViewBuilder
-    private var reefBackdrop: some View {
-        let backdrop = AmbientReefBackground(
-            character: character,
-            isPaused: showPremium || selection != nil || isCoveredByFirstSession
-        )
+    private var menuBackdrop: some View {
+        let backdrop = ClawMachineBackground(character: character)
         if showsTutorialHint {
             backdrop.blur(radius: 8)
         } else {
@@ -163,7 +160,7 @@ struct HomeView: View {
         let topicTotal = topicCards
 
         ZStack {
-            reefBackdrop
+            menuBackdrop
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: isPad ? 22 : 16) {
@@ -225,6 +222,22 @@ struct HomeView: View {
             }
         }
         .coordinateSpace(name: "home")
+        .overlayPreferenceValue(HomeCharacterAnchorKey.self) { anchor in
+            GeometryReader { proxy in
+                if let anchor {
+                    let frame = proxy[anchor]
+                    let ropeWidth: CGFloat = isPad ? 2 : 1.5
+                    MenuHangingRope(
+                        // Run one point into the antialiased top edge so no
+                        // background seam can open between rope and housing.
+                        endPoint: CGPoint(x: frame.midX,
+                                          y: frame.minY + 1),
+                        lineWidth: ropeWidth
+                    )
+                }
+            }
+            .ignoresSafeArea()
+        }
         .fullScreenCover(item: $selection, onDismiss: handleSessionDismissed) { item in
             GameView(request: GameSessionRequest(level: item.level,
                                                  mixedVariant: mixedVariant,
@@ -385,10 +398,16 @@ struct HomeView: View {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .stroke(.white.opacity(0.9), lineWidth: 2)
                 }
-            CroppedCharacterPortrait(character: character, otherCharacterScale: 0.84)
+            // The hanging version needs the elephant's complete black socket;
+            // the icon-style crop used elsewhere deliberately cuts that off.
+            CroppedCharacterPortrait(character: character,
+                                     elephantScale: 1,
+                                     elephantYOffset: 0,
+                                     otherCharacterScale: 0.84)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .frame(width: box, height: box)
+        .anchorPreference(key: HomeCharacterAnchorKey.self, value: .bounds) { $0 }
         .shadow(color: character.deepColor.opacity(0.18), radius: 7, y: 3)
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         // One exclusive recognizer decides between the two actions. A
@@ -1197,6 +1216,13 @@ struct HomeView: View {
         celebratedUnlockID = next
         premiumInitialCharacterID = next
         showPremium = true
+    }
+}
+
+private struct HomeCharacterAnchorKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
     }
 }
 

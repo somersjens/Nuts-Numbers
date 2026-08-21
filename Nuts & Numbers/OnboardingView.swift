@@ -139,7 +139,7 @@ struct OnboardingView: View {
     }
 
     private var onboardingBackground: some View {
-        AmbientReefBackground(character: welcomeCharacter, showsSeaFloor: true)
+        ClawMachineBackground(character: welcomeCharacter)
     }
 
     private var nameStep: some View {

@@ -55,10 +55,6 @@ struct PremiumView: View {
     var body: some View {
         let _ = totalCards
         ZStack(alignment: .top) {
-            LinearGradient(colors: [character.skyColor, character.tintColor],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
-
             ScrollView {
                 VStack(spacing: isPad ? 28 : 22) {
                     hero
@@ -84,6 +80,27 @@ struct PremiumView: View {
                     .contentShape(Rectangle())
                     .zIndex(10)
             }
+        }
+        // Resolve the hero anchor in a background layer so the character's
+        // black socket is composited over the rope, not under it.
+        .backgroundPreferenceValue(PremiumCharacterAnchorKey.self) { anchor in
+            GeometryReader { proxy in
+                if let anchor {
+                    let frame = proxy[anchor]
+                    let ropeWidth: CGFloat = isPad ? 5.5 : 4.25
+                    MenuHangingRope(
+                        endPoint: CGPoint(x: frame.midX,
+                                          // A slight overlap hides the PNG's
+                                          // transparent antialiasing at its top.
+                                          y: frame.minY + 1.5),
+                        lineWidth: ropeWidth
+                    )
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .background {
+            ClawMachineBackground(character: character)
         }
         .overlay(alignment: .topLeading) {
             if activeUnlockCharacterID == nil { closeButton }
@@ -148,6 +165,8 @@ struct PremiumView: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: heroSize * 0.88, height: heroSize * 0.88)
+                        .anchorPreference(key: PremiumCharacterAnchorKey.self,
+                                          value: .bounds) { $0 }
                         .shadow(color: character.deepColor.opacity(0.25), radius: 14, y: 8)
                         .id(previewCharacterID)
                         .transition(.scale.combined(with: .opacity))
@@ -616,6 +635,13 @@ struct PremiumView: View {
         }
     }
 
+}
+
+private struct PremiumCharacterAnchorKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
 }
 
 private struct UnlockBurstRing: View {
