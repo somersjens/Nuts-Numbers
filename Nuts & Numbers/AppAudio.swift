@@ -148,8 +148,12 @@ final class AppAudio: NSObject, ObservableObject {
     // are identical to the uncompressed PCM these files used to be, at under a
     // third of the bundle size.
     private static let effects: [Effect] = [
-        Effect(key: "correct",       file: "sfx_correct",        ext: "caf", volume: 0.14, lead: 0.0),
-        Effect(key: "wrong",         file: "sfx_wrong",          ext: "caf", volume: 0.11, lead: 0.065),
+        Effect(key: "correct",       file: "sfx_correct",        ext: "caf", volume: 0.08, lead: 0.0),
+        Effect(key: "wrong",         file: "sfx_wrong",          ext: "caf", volume: 0.10, lead: 0.0),
+        Effect(key: "takeNut",       file: "sfx_take_nut",       ext: "caf", volume: 0.50, lead: 0.0),
+        Effect(key: "releaseGrip",   file: "sfx_release_grip",   ext: "caf", volume: 0.07, lead: 0.0),
+        Effect(key: "buttonPress",   file: "sfx_button_press",   ext: "caf", volume: 0.31, lead: 0.0),
+        Effect(key: "move",          file: "sfx_move",           ext: "caf", volume: 0.60, lead: 0.0),
         // The card flip that opens a round.
         Effect(key: "cardFlip",      file: "sfx_card_flip",      ext: "caf", volume: 0.10, lead: 0.015),
         // The question card turning face up.
@@ -211,10 +215,10 @@ final class AppAudio: NSObject, ObservableObject {
     private let gameMusicVolume: Float = 0.30
     private let duckedMusicVolume: Float = 0.05
 
-    /// The source track fades to inaudible by ~88.6 s but contains another
-    /// 1.4 s of near-silence before its physical end at 90.04 s. Restart after
-    /// a short musical breath instead of making every loop wait for that tail.
-    private let musicLoopEndTime: TimeInterval = 88.95
+    /// The source track fades out from ~108.5 s and is inaudible by ~110.5 s,
+    /// with a short near-silent tail to 111.05 s. Restart after a musical
+    /// breath instead of making every loop wait for that tail.
+    private let musicLoopEndTime: TimeInterval = 110.50
 
     /// The volume the music should currently sit at, given where the player is.
     private var currentMusicTarget: Float { isGameplayActive ? gameMusicVolume : menuMusicVolume }
@@ -704,6 +708,10 @@ final class AppAudio: NSObject, ObservableObject {
     // Answers.
     func playCorrect()          { playEffect("correct") }
     func playWrong()            { playEffect("wrong") }
+    func playTakeNut()          { playEffect("takeNut") }
+    func playReleaseGrip()      { playEffect("releaseGrip") }
+    func playButtonPress()      { playEffect("buttonPress") }
+    func playMove()             { playEffect("move") }
     func playCardFlip()         { playEffect("cardFlip") }         // a card turns over
     func playCardReveal()       { playEffect("cardReveal") }       // the question becomes visible
     func playDoubleCardAppear() { playEffect("doubleCard") }       // the thick special card

@@ -335,6 +335,9 @@ final class ClawEngine: ObservableObject {
     var flyingScores: [FlyingScore] = []
     var buttonPressed = false
     var joystickInput: CGFloat = 0
+    /// Last joystick direction that actually drove the elephant (−1 / 0 / 1).
+    /// Used so the move one-shot fires on a new left/right start, not every frame.
+    private var lastMoveSign = 0
     var elephantVisible = true
     var elephantBodyVisible = true
     var promptPulse = 0.0
@@ -514,6 +517,7 @@ final class ClawEngine: ObservableObject {
             stopLink()
             input = 0
             joystickInput = 0
+            lastMoveSign = 0
             controlSignal.send()
         }
     }
@@ -534,6 +538,9 @@ final class ClawEngine: ObservableObject {
         controlSignal.send()
         guard phase == .idle || phase == .returning else { return }
         input = clamped
+        if phase == .idle {
+            playMoveIfInitiated(clamped)
+        }
         if abs(input) > 0.25, tutorialPlan.wantsMove, !hasReportedMove {
             hasReportedMove = true
             onTutorialEvent?(.movedClaw)
@@ -543,6 +550,7 @@ final class ClawEngine: ObservableObject {
     func pressGrab() {
         guard acceptsGrab else { return }
         onTutorialEvent?(.pressedGrab)
+        AppAudio.shared.playButtonPress()
         buttonPressed = true
         buttonPressAge = 0
         controlSignal.send()
@@ -566,6 +574,7 @@ final class ClawEngine: ObservableObject {
         finaleAge = 0
         heldNutID = nil
         input = 0
+        lastMoveSign = 0
         finaleStartX = binUnitX
         trolleyX = finaleStartX
         lastTrolleyX = trolleyX
@@ -584,6 +593,7 @@ final class ClawEngine: ObservableObject {
         finaleAge = 0
         heldNutID = nil
         input = 0
+        lastMoveSign = 0
         finaleStartX = trolleyX
         trolleyY = 0
         swingVelocity = 0
@@ -615,6 +625,7 @@ final class ClawEngine: ObservableObject {
         phaseAge = 0
         input = 0
         joystickInput = 0
+        lastMoveSign = 0
     }
 
     private func depthToward(_ target: ClawNutRuntime?) -> CGFloat {
@@ -741,6 +752,7 @@ final class ClawEngine: ObservableObject {
                 if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
                     grabFrom = nuts[index].position
                     beginCascade(removing: nuts[index])
+                    AppAudio.shared.playTakeNut()
                 }
                 enter(.grabbing)
             }
@@ -777,6 +789,7 @@ final class ClawEngine: ObservableObject {
             }
             if t >= 1 {
                 prepareDrop()
+                AppAudio.shared.playReleaseGrip()
                 enter(.dropping)
             }
         case .dropping:
@@ -967,12 +980,21 @@ final class ClawEngine: ObservableObject {
         }
     }
 
+    private func playMoveIfInitiated(_ value: CGFloat) {
+        let sign = abs(value) > 0.25 ? (value > 0 ? 1 : -1) : 0
+        if sign != 0, sign != lastMoveSign {
+            AppAudio.shared.playMove()
+        }
+        lastMoveSign = sign
+    }
+
     private func enter(_ next: ClawPhase) {
         phase = next
         phaseAge = 0
         if next == .idle {
             trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
             refreshHighlights()
+            playMoveIfInitiated(input)
         }
         if next == .returning {
             returnFromX = trolleyX

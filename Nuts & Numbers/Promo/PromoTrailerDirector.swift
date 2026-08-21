@@ -299,7 +299,7 @@ final class PromoTrailerDirector: ObservableObject {
 
     private func handleAnswer(isCorrect: Bool, startedStreak: Bool) {
         guard isCorrect else { return }
-        cueSFX("sfx_correct", volume: 0.14)
+        cueSFX("sfx_correct", volume: 0.08)
         if !openingCollected {
             openingCollected = true
             openingHitAt = elapsed
