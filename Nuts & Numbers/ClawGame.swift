@@ -1543,7 +1543,7 @@ struct ClawPlayfield: View {
                 ClawFrameDrivenView(signal: engine.frameSignal) {
                     if engine.elephantVisible {
                         ClawElephantView(
-                            character: character,
+                            character: engine.hangingCharacter,
                             origin: engine.trolleyScreen,
                             swing: engine.swingAngle,
                             phase: engine.phase,
@@ -1679,12 +1679,18 @@ struct ClawPlayfield: View {
     }
 
     private func bindEngine() {
+        engine.setCharacter(character)
         engine.onGrabResolved = onGrab
         engine.onScoreBubbleArrived = onScoreBubbleArrived
         engine.onEntranceComplete = onEntranceComplete
         engine.onLevelCompletionFinished = onLevelCompletionFinished
         engine.onTimeOutFinished = onTimeOutFinished
         engine.onTutorialEvent = onTutorialEvent
+    }
+
+    private func commitGrab() {
+        engine.setCharacter(character)
+        engine.pressGrab()
     }
 
     /// Hold the left half to steer left, the right half to steer right, or swipe
@@ -1727,7 +1733,7 @@ struct ClawPlayfield: View {
         DragGesture(minimumDistance: 0)
             .onEnded { value in
                 guard !isDownwardSwipe(value) else { return }
-                engine.pressGrab()
+                commitGrab()
             }
     }
 
@@ -1753,7 +1759,7 @@ struct ClawPlayfield: View {
         guard !didTriggerScreenGrab else { return }
         didTriggerScreenGrab = true
         engine.setInput(0)
-        engine.pressGrab()
+        commitGrab()
     }
 
     private func isDownwardSwipe(_ value: DragGesture.Value) -> Bool {
@@ -2133,7 +2139,7 @@ struct ClawPlayfield: View {
         let travel = side * (GrabButtonArt.pressTravel / GrabButtonArt.canvas)
         let faceOffset = side * (GrabButtonArt.labelCenterY - 0.5)
 
-        return Button(action: engine.pressGrab) {
+        return Button(action: commitGrab) {
             ZStack {
                 ZStack {
                     grabHousingImage

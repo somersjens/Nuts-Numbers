@@ -196,7 +196,9 @@ struct HangingCharacterRig: Equatable {
     var layerNames: [String] { [claw, bottom, head, leftArm, rightArm] }
 
     static func forID(_ id: String) -> HangingCharacterRig {
-        table[id] ?? table["elephant"]!
+        if let rig = table[id] { return rig }
+        assertionFailure("Missing hanging rig for \(id)")
+        return table["elephant"]!
     }
 
     private static let table: [String: HangingCharacterRig] = [
