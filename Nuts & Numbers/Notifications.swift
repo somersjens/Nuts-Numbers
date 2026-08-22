@@ -154,7 +154,11 @@ final class NotificationManager: NSObject {
             self?.handleForeground()
         }
 #endif
-        rescheduleAll()
+        // Permission lookup and a full rebuild of the local schedule can wait
+        // until after the first frames; backgrounding still reschedules.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.rescheduleAll()
+        }
     }
 
     // MARK: Permission

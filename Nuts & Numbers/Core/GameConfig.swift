@@ -46,12 +46,8 @@ nonisolated public enum GameConfig {
     /// until the next wrong answer.
     public static let streakThreshold = 5
     public static let streakMultiplier = 2
-    /// The reef already has an active base tempo. A streak adds a noticeable
-    /// push without making the denser answer stream overwhelming.
-    public static let streakSpeedMultiplier = 1.3
-    /// A 2x fish swims across the level this many times. Catching it doubles
-    /// the next correct answer; a missed fish simply leaves the screen.
-    public static let bonusFishCount = 1...3
+    /// Catching a gold nut doubles that answer. Same multiplier the old 2x
+    /// helper fish used, so stored sessions keep paying the same bonus.
     public static let bonusFishMultiplier = 2
 
     // MARK: Timing (seconds)

@@ -112,7 +112,8 @@ struct LevelIntroCard: View {
 
     private var isContinuation: Bool { isPauseCard || paused != nil }
 
-    @ObservedObject private var audio = AppAudio.shared
+    @AppStorage(GameSettings.musicEnabledKey) private var musicEnabled = true
+    @AppStorage(GameSettings.gameSoundsEnabledKey) private var gameSoundsEnabled = true
     @ObservedObject private var language = LanguageManager.shared
 
     private var isPad: Bool { AppLayout.isPad }
@@ -264,14 +265,14 @@ struct LevelIntroCard: View {
     private var audioControlRow: some View {
         HStack(spacing: 7 * scale) {
             audioButton(icon: "music.note",
-                        isOn: audio.musicEnabled,
+                        isOn: musicEnabled,
                         accessibilityLabel: L("settings.music")) {
-                withAnimation(.snappy(duration: 0.2)) { audio.toggleMusic() }
+                withAnimation(.snappy(duration: 0.2)) { AppAudio.shared.toggleMusic() }
             }
             audioButton(icon: "speaker.wave.2.fill",
-                        isOn: audio.gameSoundsEnabled,
+                        isOn: gameSoundsEnabled,
                         accessibilityLabel: L("settings.soundEffects")) {
-                withAnimation(.snappy(duration: 0.2)) { audio.toggleGameSounds() }
+                withAnimation(.snappy(duration: 0.2)) { AppAudio.shared.toggleGameSounds() }
             }
             tutorialButton
             Spacer(minLength: 0)

@@ -161,14 +161,16 @@ private enum CatchBinArtwork {
 /// Decode claw-machine sprites once. The hanging layers and walnut PNG are
 /// large canvases; paying decompression on the first gameplay frame is a hitch.
 enum ClawArtworkCache {
-    static let nut: UIImage = prepared(named: ClawConfig.nutImageName)
-    static let joystickBase: UIImage = prepared(named: "base")
-    static let poke: UIImage = prepared(named: "poke")
-    static let lightArrow: UIImage = prepared(named: "light arrow")
-    static let grabHousing: UIImage = prepared(named: "button3")
-    static let grabCap: UIImage = prepared(named: "button2")
-    static let grabLip: UIImage = prepared(named: "button1")
-    static let scorePad: UIImage = prepared(named: "score_pad")
+    /// The authored walnut is 1536×1024; on-screen shells are ~80–140pt.
+    static let nut: UIImage = DisplayPreparedImage.make(named: ClawConfig.nutImageName, maxPixel: 512)
+    static let catchBin: UIImage = DisplayPreparedImage.make(named: CatchBinArtwork.imageName, maxPixel: 1024)
+    static let joystickBase: UIImage = DisplayPreparedImage.make(named: "base", maxPixel: 512)
+    static let poke: UIImage = DisplayPreparedImage.make(named: "poke", maxPixel: 512)
+    static let lightArrow: UIImage = DisplayPreparedImage.make(named: "light arrow", maxPixel: 512)
+    static let grabHousing: UIImage = DisplayPreparedImage.make(named: "button3", maxPixel: 512)
+    static let grabCap: UIImage = DisplayPreparedImage.make(named: "button2", maxPixel: 512)
+    static let grabLip: UIImage = DisplayPreparedImage.make(named: "button1", maxPixel: 512)
+    static let scorePad: UIImage = DisplayPreparedImage.make(named: "score_pad", maxPixel: 384)
 
     static func layer(_ name: String) -> UIImage {
         CharacterArtworkCache.front(named: name)
@@ -176,6 +178,7 @@ enum ClawArtworkCache {
 
     static func prewarm(character: AnimalCharacter? = nil) {
         _ = nut
+        _ = catchBin
         let animal = character ?? CharacterCatalog.character(id: CharacterCatalog.freeCharacterID)
         CharacterArtworkCache.prewarmHanging(for: animal)
         _ = joystickBase
@@ -185,11 +188,6 @@ enum ClawArtworkCache {
         _ = grabCap
         _ = grabLip
         _ = scorePad
-    }
-
-    private static func prepared(named name: String) -> UIImage {
-        let image = UIImage(named: name) ?? UIImage()
-        return image.preparingForDisplay() ?? image
     }
 }
 #endif
@@ -334,6 +332,8 @@ final class ClawEngine: ObservableObject {
     fileprivate let frameSignal = ClawFrameSignal()
     fileprivate let nutSignal = ClawFrameSignal()
     fileprivate let controlSignal = ClawFrameSignal()
+    /// The sum plaque only needs frames while its reveal pulse is decaying.
+    fileprivate let hudSignal = ClawFrameSignal()
 
     // Per-frame pose is *not* `@Published`. The dedicated `frameSignal`
     // invalidates only the moving layers; publishing the engine itself here
@@ -369,6 +369,9 @@ final class ClawEngine: ObservableObject {
     private(set) var highlightedNutIDs: Set<UUID> = []
     private var lastHighCadence = true
     private var buttonPressAge: Double?
+    private var lastPublishedTrolleyX: CGFloat = .nan
+    private var lastPublishedTrolleyY: CGFloat = .nan
+    private var lastPublishedSwing: CGFloat = .nan
 
     /// Returns whether the nut matched the standing sum, so the claw can swallow
     /// or spit using the same verdict that awards cards.
@@ -431,6 +434,15 @@ final class ClawEngine: ObservableObject {
     private var slideEnd: [UUID: CGPoint] = [:]
     private var slideAge: Double = 0
     private var reversingSlides = false
+
+    /// Trailer-only: the host drives `trailerStep` at encode FPS.
+    private var trailerUsesExternalClock = false
+    /// Trailer-only: >1 compresses grab / travel time for the speed section.
+    var trailerSpeedScale: Double = 1
+    /// Trailer-only: when set, the return after a drop aims here instead of
+    /// the grab's origin, so the next nut can be lined up without a teleport.
+    var trailerReturnTargetX: CGFloat?
+    private var trailerForcedGrabID: UUID?
 
     var acceptsGrab: Bool {
         isLive && phase == .idle && !tutorialPlan.suppressesGrab
@@ -523,7 +535,7 @@ final class ClawEngine: ObservableObject {
             && !didFinishFinale
         if keepFinale {
             applyQuestion(question, targetNutID: targetNutID)
-            promptPulse = 1
+            beginPromptPulse()
             refreshHighlights()
             return
         }
@@ -544,7 +556,7 @@ final class ClawEngine: ObservableObject {
             trolleyY = ClawConfig.entranceParkY
         }
         applyQuestion(question, targetNutID: targetNutID)
-        promptPulse = 1
+        beginPromptPulse()
         guard let puzzle else {
             installedSeed = nil
             nuts = []
@@ -580,8 +592,13 @@ final class ClawEngine: ObservableObject {
         objectWillChange.send()
         defer { nutSignal.send() }
         applyQuestion(question, targetNutID: targetNutID)
-        promptPulse = 1
+        beginPromptPulse()
         refreshHighlights()
+    }
+
+    private func beginPromptPulse() {
+        promptPulse = 1
+        hudSignal.send()
     }
 
     /// A nil question must not wipe a standing answer. The pile can be
@@ -600,6 +617,8 @@ final class ClawEngine: ObservableObject {
 
     func setCharacter(_ character: AnimalCharacter) {
         hangingCharacter = character
+        objectWillChange.send()
+        frameSignal.send()
     }
 
     func setReduceMotion(_ enabled: Bool) { reduceMotion = enabled }
@@ -648,6 +667,15 @@ final class ClawEngine: ObservableObject {
         guard acceptsGrab else { return }
         onTutorialEvent?(.pressedGrab)
         AppAudio.shared.playButtonPress()
+        buttonPressed = true
+        buttonPressAge = 0
+        controlSignal.send()
+        startGrab()
+    }
+
+    func trailerPressGrab(id: UUID) {
+        guard acceptsGrab, nuts.contains(where: { $0.id == id && $0.isPresent }) else { return }
+        trailerForcedGrabID = id
         buttonPressed = true
         buttonPressAge = 0
         controlSignal.send()
@@ -723,7 +751,10 @@ final class ClawEngine: ObservableObject {
     // MARK: Grab
 
     private func startGrab() {
-        let target = nearestNut()
+        let forced = trailerForcedGrabID
+        trailerForcedGrabID = nil
+        let target = forced.flatMap { id in nuts.first(where: { $0.id == id && $0.isPresent }) }
+            ?? nearestNut()
         grabTarget = target?.id
         grabStartX = trolleyX
         grabDepth = depthToward(target)
@@ -820,6 +851,7 @@ final class ClawEngine: ObservableObject {
         motionClock += dt
         if promptPulse > 0 {
             promptPulse = max(0, promptPulse - dt * 1.8)
+            hudSignal.send()
         }
         if let age = entranceAge {
             let next = age + dt
@@ -845,6 +877,25 @@ final class ClawEngine: ObservableObject {
         if nutsWereAnimating || heldNutID != nil || !slides.isEmpty {
             nutSignal.send()
         }
+        publishFrameIfNeeded()
+    }
+
+    /// The hanging pose is the only reason most of the playfield observes the
+    /// display-link. Skip that invalidation when the claw is idle and nothing
+    /// visible moved — the Reduce Motion case once the swing has settled.
+    /// Any non-idle phase still publishes: grab, carry and finales sample
+    /// `phaseAge` on the elephant even when the trolley is parked.
+    private func publishFrameIfNeeded() {
+        if phase == .idle,
+           entranceAge == nil,
+           trolleyX == lastPublishedTrolleyX,
+           trolleyY == lastPublishedTrolleyY,
+           swingAngle == lastPublishedSwing {
+            return
+        }
+        lastPublishedTrolleyX = trolleyX
+        lastPublishedTrolleyY = trolleyY
+        lastPublishedSwing = swingAngle
         frameSignal.send()
     }
 
@@ -863,7 +914,7 @@ final class ClawEngine: ObservableObject {
         swingVelocity += -velocity * ClawConfig.swingDrive * dtg
         swingVelocity += -swingAngle * ClawConfig.swingSpring * dtg
         swingVelocity += -swingVelocity * ClawConfig.swingDamping * dtg
-        if phase == .idle, abs(input) < 0.04, entranceAge == nil {
+        if phase == .idle, abs(input) < 0.04, entranceAge == nil, !reduceMotion {
             swingVelocity += CGFloat(sin(motionClock * 1.35)) * 0.018 * dtg
         }
         swingAngle += swingVelocity * dtg
@@ -943,7 +994,8 @@ final class ClawEngine: ObservableObject {
                 nuts[index].position = dropTo
             }
             nuts[index].rotation += dt * 0.6
-            if phaseAge >= dropFlightTime + ClawConfig.dropSettle {
+            let settle = PromoTrailerRuntime.isActive ? 0.04 : ClawConfig.dropSettle
+            if phaseAge >= dropFlightTime + settle {
                 finishDrop(index: index)
             }
         case .spitBack:
@@ -972,7 +1024,7 @@ final class ClawEngine: ObservableObject {
             }
         case .returning:
             let t = min(1, phaseAge / returnTime)
-            let target = min(trolleyMaxFreeX, max(trolleyMinX, grabStartX))
+            let target = min(trolleyMaxFreeX, max(trolleyMinX, trailerReturnTargetX ?? grabStartX))
             trolleyX = returnFromX + (target - returnFromX) * easeInOut(t)
             trolleyY = 0
             if t >= 1 {
@@ -1151,10 +1203,16 @@ final class ClawEngine: ObservableObject {
             trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, trolleyX))
             refreshHighlights()
             armMoveSoundIfNeeded(input: input)
+            if PromoTrailerRuntime.isActive {
+                swingAngle = 0
+                swingVelocity = 0
+                input = 0
+                joystickInput = 0
+            }
         }
         if next == .returning {
             returnFromX = trolleyX
-            let target = min(trolleyMaxFreeX, max(trolleyMinX, grabStartX))
+            let target = min(trolleyMaxFreeX, max(trolleyMinX, trailerReturnTargetX ?? grabStartX))
             returnTime = max(0.26, Double(abs(target - returnFromX)) / 0.95)
         }
     }
@@ -1337,7 +1395,158 @@ final class ClawEngine: ObservableObject {
         (playRect, pileRect, binRect, headerRect, panelRect)
     }
 
+    // MARK: Promo trailer control
+
+    func trailerPrepareDeterministicSession() {
+        trailerUsesExternalClock = true
+        trailerSpeedScale = 1
+        hasStartedEntrance = true
+        elephantVisible = true
+        elephantBodyVisible = true
+        trolleyY = ClawConfig.entranceParkY
+        swingAngle = 0.35
+        swingVelocity = 0
+        entranceAge = nil
+        stopLink()
+    }
+
+    func trailerParkForEntrance(x: CGFloat) {
+        hasStartedEntrance = true
+        elephantVisible = true
+        elephantBodyVisible = true
+        trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, x))
+        lastTrolleyX = trolleyX
+        trolleyY = ClawConfig.entranceParkY
+        swingAngle = 0.35
+        swingVelocity = 0
+        entranceAge = nil
+        phase = .idle
+        phaseAge = 0
+        objectWillChange.send()
+        frameSignal.send()
+    }
+
+    func trailerBeginEntrance() {
+        guard entranceAge == nil else { return }
+        hasStartedEntrance = true
+        elephantVisible = true
+        elephantBodyVisible = true
+        trolleyY = ClawConfig.entranceParkY
+        swingAngle = 0.35
+        swingVelocity = 0
+        entranceAge = 0
+        objectWillChange.send()
+        frameSignal.send()
+    }
+
+    var trailerHasLanded: Bool {
+        entranceAge == nil && trolleyY > -0.04
+    }
+
+    var trailerIsOverBin: Bool {
+        trolleyX >= trolleyMaxFreeX - 0.10
+    }
+
+    /// True while a held nut is parked over the answer mouth, just before the drop.
+    var trailerIsHangingOverBin: Bool {
+        guard heldNutID != nil, phase == .carrying else { return false }
+        let progress = carryTime > 0 ? phaseAge / carryTime : 1
+        let nearMouth = abs(trolleyX - binUnitX) <= 0.08
+        return nearMouth || progress >= 0.70
+    }
+
+    func trailerCollapseToPyramid(keeping ids: [UUID], positions: [ClawPoint]) {
+        let keep = Set(ids)
+        for i in nuts.indices {
+            if !keep.contains(nuts[i].id) {
+                nuts[i].isPresent = false
+            }
+        }
+        for (offset, id) in ids.enumerated() {
+            guard offset < positions.count,
+                  let index = nuts.firstIndex(where: { $0.id == id }) else { continue }
+            nuts[index].spec.position = positions[offset]
+            nuts[index].isPresent = true
+            nuts[index].rest = screenPoint(positions[offset])
+            nuts[index].position = nuts[index].rest
+            nuts[index].rotation = 0
+        }
+        objectWillChange.send()
+        nutSignal.send()
+        frameSignal.send()
+    }
+
+    func trailerEnableExternalClock() {
+        trailerUsesExternalClock = true
+        stopLink()
+    }
+
+    func trailerStep(dt: Double) {
+        var scale = max(0.35, trailerSpeedScale)
+        if phase == .celebrating, phaseAge >= ClawConfig.celebrationRelease {
+            scale *= 1.16
+        }
+        tick(dt: dt * scale)
+    }
+
+    func trailerRevealAtRest(x: CGFloat) {
+        hasStartedEntrance = true
+        elephantVisible = true
+        elephantBodyVisible = true
+        trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, x))
+        lastTrolleyX = trolleyX
+        trolleyY = 0
+        swingAngle = 0
+        swingVelocity = 0
+        entranceAge = nil
+        phase = .idle
+        phaseAge = 0
+        objectWillChange.send()
+        frameSignal.send()
+        nutSignal.send()
+        controlSignal.send()
+    }
+
+    var trailerPhase: ClawPhase { phase }
+    var trailerPhaseAge: TimeInterval { phaseAge }
+    var trailerTrolleyX: CGFloat { trolleyX }
+    var trailerTrolleyMinX: CGFloat { trolleyMinX }
+    var trailerTrolleyMaxX: CGFloat { trolleyMaxFreeX }
+    var trailerPlayfieldSize: CGSize { size }
+    var trailerHeaderMaxY: CGFloat { headerRect.maxY }
+    var trailerPanelMinY: CGFloat { panelRect.minY }
+    var trailerIsReadyToGrab: Bool { acceptsGrab }
+
+    func trailerNutTrolleyX(id: UUID) -> CGFloat? {
+        guard let nut = nuts.first(where: { $0.id == id && $0.isPresent }) else { return nil }
+        let width = max(playRect.width, 1)
+        return (nut.rest.x - playRect.minX) / width
+    }
+
+    var trailerPileSettled: Bool { slides.isEmpty }
+
+    func trailerPresentNutIDs() -> [UUID] {
+        nuts.filter(\.isPresent).map(\.id)
+    }
+
+    /// Park exactly over a nut and kill leftover swing so a sped-up grab
+    /// does not hunt left/right before the press.
+    func trailerSnapOver(id: UUID) {
+        guard let x = trailerNutTrolleyX(id: id) else { return }
+        trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, x))
+        lastTrolleyX = trolleyX
+        swingAngle = 0
+        swingVelocity = 0
+        input = 0
+        joystickInput = 0
+        objectWillChange.send()
+        frameSignal.send()
+    }
+
     private func startLink() {
+        // The App Store teaser host ticks the engine at encode FPS so motion
+        // stays deterministic. A parallel display-link would double-step.
+        if PromoTrailerRuntime.isActive { return }
 #if canImport(UIKit)
         guard displayLink == nil else { return }
         lastFrameTargetTimestamp = nil
@@ -1363,6 +1572,9 @@ final class ClawEngine: ObservableObject {
         displayLink = nil
         lastFrameTargetTimestamp = nil
         lastHighCadence = true
+        lastPublishedTrolleyX = .nan
+        lastPublishedTrolleyY = .nan
+        lastPublishedSwing = .nan
 #else
         timer?.invalidate()
         timer = nil
@@ -1370,7 +1582,13 @@ final class ClawEngine: ObservableObject {
     }
 
     private var wantsHighCadence: Bool {
-        phase != .idle || abs(input) > 0.04 || entranceAge != nil || finaleAge != nil || !slides.isEmpty
+        phase != .idle
+            || abs(input) > 0.04
+            || entranceAge != nil
+            || finaleAge != nil
+            || !slides.isEmpty
+            || promptPulse > 0
+            || !flyingScores.isEmpty
     }
 
     private func applyCadence() {
@@ -1381,7 +1599,7 @@ final class ClawEngine: ObservableObject {
         lastHighCadence = high
         displayLink.preferredFrameRateRange = high
             ? CAFrameRateRange(minimum: 45, maximum: 60, preferred: 60)
-            : CAFrameRateRange(minimum: 20, maximum: 30, preferred: 30)
+            : CAFrameRateRange(minimum: 15, maximum: 24, preferred: 20)
 #endif
     }
 
@@ -1439,6 +1657,7 @@ struct ClawPlayfield: View {
     let onLevelCompletionFinished: () -> Void
     let onTimeOutFinished: () -> Void
     var onTutorialEvent: (ClawTutorialEvent) -> Void = { _ in }
+    var onEngineReady: (ClawEngine) -> Void = { _ in }
 
     @StateObject private var engine = ClawEngine()
     @State private var didTriggerScreenGrab = false
@@ -1454,7 +1673,6 @@ struct ClawPlayfield: View {
             ZStack(alignment: .topLeading) {
                 MachineCabinet(palette: palette, size: size, isPad: isPad)
                     .equatable()
-                    .drawingGroup()
 
                 let geo = engine.geometry
                 CabinetTopAssembly(
@@ -1462,7 +1680,8 @@ struct ClawPlayfield: View {
                     size: size,
                     header: geo.header,
                     playTop: geo.play.minY,
-                    isPad: isPad
+                    isPad: isPad,
+                    prompt: PromoTrailerRuntime.isActive ? (round?.question.prompt ?? "") : ""
                 )
                 .equatable()
 
@@ -1540,51 +1759,19 @@ struct ClawPlayfield: View {
                     .position(x: size.width / 2, y: size.height / 2)
                 }
 
-                ClawFrameDrivenView(signal: engine.frameSignal) {
-                    if engine.elephantVisible {
-                        ClawElephantView(
-                            character: engine.hangingCharacter,
-                            origin: engine.trolleyScreen,
-                            swing: engine.swingAngle,
-                            phase: engine.phase,
-                            phaseAge: engine.phaseAge,
-                            motionClock: engine.motionClock,
-                            // The elephant is a true foreground actor. Giving it
-                            // the full stage prevents its artwork from being cut
-                            // off by the chamber canvas at the right outer post.
-                            play: CGRect(origin: .zero, size: size),
-                            bin: geo.bin,
-                            bodyVisible: engine.elephantBodyVisible,
-                            reduceMotion: reduceMotion,
-                            isPad: isPad
-                        )
-                        .frame(width: size.width, height: size.height)
-                        .position(x: size.width / 2, y: size.height / 2)
-                    }
-                }
+                hangingCharacterLayer(size: size, bin: geo.bin)
 
                 if engine.phase == .celebrating || engine.phase == .timeUp {
                     finaleBinForeground(geo: geo)
                 }
 
-                if isPad {
+                if isPad, !PromoTrailerRuntime.isActive {
                     cabinetInnerRim(geo: geo)
                 }
 
-                ClawFrameDrivenView(signal: engine.frameSignal) {
-                    ClawPromptPlaque(
-                        text: round?.question.prompt ?? "",
-                        pulse: engine.promptPulse > 0.02 ? engine.promptPulse : 0,
-                        isPad: isPad,
-                        palette: palette,
-                        roundNumber: round?.number ?? 1,
-                        maximumRounds: maximumRounds
-                    )
-                    .equatable()
+                if !PromoTrailerRuntime.isActive {
+                    promptPlaqueLayer(geo: geo)
                 }
-                .frame(width: geo.header.width, height: geo.header.height)
-                .position(x: geo.header.midX, y: geo.header.midY)
-                .allowsHitTesting(false)
 
                 let controlSafeTop = geo.panel.height > 1
                     ? max(0, geo.panel.minY - ClawConfig.controlSafetyMargin(isPad: isPad))
@@ -1612,7 +1799,9 @@ struct ClawPlayfield: View {
                                question: round?.question,
                                targetNutID: round?.targetNutID)
                 engine.setLive(isLive)
-                engine.setCharacter(character)
+                if !PromoTrailerRuntime.isActive {
+                    engine.setCharacter(character)
+                }
                 engine.setRunning(isRunning)
                 engine.setScoreTarget(scoreTarget)
                 engine.setReduceMotion(reduceMotion)
@@ -1629,6 +1818,7 @@ struct ClawPlayfield: View {
                     engine.beginTimeUp(reduceMotion: reduceMotion,
                                        completion: onTimeOutFinished)
                 }
+                onEngineReady(engine)
             }
             .onChange(of: size) { newSize in
                 engine.layout(size: newSize,
@@ -1636,6 +1826,13 @@ struct ClawPlayfield: View {
                               bottomReserve: bottomReserve,
                               isPad: isPad,
                               maximumPoints: maximumRounds)
+            }
+            .onChange(of: maximumRounds) { points in
+                engine.layout(size: size,
+                              topReserve: topReserve,
+                              bottomReserve: bottomReserve,
+                              isPad: isPad,
+                              maximumPoints: points)
             }
         }
         // Run once for the initial value too. On slower devices the prepared
@@ -1653,7 +1850,10 @@ struct ClawPlayfield: View {
             engine.setQuestion(round?.question, targetNutID: round?.targetNutID)
         }
         .onChange(of: isLive) { live in engine.setLive(live) }
-        .onChange(of: character.id) { _ in engine.setCharacter(character) }
+        .onChange(of: character.id) { _ in
+            guard !PromoTrailerRuntime.isActive else { return }
+            engine.setCharacter(character)
+        }
         .onChange(of: isRunning) { running in engine.setRunning(running) }
         .onChange(of: scoreTarget) { target in engine.setScoreTarget(target) }
         .onChange(of: reduceMotion) { enabled in engine.setReduceMotion(enabled) }
@@ -1770,6 +1970,51 @@ struct ClawPlayfield: View {
 
     // MARK: Machine
 
+    @ViewBuilder
+    private func promptPlaqueLayer(
+        geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
+    ) -> some View {
+        ClawFrameDrivenView(signal: engine.hudSignal) {
+            ClawPromptPlaque(
+                text: round?.question.prompt ?? "",
+                pulse: engine.promptPulse > 0.02 ? engine.promptPulse : 0,
+                isPad: isPad,
+                palette: palette,
+                roundNumber: round?.number ?? 1,
+                maximumRounds: maximumRounds
+            )
+            .equatable()
+        }
+        .frame(width: geo.header.width, height: geo.header.height)
+        .position(x: geo.header.midX, y: geo.header.midY)
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func hangingCharacterLayer(size: CGSize, bin: CGRect) -> some View {
+        ClawFrameDrivenView(signal: engine.frameSignal) {
+            if engine.elephantVisible {
+                ClawElephantView(
+                    character: engine.hangingCharacter,
+                    origin: engine.trolleyScreen,
+                    swing: engine.swingAngle,
+                    phase: engine.phase,
+                    phaseAge: engine.phaseAge,
+                    motionClock: engine.motionClock,
+                    play: CGRect(origin: .zero, size: size),
+                    bin: bin,
+                    bodyVisible: engine.elephantBodyVisible,
+                    reduceMotion: reduceMotion,
+                    isPad: isPad
+                )
+                .frame(width: size.width, height: size.height)
+                .position(x: size.width / 2, y: size.height / 2)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .allowsHitTesting(false)
+    }
+
     private func glassChamber(geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)) -> some View {
         let corner: CGFloat = isPad ? 26 : 18
         let habitatScale: CGFloat = isPad ? 1.20 : 1
@@ -1780,15 +2025,9 @@ struct ClawPlayfield: View {
                 .scaleEffect(habitatScale, anchor: .top)
                 .frame(width: geo.play.width, height: geo.play.height)
 
-            ClawFrameDrivenView(signal: engine.frameSignal) {
-                SanctuaryLivingDetails(
-                    isPad: isPad,
-                    reduceMotion: reduceMotion,
-                    time: engine.motionClock
-                )
-            }
-            .scaleEffect(habitatScale, anchor: .top)
-            .frame(width: geo.play.width, height: geo.play.height)
+            SanctuaryLivingDetails(isPad: isPad, reduceMotion: reduceMotion)
+                .scaleEffect(habitatScale, anchor: .top)
+                .frame(width: geo.play.width, height: geo.play.height)
 
             ClawFrameDrivenView(signal: engine.frameSignal) {
                 trolleyRail(in: geo.play)
@@ -1801,25 +2040,27 @@ struct ClawPlayfield: View {
         }
         .frame(width: geo.play.width, height: geo.play.height)
         .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .overlay {
-            if !isPad {
-                cabinetInnerRimStrokes(corner: corner)
+            .overlay {
+                if !isPad {
+                    cabinetInnerRimStrokes(corner: corner)
+                }
             }
-        }
-        .overlay(alignment: .bottom) {
-            if !isPad {
-                CabinetGlassSill(palette: palette, isPad: isPad)
-                    .frame(height: 28)
-                    .padding(.horizontal, 5)
-                    .offset(y: 10)
+            .overlay(alignment: .bottom) {
+                if !isPad {
+                    CabinetGlassSill(palette: palette, isPad: isPad)
+                        .frame(height: isPad ? 38 : 28)
+                        .padding(.horizontal, isPad ? 8 : 5)
+                        .offset(y: isPad ? 13 : 10)
+                }
             }
-        }
         .shadow(color: .black.opacity(0.30), radius: isPad ? 7 : 4, y: 3)
         .position(x: geo.play.midX, y: geo.play.midY)
     }
 
-    /// Wooden window frame around the sanctuary. On iPad it is composited
-    /// after the pile and elephant so the inner edge sits in front of them.
+    /// Wooden window frame around the sanctuary. On iPad production play it
+    /// is composited after the pile and elephant so the inner edge sits in
+    /// front of them. The App Store teaser skips it so the hanging character
+    /// can overlap the left cabinet post in the foreground.
     private func cabinetInnerRim(
         geo: (play: CGRect, pile: CGRect, bin: CGRect, header: CGRect, panel: CGRect)
     ) -> some View {
@@ -3137,6 +3378,7 @@ private struct ClawElephantView: View {
     private func hangingLayer(_ name: String) -> some View {
         layerImage(name)
             .resizable()
+            .interpolation(.medium)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -3353,18 +3595,21 @@ private struct MachineCabinet: View, Equatable {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(red: 0.22, green: 0.12, blue: 0.05),
-                                    palette.woodDeep,
-                                    Color(red: 0.42, green: 0.26, blue: 0.12)],
-                           startPoint: .top, endPoint: .bottom)
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.22, green: 0.12, blue: 0.05),
+                                        palette.woodDeep,
+                                        Color(red: 0.42, green: 0.26, blue: 0.12)],
+                               startPoint: .top, endPoint: .bottom)
 
-            VStack(spacing: size.height * 0.045) {
-                ForEach(0..<14, id: \.self) { index in
-                    Rectangle()
-                        .fill(Color.white.opacity(index.isMultiple(of: 2) ? 0.03 : 0.015))
-                        .frame(height: 2)
+                VStack(spacing: size.height * 0.045) {
+                    ForEach(0..<14, id: \.self) { index in
+                        Rectangle()
+                            .fill(Color.white.opacity(index.isMultiple(of: 2) ? 0.03 : 0.015))
+                            .frame(height: 2)
+                    }
                 }
             }
+            .drawingGroup()
 
             HStack(spacing: 0) {
                 woodPost
@@ -3375,7 +3620,7 @@ private struct MachineCabinet: View, Equatable {
             VinesOverlay(palette: palette)
                 .allowsHitTesting(false)
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(.all, edges: PromoTrailerRuntime.isActive ? [] : .all)
     }
 
     private var woodPost: some View {
@@ -3462,6 +3707,7 @@ private struct CabinetTopAssembly: View, Equatable {
     let header: CGRect
     let playTop: CGFloat
     let isPad: Bool
+    var prompt: String = ""
 
     var body: some View {
         let height = max(playTop + (isPad ? 18 : 12), header.maxY + 12)
@@ -3522,6 +3768,16 @@ private struct CabinetTopAssembly: View, Equatable {
                     RoundedRectangle(cornerRadius: isPad ? 20 : 14, style: .continuous)
                         .inset(by: isPad ? 9 : 7)
                         .stroke(.white.opacity(0.10), lineWidth: 1)
+                }
+                .overlay {
+                    if !prompt.isEmpty {
+                        Text(verbatim: prompt)
+                            .font(.system(size: isPad ? 44 : 28, weight: .black, design: .rounded))
+                            .foregroundStyle(.white)
+                            .minimumScaleFactor(0.45)
+                            .lineLimit(1)
+                            .padding(.horizontal, isPad ? 28 : 18)
+                    }
                 }
                 .frame(width: max(1, size.width - post * 1.38),
                        height: instrumentHeight)
@@ -3717,7 +3973,7 @@ private struct CabinetLivingDetails: View {
                 }
             }
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(.all, edges: PromoTrailerRuntime.isActive ? [] : .all)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -6116,84 +6372,85 @@ private struct SavannaHabitatArtwork: View, Equatable {
 private struct SanctuaryLivingDetails: View {
     let isPad: Bool
     let reduceMotion: Bool
-    let time: TimeInterval
 
     var body: some View {
-        // Share the claw's display-link instead of running a competing 12 Hz
-        // TimelineView. The tyre and birds now sample on the exact same frames
-        // as the foreground: 30 Hz while idle and 60 Hz during an action.
-        Canvas { context, size in
-            let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
+        // Birds and motes do not need to share the claw's 60 Hz pose clock.
+        // A 12 Hz timeline keeps the habitat alive at a fraction of the cost.
+        TimelineView(.animation(minimumInterval: 1.0 / 12.0, paused: reduceMotion)) { timeline in
+            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            Canvas { context, size in
+                let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
 
-            paintFlyingBirds(in: &context, size: size, time: time)
-            paintWindblownLeaves(in: &context, size: size, time: time)
+                paintFlyingBirds(in: &context, size: size, time: time)
+                paintWindblownLeaves(in: &context, size: size, time: time)
 
-            // Slow dust motes add life while remaining far quieter than
-            // the claw and without introducing decorative UI symbols.
-            for index in 0..<6 {
-                let seed = CGFloat((index * 29) % 91) / 91
-                let x = size.width * (0.16 + seed * 0.68)
-                let cycle = (travel + CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1)
-                let y = size.height * (0.47 - cycle * 0.25)
-                let mote = CGRect(x: x, y: y,
-                                  width: isPad ? 3.2 : 2.2,
-                                  height: isPad ? 3.2 : 2.2)
-                context.fill(Path(ellipseIn: mote),
-                             with: .color(Color.white.opacity(0.16 * Double(1 - cycle))))
+                // Slow dust motes add life while remaining far quieter than
+                // the claw and without introducing decorative UI symbols.
+                for index in 0..<6 {
+                    let seed = CGFloat((index * 29) % 91) / 91
+                    let x = size.width * (0.16 + seed * 0.68)
+                    let cycle = (travel + CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1)
+                    let y = size.height * (0.47 - cycle * 0.25)
+                    let mote = CGRect(x: x, y: y,
+                                      width: isPad ? 3.2 : 2.2,
+                                      height: isPad ? 3.2 : 2.2)
+                    context.fill(Path(ellipseIn: mote),
+                                 with: .color(Color.white.opacity(0.16 * Double(1 - cycle))))
+                }
+
+                // Slow travelling wavelets stay inside the irregular water
+                // silhouette. Broken strokes feel reflective rather than like
+                // a loading indicator placed over the scenery.
+                for index in 0..<5 {
+                    let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.82 + Double(index) * 0.91))
+                    let y = size.height * (0.557 + CGFloat(index) * 0.014)
+                        + phase * size.height * 0.0018
+                    let startX = size.width * (0.365 + CGFloat(index) * 0.012)
+                        + phase * size.width * 0.008
+                    let endX = size.width * (0.525 + CGFloat(index) * 0.030)
+                        + phase * size.width * 0.006
+                    let gapCenter = startX + (endX - startX) * (0.44 + phase * 0.06)
+                    let gap = size.width * (0.012 + CGFloat(index) * 0.0015)
+
+                    var leftWave = Path()
+                    leftWave.move(to: CGPoint(x: startX, y: y))
+                    leftWave.addCurve(to: CGPoint(x: gapCenter - gap, y: y),
+                                      control1: CGPoint(x: startX + (gapCenter - startX) * 0.34,
+                                                        y: y - size.height * 0.0035),
+                                      control2: CGPoint(x: startX + (gapCenter - startX) * 0.72,
+                                                        y: y + size.height * 0.0020))
+                    var rightWave = Path()
+                    rightWave.move(to: CGPoint(x: gapCenter + gap, y: y))
+                    rightWave.addCurve(to: CGPoint(x: endX, y: y),
+                                       control1: CGPoint(x: gapCenter + (endX - gapCenter) * 0.32,
+                                                         y: y + size.height * 0.0022),
+                                       control2: CGPoint(x: gapCenter + (endX - gapCenter) * 0.72,
+                                                         y: y - size.height * 0.0030))
+                    let opacity = 0.34 - Double(index) * 0.035
+                    let style = StrokeStyle(lineWidth: isPad ? 1.8 : 1.05, lineCap: .round)
+                    context.stroke(leftWave, with: .color(Color.white.opacity(opacity)), style: style)
+                    context.stroke(rightWave, with: .color(Color.white.opacity(opacity * 0.82)), style: style)
+                }
+
+                // Two overlapping rings continuously appear and dissolve, as
+                // if an occasional drop or insect touches the surface.
+                for index in 0..<2 {
+                    let rawPhase = reduceMotion
+                        ? CGFloat(index) * 0.42
+                        : CGFloat((time * 0.24 + Double(index) * 0.52).truncatingRemainder(dividingBy: 1))
+                    let rippleWidth = size.width * (0.025 + rawPhase * 0.105)
+                    let rippleHeight = size.height * (0.004 + rawPhase * 0.014)
+                    let center = CGPoint(x: size.width * 0.525, y: size.height * 0.588)
+                    let ring = CGRect(x: center.x - rippleWidth,
+                                      y: center.y - rippleHeight,
+                                      width: rippleWidth * 2,
+                                      height: rippleHeight * 2)
+                    context.stroke(Path(ellipseIn: ring),
+                                   with: .color(Color.white.opacity(0.25 * Double(1 - rawPhase))),
+                                   style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
+                }
+
             }
-
-            // Slow travelling wavelets stay inside the irregular water
-            // silhouette. Broken strokes feel reflective rather than like
-            // a loading indicator placed over the scenery.
-            for index in 0..<5 {
-                let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.82 + Double(index) * 0.91))
-                let y = size.height * (0.557 + CGFloat(index) * 0.014)
-                    + phase * size.height * 0.0018
-                let startX = size.width * (0.365 + CGFloat(index) * 0.012)
-                    + phase * size.width * 0.008
-                let endX = size.width * (0.525 + CGFloat(index) * 0.030)
-                    + phase * size.width * 0.006
-                let gapCenter = startX + (endX - startX) * (0.44 + phase * 0.06)
-                let gap = size.width * (0.012 + CGFloat(index) * 0.0015)
-
-                var leftWave = Path()
-                leftWave.move(to: CGPoint(x: startX, y: y))
-                leftWave.addCurve(to: CGPoint(x: gapCenter - gap, y: y),
-                                  control1: CGPoint(x: startX + (gapCenter - startX) * 0.34,
-                                                    y: y - size.height * 0.0035),
-                                  control2: CGPoint(x: startX + (gapCenter - startX) * 0.72,
-                                                    y: y + size.height * 0.0020))
-                var rightWave = Path()
-                rightWave.move(to: CGPoint(x: gapCenter + gap, y: y))
-                rightWave.addCurve(to: CGPoint(x: endX, y: y),
-                                   control1: CGPoint(x: gapCenter + (endX - gapCenter) * 0.32,
-                                                     y: y + size.height * 0.0022),
-                                   control2: CGPoint(x: gapCenter + (endX - gapCenter) * 0.72,
-                                                     y: y - size.height * 0.0030))
-                let opacity = 0.34 - Double(index) * 0.035
-                let style = StrokeStyle(lineWidth: isPad ? 1.8 : 1.05, lineCap: .round)
-                context.stroke(leftWave, with: .color(Color.white.opacity(opacity)), style: style)
-                context.stroke(rightWave, with: .color(Color.white.opacity(opacity * 0.82)), style: style)
-            }
-
-            // Two overlapping rings continuously appear and dissolve, as
-            // if an occasional drop or insect touches the surface.
-            for index in 0..<2 {
-                let rawPhase = reduceMotion
-                    ? CGFloat(index) * 0.42
-                    : CGFloat((time * 0.24 + Double(index) * 0.52).truncatingRemainder(dividingBy: 1))
-                let rippleWidth = size.width * (0.025 + rawPhase * 0.105)
-                let rippleHeight = size.height * (0.004 + rawPhase * 0.014)
-                let center = CGPoint(x: size.width * 0.525, y: size.height * 0.588)
-                let ring = CGRect(x: center.x - rippleWidth,
-                                  y: center.y - rippleHeight,
-                                  width: rippleWidth * 2,
-                                  height: rippleHeight * 2)
-                context.stroke(Path(ellipseIn: ring),
-                               with: .color(Color.white.opacity(0.25 * Double(1 - rawPhase))),
-                               style: StrokeStyle(lineWidth: isPad ? 1.5 : 0.9, lineCap: .round))
-            }
-
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -6307,14 +6564,38 @@ private struct CatchBinArtworkView: View, Equatable {
                 * CatchBinArtwork.sourceHeight
                 / CatchBinArtwork.sourceWidth
             ZStack {
-                Image(CatchBinArtwork.imageName)
+#if canImport(UIKit)
+                Image(uiImage: ClawArtworkCache.catchBin)
                     .resizable()
-                    .interpolation(.high)
+                    .interpolation(.medium)
                     .frame(width: proxy.size.width, height: fullHeight)
 
                 // Tint the authored material itself instead of drawing a new
                 // outline. The stronger right-side wash lands on the metal
                 // column while the wood only picks up a restrained reflection.
+                Image(uiImage: ClawArtworkCache.catchBin)
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.medium)
+                    .foregroundStyle(
+                        LinearGradient(
+                            stops: [
+                                .init(color: accentColor.opacity(0.14), location: 0),
+                                .init(color: accentColor.opacity(0.22), location: 0.52),
+                                .init(color: accentColor.opacity(0.44), location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .blendMode(.color)
+                    .frame(width: proxy.size.width, height: fullHeight)
+#else
+                Image(CatchBinArtwork.imageName)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: proxy.size.width, height: fullHeight)
+
                 Image(CatchBinArtwork.imageName)
                     .renderingMode(.template)
                     .resizable()
@@ -6332,6 +6613,7 @@ private struct CatchBinArtworkView: View, Equatable {
                     )
                     .blendMode(.color)
                     .frame(width: proxy.size.width, height: fullHeight)
+#endif
             }
             .compositingGroup()
             .frame(width: proxy.size.width,
@@ -6407,6 +6689,17 @@ private struct CatchBinSourceSlice: View, Equatable {
         GeometryReader { proxy in
             let scale = proxy.size.width / CatchBinArtwork.sourceWidth
             let fullHeight = CatchBinArtwork.sourceHeight * scale
+#if canImport(UIKit)
+            Image(uiImage: ClawArtworkCache.catchBin)
+                .resizable()
+                .interpolation(.medium)
+                .frame(width: proxy.size.width, height: fullHeight)
+                .offset(y: -sourceY * scale)
+                .frame(width: proxy.size.width,
+                       height: sourceHeight * scale,
+                       alignment: .top)
+                .clipped()
+#else
             Image(CatchBinArtwork.imageName)
                 .resizable()
                 .interpolation(.high)
@@ -6416,6 +6709,7 @@ private struct CatchBinSourceSlice: View, Equatable {
                        height: sourceHeight * scale,
                        alignment: .top)
                 .clipped()
+#endif
         }
         .clipped()
         .allowsHitTesting(false)

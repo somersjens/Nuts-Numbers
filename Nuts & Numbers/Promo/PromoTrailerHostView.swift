@@ -1,8 +1,8 @@
 //
 //  PromoTrailerHostView.swift
-//  Number Reef
+//  Nuts & Numbers
 //
-//  Hosts the real ReefPlayfield at production layout scale, with HUD, captions,
+//  Hosts the real ClawPlayfield at production layout scale, with HUD, captions,
 //  and the final app-icon beat. Capture scales up to App Store export pixels.
 //
 
@@ -22,8 +22,7 @@ struct PromoTrailerHostView: View {
 
     @StateObject private var director = PromoTrailerDirector()
     @StateObject private var model: GameViewModel
-    @State private var engine: ReefEngine?
-    /// Class-backed encode state so CADisplayLink doesn't read a stale View copy.
+    @State private var engine: ClawEngine?
     @State private var encode = PromoEncodeState()
     @State private var displayLink: CADisplayLink?
     @State private var linkTarget: PromoDisplayLinkProxy?
@@ -47,47 +46,44 @@ struct PromoTrailerHostView: View {
         CharacterCatalog.character(id: director.characterID)
     }
 
-    private var hudControlSize: CGFloat { usesPadMetrics ? 44 : 34 }
-    private var hudSymbolSize: CGFloat { usesPadMetrics ? 34 : 26 }
-    private var hudNumberSize: CGFloat { usesPadMetrics ? 32 : 24 }
-    private var topInset: CGFloat { usesPadMetrics ? 28 : 18 }
+    private var clawPalette: ClawPalette { ClawPalette(character: character) }
+    private var topInset: CGFloat { usesPadMetrics ? 24 : 54 }
 
     var body: some View {
         ZStack(alignment: .top) {
-            playfield
-                .blur(radius: director.backgroundBlur)
+            ZStack(alignment: .top) {
+                playfield
 
-            hud
-                .padding(.leading, usesPadMetrics ? 28 : 16)
-                .padding(.trailing, usesPadMetrics ? 28 : 16)
-                .padding(.top, topInset + (usesPadMetrics ? 12 : 6))
-                .opacity(director.playsLevelCompletion || director.iconOpacity > 0.5 ? 0 : 1)
-                .animation(.easeOut(duration: 0.22), value: director.playsLevelCompletion)
-                .allowsHitTesting(false)
+                character.tintColor
+                    .opacity(director.themeFlash * 0.28)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
 
-            captionOverlay
+                hud
+                    .padding(.leading, usesPadMetrics ? 8 : 4)
+                    .padding(.trailing, usesPadMetrics ? 8 : 4)
+                    .padding(.top, topInset - (usesPadMetrics ? 13 : 10))
+                    .allowsHitTesting(false)
+            }
+            .blur(radius: director.backgroundBlur)
+            .transaction { $0.animation = nil }
 
+            headlineOverlay
             appIconOverlay
-
-            #if DEBUG
-            // Debug overlay removed after verifying place vs capture.
-            #endif
         }
         .frame(width: layoutSize.width, height: layoutSize.height)
         .clipped()
-        .background(Color(red: 0.05, green: 0.25, blue: 0.40))
+        .background(character.tintColor)
         .preferredColorScheme(.light)
         .ignoresSafeArea()
         .onAppear {
             UserDefaults.standard.set(true, forKey: GameSettings.onboardingCompleteKey)
             UserDefaults.standard.set(false, forKey: GameSettings.onboardingReplayRequestedKey)
-            GameSettings.characterID = "octopus"
+            GameSettings.characterID = "elephant"
             LanguageManager.shared.override = AppLanguage.named("en")
             if !GameSettings.musicEnabled { AppAudio.shared.toggleMusic() }
             if !GameSettings.gameSoundsEnabled { AppAudio.shared.toggleGameSounds() }
             if GameSettings.spokenSumsEnabled { AppAudio.shared.toggleSpokenSums() }
-            // Trailer: avoid touching AVAudioEngine at boot (Simulator can hang /
-            // abort on AURemoteIO). Music is muxed into the MP4 after capture.
             model.prepare()
             Task { await boot() }
         }
@@ -97,39 +93,39 @@ struct PromoTrailerHostView: View {
     }
 
     private var playfield: some View {
-        ReefPlayfield(
+        ClawPlayfield(
             round: model.round,
-            maximumRounds: model.maximumRounds,
+            puzzle: model.clawPuzzle,
+            collectedAnswers: max(0, model.roundNumber - 1),
+            collectedNutIDs: model.collectedNutIDs,
+            maximumRounds: PromoTrailerScript.playfieldNutCount,
             character: character,
             isPad: usesPadMetrics,
-            isLive: model.acceptsInput || model.state == .answering,
+            isLive: true,
             isRunning: true,
-            playsFishEntrance: false,
-            hasBonusFishPower: model.hasBonusFishPower,
-            isHeartFishAvailable: false,
-            heartFishRestoresWholeLife: false,
-            isStreakBoostActive: model.isStreakBoostActive,
+            playsEntrance: false,
+            isStreakBoostActive: false,
             playsLevelCompletion: director.playsLevelCompletion,
+            playsTimeOutFinale: false,
             reduceMotion: false,
-            tutorialPlan: ReefTutorialPlan(),
-            topReserve: topInset + (usesPadMetrics ? 54 : 42),
-            bottomReserve: usesPadMetrics ? 12 : 8,
+            isFinalRound: model.roundNumber >= model.maximumRounds,
+            tutorialPlan: ClawTutorialPlan(),
+            score: model.cards,
+            topReserve: topInset + (usesPadMetrics ? 8 : 6),
+            bottomReserve: 0,
             scoreTarget: nil,
-            onHit: { id in
-                if director.blocksAnswerHits { return false }
-                guard let correctID = model.round?.correctOption?.id, id == correctID else {
-                    return false
+            onGrab: { nut in
+                switch model.resolveGrab(nut: nut) {
+                case .correct: return true
+                default: return false
                 }
-                return model.select(optionID: id)
             },
             onScoreBubbleArrived: model.scoreBubbleArrived,
-            onBonusFishCaught: model.catchBonusFish,
-            onHeartFishCaught: { false },
-            onHeartFishMissed: {},
-            onFishEntranceComplete: {},
+            onEntranceComplete: {},
             onLevelCompletionFinished: {
                 director.handleLevelCompletionFinished()
             },
+            onTimeOutFinished: {},
             onTutorialEvent: { _ in },
             onEngineReady: { engine in
                 let changed = self.engine !== engine
@@ -143,53 +139,33 @@ struct PromoTrailerHostView: View {
                         director.bootstrap()
                     }
                 }
-            },
-            suppressesPlayerSteering: true,
-            promptInForeground: true
+            }
         )
-        .id("promo-trailer-reef")
+        .id("promo-trailer-claw")
     }
 
     private var hud: some View {
-        ZStack {
-            HStack(alignment: .center, spacing: usesPadMetrics ? 7 : 5) {
-                Text(verbatim: LN(model.cards))
-                    .font(.system(size: hudNumberSize, weight: .heavy, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                CurrencyIcon(size: hudSymbolSize)
-            }
-            .frame(height: hudControlSize)
-            .foregroundStyle(character.deepColor)
-
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(character.deepColor)
-                    .frame(width: hudControlSize, height: hudControlSize)
-                    .overlay {
-                        Image(systemName: "pause.fill")
-                            .font(.system(size: usesPadMetrics ? 22 : 16, weight: .bold))
-                            .blendMode(.destinationOut)
-                    }
-                    .compositingGroup()
-                Spacer(minLength: 0)
-            }
+        HStack(alignment: .top, spacing: usesPadMetrics ? 12 : 8) {
+            PromoTrailerPauseBadge(isPad: usesPadMetrics, palette: clawPalette)
+                .padding(.top, usesPadMetrics ? 10 : 6)
+            Spacer(minLength: 0)
+            ClawTimerBadge(clock: model.clock,
+                           isPad: usesPadMetrics,
+                           size: usesPadMetrics ? 86 : 58,
+                           palette: clawPalette,
+                           highlightsTutorial: false)
         }
     }
 
-    private var captionOverlay: some View {
+    private var headlineOverlay: some View {
         VStack {
-            HStack {
-                Spacer(minLength: 0)
-                PromoTrailerCaptionCard(text: director.captionText,
-                                        theme: character,
-                                        isPad: usesPadMetrics)
-                    .id(director.captionText)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, usesPadMetrics ? 24 : 16)
-            .padding(.top, topInset + (usesPadMetrics ? 84 : 66))
-            .opacity(director.captionOpacity)
+            PromoTrailerHeadline(text: director.headlineText,
+                                 theme: character,
+                                 isPad: usesPadMetrics)
+                .opacity(director.headlineOpacity)
+                .padding(.horizontal, usesPadMetrics ? 28 : 16)
+                .padding(.top, max(director.headerMaxY + (usesPadMetrics ? 10 : 6),
+                                   topInset + (usesPadMetrics ? 92 : 70)))
             Spacer()
         }
         .allowsHitTesting(false)
@@ -200,6 +176,7 @@ struct PromoTrailerHostView: View {
             Spacer()
             Image("app_icon_clean")
                 .resizable()
+                .interpolation(.high)
                 .aspectRatio(1, contentMode: .fit)
                 .frame(width: usesPadMetrics ? 280 : 210,
                        height: usesPadMetrics ? 280 : 210)
@@ -218,7 +195,6 @@ struct PromoTrailerHostView: View {
         print("PROMO_TRAILER_BOOT")
         await model.begin()
         print("PROMO_TRAILER_BEGAN")
-        // Wait for ReefPlayfield layout so placeFish isn't a no-op.
         for _ in 0..<20 {
             if let engine, engine.trailerPlayfieldSize.width > 0 { break }
             try? await Task.sleep(nanoseconds: 50_000_000)
@@ -242,10 +218,6 @@ struct PromoTrailerHostView: View {
             try recorder.start()
             director.enableExternalClock()
             director.resyncForRecordingStart()
-            if let engine {
-                let p = engine.trailerFishPosition
-                print("PROMO_TRAILER_PLACE fish=(\(Int(p.x)),\(Int(p.y))) size=\(Int(engine.trailerPlayfieldSize.width))x\(Int(engine.trailerPlayfieldSize.height))")
-            }
             encode.lastCaptureIndex = -1
             encode.warmupFramesRemaining = 8
             encode.pendingCaptureElapsed = nil
@@ -296,44 +268,8 @@ struct PromoTrailerHostView: View {
                                       stopClock: @escaping () -> Void) {
         guard encode.recordingStarted, !encode.isFinishing else { return }
 
-        // Offline encode: advance content as fast as capture allows. Wall-clock
-        // pacing made Simulator exports time out (~3–5 fps capture vs 30 fps).
         let fps = Double(PromoTrailerRuntime.framesPerSecond)
 
-        // Capture the previous sim step on the next display beat so SwiftUI has
-        // committed FishView.position (same-turn drawHierarchy stays stale).
-        if let pending = encode.pendingCaptureElapsed {
-            // Opening frames: re-place then wait one display beat before snapshot.
-            if encode.lastCaptureIndex <= 2, !encode.openPoseHold {
-                director.resyncForRecordingStart()
-                encode.openPoseHold = true
-                return
-            }
-            encode.openPoseHold = false
-            encode.pendingCaptureElapsed = nil
-            CATransaction.flush()
-            if encode.lastCaptureIndex <= 2 {
-                let p = director.engineFishPosition
-                print("PROMO_TRAILER_SNAP fish=(\(Int(p.x)),\(Int(p.y))) frame=\(encode.lastCaptureIndex)")
-            }
-            if let image = snapshot(layoutSize: layoutSize, exportSize: exportSize,
-                                    captureProvider: captureProvider,
-                                    forceFresh: encode.lastCaptureIndex < 15) {
-                encode.recorder?.capture(image: image, at: pending)
-            }
-            if encode.lastCaptureIndex % 30 == 0 {
-                print("PROMO_TRAILER_FRAME \(encode.lastCaptureIndex)")
-            }
-            if encode.pendingFinish {
-                encode.pendingFinish = false
-                encode.isFinishing = true
-                encode.recorder?.audioCues = director.trailerAudioCues
-                finishEncode(encode: encode, onFinished: onFinished, stopClock: stopClock)
-                return
-            }
-        }
-
-        // Warm-up: place + let SwiftUI commit before encoding frame 0.
         if encode.warmupFramesRemaining > 0 {
             encode.warmupFramesRemaining -= 1
             director.resyncForRecordingStart()
@@ -350,9 +286,19 @@ struct PromoTrailerHostView: View {
             director.tick(elapsed: elapsed)
         }
         encode.lastCaptureIndex = next
-        encode.pendingCaptureElapsed = elapsed
+        CATransaction.flush()
+        if let image = snapshot(layoutSize: layoutSize, exportSize: exportSize,
+                                captureProvider: captureProvider,
+                                forceFresh: true) {
+            encode.recorder?.capture(image: image, at: elapsed)
+        }
+        if encode.lastCaptureIndex % 30 == 0 {
+            print("PROMO_TRAILER_FRAME \(encode.lastCaptureIndex)")
+        }
         if director.isFinished || elapsed >= PromoTrailerRuntime.maximumDuration {
-            encode.pendingFinish = true
+            encode.isFinishing = true
+            encode.recorder?.audioCues = director.trailerAudioCues
+            finishEncode(encode: encode, onFinished: onFinished, stopClock: stopClock)
         }
     }
 
@@ -389,21 +335,131 @@ struct PromoTrailerHostView: View {
         }
     }
 
-    private func finishRecording() {
-        encode.isFinishing = true
-        encode.recorder?.audioCues = director.trailerAudioCues
-        Self.finishEncode(encode: encode, onFinished: onFinished) { [self] in
-            displayLink?.invalidate()
-            displayLink = nil
-        }
-    }
-
     private func tearDown() {
         displayLink?.invalidate()
         displayLink = nil
         encode.recordingStarted = false
         AppAudio.shared.setGameplayActive(false, questionText: nil)
         model.end()
+    }
+}
+
+struct PromoTrailerPauseBadge: View {
+    let isPad: Bool
+    let palette: ClawPalette
+
+    private var mount: CGFloat { isPad ? 82 : 58 }
+    private var button: CGFloat { isPad ? 64 : 46 }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: isPad ? 7 : 5, style: .continuous)
+                .fill(palette.woodDeep)
+                .frame(width: mount * 0.32, height: mount * 0.38)
+                .offset(y: mount * 0.43)
+
+            RoundedRectangle(cornerRadius: isPad ? 18 : 14, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [palette.woodLight, palette.wood, palette.woodDeep],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+                .frame(width: mount, height: mount)
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 18 : 14, style: .continuous)
+                        .strokeBorder(palette.woodDeep, lineWidth: isPad ? 3 : 2)
+                }
+                .overlay {
+                    CabinetMountFasteners(size: isPad ? 5 : 4,
+                                          inset: isPad ? 8 : 6,
+                                          palette: palette)
+                }
+                .overlay {
+                    CabinetHUDWoodGrain(color: palette.woodDeep)
+                        .clipShape(RoundedRectangle(cornerRadius: isPad ? 18 : 14,
+                                                   style: .continuous))
+                }
+
+            RoundedRectangle(cornerRadius: isPad ? 14 : 11, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [palette.character.deepColor,
+                                            Color.black.opacity(0.86)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: button, height: button)
+                .overlay {
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: isPad ? 25 : 18, weight: .bold))
+                        .foregroundStyle(palette.character.skyColor)
+                }
+        }
+        .frame(width: mount, height: mount)
+        .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
+    }
+}
+
+struct PromoTrailerInstructionBubble: View {
+    let text: String
+    let theme: AnimalCharacter
+    var isPad: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: isPad ? 10 : 8) {
+            theme.artwork
+                .resizable()
+                .scaledToFit()
+                .padding(isPad ? 3 : 2)
+                .frame(width: isPad ? 44 : 32, height: isPad ? 44 : 32)
+                .background(theme.skyColor,
+                            in: RoundedRectangle(cornerRadius: isPad ? 12 : 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: isPad ? 12 : 9, style: .continuous)
+                    .stroke(theme.deepColor.opacity(0.12), lineWidth: 1))
+
+            Text(verbatim: text)
+                .font(.system(size: isPad ? 18 : 13.5, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.deepColor)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, isPad ? 16 : 12)
+        .padding(.vertical, isPad ? 10 : 8)
+        .background {
+            RoundedRectangle(cornerRadius: isPad ? 22 : 18, style: .continuous)
+                .fill(.white.opacity(0.95))
+                .overlay {
+                    RoundedRectangle(cornerRadius: isPad ? 22 : 18, style: .continuous)
+                        .stroke(.white, lineWidth: 2)
+                }
+                .shadow(color: theme.deepColor.opacity(0.22), radius: 10, y: 5)
+        }
+        .frame(maxWidth: isPad ? 560 : 360)
+    }
+}
+
+struct PromoTrailerHeadline: View {
+    let text: String
+    let theme: AnimalCharacter
+    var isPad: Bool
+
+    var body: some View {
+        Text(verbatim: text)
+            .font(.system(size: isPad ? 26 : 18, weight: .heavy, design: .rounded))
+            .foregroundStyle(theme.deepColor)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+            .padding(.horizontal, isPad ? 18 : 14)
+            .padding(.vertical, isPad ? 10 : 7)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(.white.opacity(0.94))
+                    .shadow(color: theme.deepColor.opacity(0.18), radius: 8, y: 4)
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(theme.skyColor.opacity(0.85), lineWidth: 1.5)
+            }
+            .opacity(text.isEmpty ? 0 : 1)
     }
 }
 
@@ -426,39 +482,3 @@ final class PromoDisplayLinkProxy: NSObject {
     @objc func tick() { handler() }
 }
 #endif
-
-struct PromoTrailerCaptionCard: View {
-    let text: String
-    let theme: AnimalCharacter
-    var isPad: Bool
-
-    private var portraitSize: CGFloat { isPad ? 56 : 40 }
-    private var fontSize: CGFloat { isPad ? 30 : 22 }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: isPad ? 14 : 10) {
-            theme.artwork
-                .resizable()
-                .scaledToFit()
-                .frame(width: portraitSize, height: portraitSize)
-
-            Text(verbatim: text)
-                .font(.system(size: fontSize, weight: .heavy, design: .rounded))
-                .foregroundStyle(theme.deepColor)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-        .padding(.leading, isPad ? 12 : 8)
-        .padding(.trailing, isPad ? 18 : 14)
-        .padding(.vertical, isPad ? 10 : 6)
-        .background {
-            Capsule(style: .continuous)
-                .fill(.white.opacity(0.95))
-                .shadow(color: theme.deepColor.opacity(0.18), radius: 8, y: 4)
-        }
-        .overlay {
-            Capsule(style: .continuous)
-                .stroke(theme.skyColor.opacity(0.85), lineWidth: 1.5)
-        }
-    }
-}

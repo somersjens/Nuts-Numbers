@@ -23,8 +23,7 @@ final class PromoTrailerRecorder {
     init(size: CGSize, fps: Int = 30, outputURL: URL? = nil) {
         self.size = size
         self.fps = Int32(fps)
-        let tag = "\(Int(size.width))x\(Int(size.height))"
-        let name = "app-store-teaser-\(tag).mp4"
+        let name = PromoTrailerRuntime.exportFileName
         self.outputURL = outputURL ?? FileManager.default.temporaryDirectory.appendingPathComponent(name)
     }
 
@@ -179,9 +178,8 @@ final class PromoTrailerRecorder {
             mixParams.append(sfxMix)
         }
 
-        let tag = "\(Int(size.width))x\(Int(size.height))"
         let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent("app-store-teaser-\(tag)-mixed.mp4")
+            .appendingPathComponent("\(PromoTrailerRuntime.exportTag)-mixed.mp4")
         try? FileManager.default.removeItem(at: dest)
 
         guard let export = AVAssetExportSession(asset: composition,
@@ -209,8 +207,7 @@ final class PromoTrailerRecorder {
     private func copyToDocuments(_ url: URL) -> URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         // Always publish the App Store filename (mixed temp may end in -mixed.mp4).
-        let tag = "\(Int(size.width))x\(Int(size.height))"
-        let dest = docs.appendingPathComponent("app-store-teaser-\(tag).mp4")
+        let dest = docs.appendingPathComponent(PromoTrailerRuntime.exportFileName)
         try? FileManager.default.removeItem(at: dest)
         try? FileManager.default.copyItem(at: url, to: dest)
         let marker = docs.appendingPathComponent("promo-trailer-ready.txt")

@@ -61,6 +61,11 @@ enum GameSettings {
     static let spokenSumsEnabledKey = ProgressStore.Key.spokenSumsEnabled
     static let premiumCacheKey = ProgressStore.Key.premiumCache
 
+    /// Master switch for reading sums aloud. Lexicons, the synthesizer path
+    /// and `speakQuestion` stay in the binary; set this to `true` to show the
+    /// setting again and actually speak during play.
+    static let spokenSumsOffered = false
+
     /// Sound effects and background music.
     static var gameSoundsEnabled: Bool {
         get { storedBool(gameSoundsEnabledKey, default: true) }
@@ -72,10 +77,10 @@ enum GameSettings {
         set { UserDefaults.standard.set(newValue, forKey: musicEnabledKey) }
     }
 
-    /// Spoken sums. On by default; `AppAudio` silently ignores this when the
-    /// selected language has no installed voice.
+    /// Spoken sums. Off until `spokenSumsOffered` is flipped; `AppAudio` also
+    /// ignores this when the selected language has no installed voice.
     static var spokenSumsEnabled: Bool {
-        get { storedBool(spokenSumsEnabledKey, default: true) }
+        get { storedBool(spokenSumsEnabledKey, default: false) }
         set { UserDefaults.standard.set(newValue, forKey: spokenSumsEnabledKey) }
     }
 

@@ -1,8 +1,8 @@
 //
 //  PromoTrailerDirector.swift
-//  Number Reef
+//  Nuts & Numbers
 //
-//  Drives the real ReefEngine + GameViewModel along a fixed teaser timeline.
+//  Drives the real ClawEngine + GameViewModel along a fixed teaser timeline.
 //
 
 import SwiftUI
@@ -10,85 +10,80 @@ import Combine
 
 @MainActor
 final class PromoTrailerDirector: ObservableObject {
-    @Published private(set) var characterID = "octopus"
-    @Published private(set) var captionText = ""
-    @Published private(set) var captionOpacity: Double = 0
-    @Published private(set) var cameraZoom: CGFloat = 1
-    @Published private(set) var cameraAnchor: UnitPoint = .center
+    @Published private(set) var characterID = "elephant"
+    @Published private(set) var headlineText = ""
+    @Published private(set) var headlineOpacity: Double = 0
     @Published private(set) var iconOpacity: Double = 0
-    @Published private(set) var iconScale: CGFloat = 0.78
-    @Published private(set) var iconRotation: Double = -26
+    @Published private(set) var iconScale: CGFloat = 0.84
+    @Published private(set) var iconRotation: Double = -16
     @Published private(set) var playsLevelCompletion = false
     @Published private(set) var backgroundBlur: CGFloat = 0
+    @Published private(set) var themeFlash: Double = 0
     @Published private(set) var isFinished = false
     @Published private(set) var elapsed: TimeInterval = 0
-    /// When true, answer collisions are ignored so the scripted swim can pass
-    /// through distractors without clearing the wave.
-    @Published private(set) var blocksAnswerHits = false
+    @Published private(set) var headerMaxY: CGFloat = 80
+    @Published private(set) var panelMinY: CGFloat = 720
 
-    private weak var engine: ReefEngine?
+    private weak var engine: ClawEngine?
     private weak var model: GameViewModel?
 
-    private var openingRound = PromoTrailerScript.openingRound()
-    private var midRound = PromoTrailerScript.midRound()
-    private var finalRound = PromoTrailerScript.finalRound()
+    private let session = PromoTrailerScript.session()
 
-    private var didStartOpening = false
-    private var didInstallMid = false
-    private var didSpawnBonus = false
-    private var didSeedStreak = false
-    private var didInstallFinal = false
-    private var didTriggerCompletion = false
-    private var didShowIcon = false
-    private var openingCollected = false
-    private var penultimateCollected = false
-    private var finalCollected = false
-    private var openingHitAt: TimeInterval?
-    private var awaitingFinalInstall = false
-    private var didCatchBonus = false
-    private var smoothSteerTarget: CGPoint?
+    private enum Beat: Equatable {
+        case entrance
+        case hold
+        case moveRight
+        case moveLeft
+        case returnCenter
+        case firstGrab
+        case unlockAlign
+        case wrongGrab
+        case correctGrab
+        case speed
+        case finale
+        case icon
+        case done
+    }
+
+    private var beat: Beat = .entrance
+    private var beatAge: TimeInterval = 0
+    private var didPressForBeat = false
+    private var alignedAge: TimeInterval = 0
+    private var edgeDwellAge: TimeInterval = 0
+    private var completedGrabs = 0
+    private var speedStartedAt: TimeInterval?
+    private var speedIndex = 0
+    private var lastPhase: ClawPhase = .idle
     private var audioCues: [(time: TimeInterval, file: String, volume: Float)] = []
-    private var finaleAt: TimeInterval?
-    private var finishAt: TimeInterval?
     private var iconRevealAt: TimeInterval?
+    private var finishAt: TimeInterval?
+    private var didCueSessionStart = false
+    private var didCueUnlock = false
+    private var didBeginEntrance = false
+    private var didCollapsePile = false
+    private var lastCharacterID = "elephant"
 
-    func attach(engine: ReefEngine, model: GameViewModel) {
-        if self.engine !== engine {
-            // ReefPlayfield can rebuild a fresh @StateObject; never keep steering
-            // an orphaned engine while the on-screen reef is a new instance.
-            didStartOpening = false
-            didInstallMid = false
-            didInstallFinal = false
-        }
+    func attach(engine: ClawEngine, model: GameViewModel) {
         self.engine = engine
         self.model = model
         engine.trailerPrepareDeterministicSession()
-        model.onAnswerResolved = { [weak self] isCorrect, startedStreak in
-            self?.handleAnswer(isCorrect: isCorrect, startedStreak: startedStreak)
+        engine.trailerSpeedScale = 1
+        model.onAnswerResolved = { [weak self] isCorrect, _ in
+            self?.handleAnswer(isCorrect: isCorrect)
         }
-        engine.trailerCompletionSpeedScale = 1.2
-        engine.trailerKeepCompletionStream = true
-        GameSettings.characterID = "octopus"
-        characterID = "octopus"
+        GameSettings.characterID = "elephant"
+        characterID = "elephant"
+        lastCharacterID = "elephant"
         audioCues.removeAll()
-        finaleAt = nil
+        iconRevealAt = nil
         finishAt = nil
+        didBeginEntrance = false
+        didCollapsePile = false
+        didCueUnlock = false
     }
 
-    /// SFX cues collected during the scripted run — muxed into the MP4 after
-    /// video capture (Simulator cannot reliably tap AVAudioEngine).
     var trailerAudioCues: [(time: TimeInterval, file: String, volume: Float)] {
         audioCues
-    }
-
-    var engineFishPosition: CGPoint {
-        engine?.trailerFishPosition ?? .zero
-    }
-
-    private func cueSFX(_ file: String, volume: Float, at time: TimeInterval? = nil) {
-        let at = time ?? elapsed
-        audioCues.append((at, file, volume))
-        print("PROMO_TRAILER_SFX \(file) t=\(String(format: "%.2f", at))")
     }
 
     func enableExternalClock() {
@@ -99,480 +94,457 @@ final class PromoTrailerDirector: ObservableObject {
         engine?.trailerStep(dt: dt)
     }
 
-    /// Resets path steering to t=0 when recording begins (avoids the warm-up
-    /// swim reversing back to the opening waypoint).
     func resyncForRecordingStart() {
         guard let engine else { return }
-        let start = point(x: PromoTrailerScript.openingFishUnit.x,
-                          y: PromoTrailerScript.openingFishUnit.y, in: engine)
-        engine.trailerPlaceFish(at: start, heading: PromoTrailerScript.openingFishHeading)
-        let ahead = PromoTrailerScript.pathPoint(at: PromoTrailerScript.steerLookAhead)
-        let startTarget = point(x: ahead.x, y: ahead.y, in: engine)
-        smoothSteerTarget = startTarget
-        engine.steer(toward: startTarget)
-        // Keep rounds; only reset motion to the scripted t=0 pose.
-        if audioCues.isEmpty {
-            cueSFX("sfx_session_start", volume: 0.16, at: 0.05)
+        engine.trailerSpeedScale = 1
+        engine.setInput(0)
+        if !didBeginEntrance {
+            parkForEntrance(engine)
+        }
+        if !didCueSessionStart {
+            cueSFX("sfx_session_start", volume: 0.16, at: 0.04)
+            didCueSessionStart = true
         }
         engine.objectWillChange.send()
     }
 
-    /// Called once the playfield has laid out and the session is answering.
     func bootstrap() {
-        guard let engine, let model, !didStartOpening else { return }
-
-        let size = engine.trailerPlayfieldSize
-        guard size.width > 0 else { return }
-        didStartOpening = true
-
-        // Start near the sea-floor spawn and climb the right corridor.
-        let start = point(x: PromoTrailerScript.openingFishUnit.x,
-                          y: PromoTrailerScript.openingFishUnit.y, in: engine)
-        engine.trailerPlaceFish(at: start, heading: PromoTrailerScript.openingFishHeading)
-
-        openingRound = PromoTrailerScript.openingRound(number: 1)
-        model.trailerInstall(round: openingRound)
-        engine.load(round: openingRound)
+        guard let engine, let model else { return }
+        parkForEntrance(engine)
+        model.trailerInstall(round: session.rounds[0])
         engine.setLive(true)
-        engine.trailerInstallAnswerQueue(
-            PromoTrailerScript.openingQueue(from: openingRound),
-            gapsBeforeEachRelease: PromoTrailerScript.openingGaps,
-            ventFractions: PromoTrailerScript.openingVentFractions
-        )
-
-        let ahead = PromoTrailerScript.pathPoint(at: PromoTrailerScript.steerLookAhead)
-        let startTarget = point(x: ahead.x, y: ahead.y, in: engine)
-        smoothSteerTarget = startTarget
-        engine.steer(toward: startTarget)
+        engine.setCharacter(CharacterCatalog.character(id: "elephant"))
+        applyCharacter("elephant", flash: false)
+        headlineOpacity = 0
+        beat = .entrance
+        beatAge = 0
+        elapsed = 0
+        completedGrabs = 0
+        didPressForBeat = false
+        speedIndex = 0
+        speedStartedAt = nil
+        didBeginEntrance = false
+        didCollapsePile = false
+        headerMaxY = engine.trailerHeaderMaxY
+        panelMinY = engine.trailerPanelMinY
+        print("PROMO_TRAILER_BOOTSTRAP trolley=\(String(format: "%.2f", engine.trailerTrolleyX)) size=\(Int(engine.trailerPlayfieldSize.width))x\(Int(engine.trailerPlayfieldSize.height))")
     }
 
-    /// Advances scripted steering / spawns. `elapsed` is recording time.
     func tick(elapsed: TimeInterval) {
+        let dt = max(0, elapsed - self.elapsed)
         self.elapsed = elapsed
-        guard let engine, let model, !isFinished else { return }
+        beatAge += dt
+        guard let engine, let model else { return }
 
-        updateCaption(at: elapsed)
-        updateCharacter(at: elapsed)
-        updateCamera(at: elapsed, engine: engine)
-        updateAnswerGate(at: elapsed)
-        steer(at: elapsed, engine: engine)
-        assistCollectIfNeeded(at: elapsed, engine: engine, model: model)
-        assistHelpersIfNeeded(at: elapsed, engine: engine)
+        headerMaxY = engine.trailerHeaderMaxY
+        panelMinY = engine.trailerPanelMinY
+        observePhase(engine)
+        updateOverlays()
+        updateClock(model: model, dt: dt)
+        drive(engine: engine, model: model, dt: dt)
+        updateIcon()
+        themeFlash = max(0, themeFlash - dt * 3.2)
 
-        if !didInstallMid, openingCollected {
-            installMid(engine: engine, model: model)
-        }
-
-        if !didSpawnBonus, penultimateCollected,
-           elapsed >= PromoTrailerScript.spawnBonusFishAt {
-            didSpawnBonus = true
-            engine.trailerSpawnBonusFishFromRight(yFraction: 0.80)
-        }
-
-        if !didSeedStreak, elapsed >= PromoTrailerScript.seedStreakAt {
-            didSeedStreak = true
-            model.trailerSeedCorrectStreak(4)
-        }
-
-        if awaitingFinalInstall, !didInstallFinal,
-           elapsed >= PromoTrailerScript.installFinalRoundAt {
-            installFinal(engine: engine, model: model)
-        }
-
-        if let due = finaleAt, elapsed >= due {
-            finaleAt = nil
-            beginFinale()
-        }
-
-        if !didTriggerCompletion, didInstallFinal, elapsed >= PromoTrailerScript.finaleFallbackAt {
-            if !finalCollected {
-                _ = engine.trailerTryCollectCorrect(within: engine.trailerAnswerHitRadius)
-            }
-            if finalCollected || elapsed >= PromoTrailerScript.finaleForceAt {
-                beginFinale()
-            }
-        }
-
-        // Production collision can catch helpers before assist — still mux SFX.
-        if !didCatchBonus, engine.trailerHasBonusAura {
-            markBonusCaught()
-        }
-        // Fallback icon if the completion callback never fires.
-        if !didShowIcon, elapsed >= PromoTrailerScript.showIconAt {
-            revealIcon()
-        }
-
-        if let started = iconRevealAt {
-            let t = max(0, elapsed - started)
-            let fade = min(1, t / 0.24)
-            let turn = min(1, t / 0.52)
-            iconOpacity = fade
-            iconRotation = -26 * (1 - turn)
-            iconScale = 0.82 + 0.18 * CGFloat(turn)
-        }
-
-        if let due = finishAt, elapsed >= due {
+        if let finishAt, elapsed >= finishAt {
             isFinished = true
-            engine.releaseTouch()
         }
-
-        if !isFinished, elapsed >= PromoTrailerScript.endAt {
+        if elapsed >= PromoTrailerRuntime.maximumDuration {
             isFinished = true
-            engine.releaseTouch()
         }
     }
 
-    /// Called when the production level-completion swim-out finishes.
     func handleLevelCompletionFinished() {
-        revealIcon()
-        finishAt = elapsed + PromoTrailerScript.iconHold
-    }
-
-    // MARK: - Private
-
-    private func revealIcon() {
-        guard !didShowIcon else { return }
-        didShowIcon = true
+        guard iconRevealAt == nil else { return }
         iconRevealAt = elapsed
-        iconOpacity = 0
-        iconScale = 0.80
-        iconRotation = -26
-        backgroundBlur = 5
+        finishAt = elapsed + PromoTrailerScript.iconHold
+        print("PROMO_TRAILER_FINALE_DONE t=\(String(format: "%.2f", elapsed))")
     }
 
-    private func assistHelpersIfNeeded(at time: TimeInterval, engine: ReefEngine) {
-        if !didCatchBonus, penultimateCollected,
-           time >= PromoTrailerScript.bonusAssistStart, time < PromoTrailerScript.bonusAssistEnd,
-           let bonus = engine.trailerBonusFish,
-           bonus.isCarryingReward {
-            if engine.trailerTryCatchBonusFish(within: engine.trailerHelperHitRadius(length: bonus.length)) {
-                markBonusCaught()
+    // MARK: Drive
+
+    private func drive(engine: ClawEngine, model: GameViewModel, dt: Double) {
+        switch beat {
+        case .entrance:
+            engine.setInput(0)
+            if !didBeginEntrance {
+                engine.trailerBeginEntrance()
+                didBeginEntrance = true
             }
-            return
-        }
-    }
-
-    private func markBonusCaught() {
-        guard !didCatchBonus else { return }
-        didCatchBonus = true
-        cueSFX("sfx_double_card", volume: 0.22)
-    }
-
-    private func assistCollectIfNeeded(at time: TimeInterval, engine: ReefEngine, model: GameViewModel) {
-        guard !blocksAnswerHits else { return }
-        let target: ReefBubble?
-        let radiusScale: CGFloat
-        if !openingCollected, time >= PromoTrailerScript.openingAssistAt {
-            target = engine.trailerBubbles.first { $0.isCorrect && !$0.isPopping }
-            radiusScale = engine.trailerIsPad ? 1.85 : 1.42
-        } else if !penultimateCollected, time >= PromoTrailerScript.midAssistAt {
-            target = engine.trailerBubbles.first { $0.isCorrect && !$0.isPopping }
-            radiusScale = 1.15
-        } else if !finalCollected, time >= PromoTrailerScript.finalAssistAt {
-            target = engine.trailerBubbles.first { $0.isCorrect && !$0.isPopping }
-            radiusScale = engine.trailerIsPad ? 1.12 : 1.05
-        } else {
-            target = nil
-            radiusScale = 1
-        }
-        guard target != nil else { return }
-        engine.setLive(true)
-        _ = engine.trailerTryCollectCorrect(within: engine.trailerAnswerHitRadius * radiusScale)
-        _ = model
-    }
-
-    private func updateAnswerGate(at time: TimeInterval) {
-        if !openingCollected {
-            blocksAnswerHits = time < PromoTrailerScript.openingHitGate
-            return
-        }
-        if !penultimateCollected {
-            blocksAnswerHits = time < PromoTrailerScript.midHitGate
-            return
-        }
-        if !finalCollected {
-            blocksAnswerHits = time < PromoTrailerScript.finalHitGate
-            return
-        }
-        blocksAnswerHits = true
-    }
-
-    private func handleAnswer(isCorrect: Bool, startedStreak: Bool) {
-        guard isCorrect else { return }
-        cueSFX("sfx_correct", volume: 0.08)
-        if !openingCollected {
-            openingCollected = true
-            openingHitAt = elapsed
-            return
-        }
-        if !penultimateCollected {
-            penultimateCollected = true
-            awaitingFinalInstall = true
-            if startedStreak {
-                cueSFX("sfx_double_score", volume: 0.15)
+            if engine.trailerHasLanded {
+                enter(.hold)
             }
-            return
-        }
-        if !finalCollected {
-            finalCollected = true
-            finaleAt = elapsed + PromoTrailerScript.forceCompletionAfterFinal
-        }
-    }
 
-    private func installMid(engine: ReefEngine, model: GameViewModel) {
-        didInstallMid = true
-        midRound = PromoTrailerScript.midRound(number: 2)
-        // Wrongs only — the 5 waits for the streak beat. Queue first so a
-        // SwiftUI `onChange(round)` load echo keeps the rising next sum.
-        engine.trailerInstallAnswerQueue(
-            PromoTrailerScript.midShowcaseQueue(from: midRound),
-            gapsBeforeEachRelease: PromoTrailerScript.midShowcaseGaps,
-            ventFractions: PromoTrailerScript.midShowcaseVentFractions,
-            exactVents: !engine.trailerIsPad
-        )
-        model.trailerInstall(round: midRound)
-        engine.setLive(true)
-    }
-
-    private func installFinal(engine: ReefEngine, model: GameViewModel) {
-        didInstallFinal = true
-        awaitingFinalInstall = false
-        finalRound = PromoTrailerScript.finalRound(number: 3)
-        engine.trailerClearAnswers(keepRound: true)
-        engine.trailerInstallAnswerQueue(
-            PromoTrailerScript.finalQueue(from: finalRound),
-            gapsBeforeEachRelease: PromoTrailerScript.finalGaps,
-            ventFractions: PromoTrailerScript.finalVentFractions
-        )
-        model.trailerInstall(round: finalRound)
-        engine.setLive(true)
-    }
-
-    private func beginFinale() {
-        guard !didTriggerCompletion, let model else { return }
-        didTriggerCompletion = true
-        cueSFX("sfx_level_complete", volume: 0.10)
-        model.trailerForceLevelComplete()
-        playsLevelCompletion = true
-    }
-
-    private func updateCaption(at time: TimeInterval) {
-        if playsLevelCompletion || iconOpacity > 0.2 {
-            if captionOpacity != 0 { captionOpacity = 0 }
-            return
-        }
-        guard let active = PromoTrailerScript.captions(openingHitAt: openingHitAt).first(where: {
-            time >= $0.start && time < $0.end
-        }) else {
-            if captionOpacity != 0 { captionOpacity = 0 }
-            return
-        }
-        captionText = active.text
-        // Fade on the simulation clock only — SwiftUI animations use wall time
-        // and smear two captions together during offline encode.
-        let fade: TimeInterval = 0.14
-        let into = max(0, time - active.start)
-        let out = max(0, active.end - time)
-        var opacity = 1.0
-        if into < fade {
-            let t = into / fade
-            opacity = t * t * (3 - 2 * t)
-        }
-        if out < fade {
-            let t = out / fade
-            opacity = min(opacity, t * t * (3 - 2 * t))
-        }
-        captionOpacity = opacity
-    }
-
-    private func updateCharacter(at time: TimeInterval) {
-        let origin = openingHitAt ?? PromoTrailerScript.zoomUnlockStart
-        var next = "octopus"
-        for beat in PromoTrailerScript.characterBeatOffsets where time >= origin + beat.offset {
-            next = beat.id
-        }
-        guard next != characterID else { return }
-        characterID = next
-        GameSettings.characterID = next
-    }
-
-    private func updateCamera(at time: TimeInterval, engine: ReefEngine) {
-        let start = openingHitAt ?? PromoTrailerScript.zoomUnlockStart
-        let end = start + PromoTrailerScript.zoomUnlockDuration
-        let peak = PromoTrailerScript.unlockZoom
-        let zoom: CGFloat
-        let zoomOut: TimeInterval = 0.70
-        if time < start || time > end {
-            zoom = 1
-        } else if time < start + 0.55 {
-            let t = CGFloat((time - start) / 0.55)
-            zoom = 1 + (peak - 1) * (t * t * (3 - 2 * t))
-        } else if time > end - zoomOut {
-            let t = CGFloat((end - time) / zoomOut)
-            zoom = 1 + (peak - 1) * (t * t * (3 - 2 * t))
-        } else {
-            zoom = peak
-        }
-        cameraZoom = zoom
-
-        // Never leave the anchor off-center once zoom is gone.
-        if zoom <= 1.02 || playsLevelCompletion {
-            cameraAnchor = .center
-            return
-        }
-        let size = engine.trailerPlayfieldSize
-        guard size.width > 1, size.height > 1 else {
-            cameraAnchor = .center
-            return
-        }
-        let fish = engine.trailerFishPosition
-        // During zoom-out, pull the anchor back to center so the settle is calm.
-        let raw = UnitPoint(x: min(0.78, max(0.22, fish.x / size.width)),
-                            y: min(0.68, max(0.28, fish.y / size.height)))
-        if time > end - zoomOut {
-            let t = CGFloat((end - time) / zoomOut)
-            cameraAnchor = UnitPoint(x: 0.5 + (raw.x - 0.5) * t,
-                                     y: 0.5 + (raw.y - 0.5) * t)
-        } else {
-            cameraAnchor = raw
-        }
-    }
-
-    private func steer(at time: TimeInterval, engine: ReefEngine) {
-        guard !playsLevelCompletion else { return }
-
-        let pad = engine.trailerIsPad
-        let lookAhead: TimeInterval
-        if !pad, !openingCollected,
-           time >= PromoTrailerScript.underPassLookAheadStart && time < PromoTrailerScript.underPassLookAheadEnd {
-            lookAhead = 0.10
-        } else if time >= 5.5 && time < 11.1 {
-            lookAhead = PromoTrailerScript.unlockLookAhead
-        } else {
-            lookAhead = PromoTrailerScript.steerLookAhead
-        }
-        let look = time + lookAhead
-        let unit = PromoTrailerScript.pathPoint(at: look)
-        var desired = point(x: unit.x, y: unit.y, in: engine)
-        let weave: CGFloat
-        if !pad, !openingCollected, time >= 2.35 && time < 3.50 {
-            weave = 0
-        } else if !pad, time >= 6.70 && time < 8.50 {
-            // Keep the climb between 3 and 6 on the scripted lane.
-            weave = 0
-        } else if !pad, time >= 10.15 && time < 11.55 {
-            weave = 0.18
-        } else if time >= (openingHitAt ?? PromoTrailerScript.zoomUnlockStart) && time < 11.0 {
-            weave = pad ? 1.12 : 0.78
-        } else if time >= 11.7 && time < 13.4 {
-            weave = pad ? 0.65 : 0.50
-        } else if time >= 13.4 && time < 18.2 {
-            weave = pad ? 1.12 : 0.82
-        } else {
-            weave = pad ? 1 : 0.72
-        }
-        let allowCorrect = (!openingCollected && time >= PromoTrailerScript.openingHitGate)
-            || (!penultimateCollected && time >= PromoTrailerScript.midHitGate)
-            || (!finalCollected && time >= PromoTrailerScript.finalHitGate)
-        desired = avoidWrongBubbles(desired: desired, engine: engine,
-                                    allowingCorrectApproach: allowCorrect,
-                                    strength: weave)
-
-        if !openingCollected, time >= PromoTrailerScript.openingHitGate - (pad ? 0 : 0.06),
-           let thirteen = engine.trailerBubbles.first(where: { $0.isCorrect && !$0.isPopping }) {
-            desired = blendToward(desired, thirteen.position, engine: engine,
-                                  enter: pad ? 260 : 120,
-                                  full: engine.trailerAnswerHitRadius * (pad ? 0.55 : 0.42))
-        } else if !penultimateCollected, time >= PromoTrailerScript.midHitGate - 0.05,
-                  let five = engine.trailerBubbles.first(where: { $0.isCorrect && !$0.isPopping }) {
-            desired = blendToward(desired, five.position, engine: engine,
-                                  enter: pad ? 240 : 170,
-                                  full: engine.trailerAnswerHitRadius)
-        } else if penultimateCollected, !didCatchBonus,
-                  time >= PromoTrailerScript.bonusBlendStart, time < PromoTrailerScript.bonusBlendEnd,
-                  let bonus = engine.trailerBonusFish, bonus.isCarryingReward {
-            desired = blendToward(desired, bonus.carriedCoinPosition, engine: engine,
-                                  enter: pad ? 300 : 250,
-                                  full: pad ? 90 : 70)
-        } else if !finalCollected, time >= PromoTrailerScript.finalBlendAt,
-                  let twenty = engine.trailerBubbles.first(where: { $0.isCorrect && !$0.isPopping }) {
-            desired = blendToward(desired, twenty.position, engine: engine,
-                                  enter: pad ? 220 : 150,
-                                  full: engine.trailerAnswerHitRadius * (pad ? 0.7 : 0.55))
-        }
-
-        let blend: CGFloat
-        if time < 3.45 {
-            blend = pad ? 0.32 : 0.26
-        } else if time >= PromoTrailerScript.openingHitGate && time < PromoTrailerScript.openingHitGate + 0.85 {
-            blend = pad ? 0.30 : 0.26
-        } else if time >= 11.2 && time < 14.0 {
-            blend = pad ? 0.24 : 0.18
-        } else if time >= PromoTrailerScript.finalBlendAt && time < PromoTrailerScript.finalBlendAt + 0.80 {
-            blend = pad ? 0.30 : 0.18
-        } else {
-            blend = pad ? 0.22 : 0.16
-        }
-        applySteer(toward: desired, engine: engine, blend: blend)
-    }
-
-    private func blendToward(_ desired: CGPoint, _ target: CGPoint, engine: ReefEngine,
-                             enter: CGFloat, full: CGFloat) -> CGPoint {
-        let fish = engine.trailerFishPosition
-        let dx = target.x - fish.x
-        let dy = target.y - fish.y
-        let distance = sqrt(dx * dx + dy * dy)
-        guard distance < enter else { return desired }
-        let t = min(1, max(0, (enter - distance) / max(enter - full, 1)))
-        let ease = t * t * (3 - 2 * t)
-        return CGPoint(x: desired.x + (target.x - desired.x) * ease,
-                       y: desired.y + (target.y - desired.y) * ease)
-    }
-
-    private func applySteer(toward raw: CGPoint, engine: ReefEngine, blend: CGFloat) {
-        let next: CGPoint
-        if let previous = smoothSteerTarget {
-            let t = min(max(blend, 0.08), 1)
-            next = CGPoint(x: previous.x + (raw.x - previous.x) * t,
-                           y: previous.y + (raw.y - previous.y) * t)
-        } else {
-            next = raw
-        }
-        smoothSteerTarget = next
-        engine.steer(toward: next)
-    }
-
-    private func avoidWrongBubbles(desired: CGPoint, engine: ReefEngine,
-                                   allowingCorrectApproach: Bool,
-                                   strength: CGFloat = 1) -> CGPoint {
-        _ = allowingCorrectApproach
-        guard strength > 0.01 else { return desired }
-        let fish = engine.trailerFishPosition
-        let fishRadius = engine.trailerFishLength * 0.42
-        let bubbleRadius = engine.trailerBubbleRadius
-        let clearance = fishRadius + bubbleRadius + (engine.trailerIsPad ? 52 : 22)
-        var result = desired
-        for bubble in engine.trailerBubbles where !bubble.isPopping {
-            if bubble.isCorrect && allowingCorrectApproach { continue }
-            for probe in [fish, desired] {
-                let dx = probe.x - bubble.position.x
-                let dy = probe.y - bubble.position.y
-                let distance = sqrt(dx * dx + dy * dy)
-                guard distance < clearance, distance > 0.5 else { continue }
-                let push = (clearance - distance) / clearance
-                let scale = clearance * push * 1.15 * strength
-                result.x += dx / distance * scale
-                result.y += dy / distance * scale
+        case .hold:
+            engine.setInput(0)
+            if beatAge >= PromoTrailerScript.openingHold {
+                enter(.moveRight)
+                engine.setInput(1)
+                cueSFX("sfx_move", volume: 0.24)
             }
+
+        case .moveRight:
+            engine.setInput(1)
+            if engine.trailerTrolleyX >= engine.trailerTrolleyMaxX - 0.008 {
+                engine.setInput(0)
+                edgeDwellAge += dt
+                if edgeDwellAge >= 0.28 {
+                    enter(.moveLeft)
+                    engine.setInput(-1)
+                    cueSFX("sfx_move", volume: 0.24)
+                }
+            } else {
+                edgeDwellAge = 0
+            }
+
+        case .moveLeft:
+            engine.setInput(-1)
+            if engine.trailerTrolleyX <= engine.trailerTrolleyMinX + 0.008 {
+                engine.setInput(0)
+                edgeDwellAge += dt
+                if edgeDwellAge >= 0.28 {
+                    enter(.returnCenter)
+                }
+            } else {
+                edgeDwellAge = 0
+            }
+
+        case .returnCenter:
+            if aim(engine, at: PromoTrailerScript.openingNutID) {
+                alignedAge += dt
+                if alignedAge >= 0.08 {
+                    enter(.firstGrab)
+                }
+            } else {
+                alignedAge = 0
+            }
+
+        case .firstGrab:
+            engine.trailerReturnTargetX = engine.trailerNutTrolleyX(id: PromoTrailerScript.wrongNutID)
+            recoverIdlePress(engine)
+            if completedGrabs >= 1, engine.trailerPhase == .idle {
+                applyCharacter("octopus")
+                model.trailerInstall(round: session.rounds[1])
+                enter(.unlockAlign)
+                break
+            }
+            if aim(engine, at: PromoTrailerScript.openingNutID) {
+                alignedAge += dt
+                if alignedAge >= 0.06 {
+                    tryGrab(engine, id: PromoTrailerScript.openingNutID)
+                }
+            } else {
+                alignedAge = 0
+            }
+
+        case .unlockAlign:
+            engine.trailerSpeedScale = 1
+            applyCharacter("octopus", flash: characterID != "octopus")
+            engine.trailerReturnTargetX = engine.trailerNutTrolleyX(id: PromoTrailerScript.wrongNutID)
+            if aim(engine, at: PromoTrailerScript.wrongNutID) {
+                alignedAge += dt
+                if alignedAge >= 0.65 {
+                    enter(.wrongGrab)
+                }
+            } else {
+                alignedAge = 0
+            }
+
+        case .wrongGrab:
+            engine.trailerReturnTargetX = engine.trailerNutTrolleyX(id: PromoTrailerScript.showcaseNutID)
+            if engine.trailerIsHangingOverBin {
+                applyCharacter("bear", flash: false)
+            }
+            if didPressForBeat, engine.trailerPhase == .idle {
+                applyCharacter("bear", flash: false)
+                enter(.correctGrab)
+                break
+            }
+            if !didPressForBeat {
+                applyCharacter("octopus", flash: false)
+                if aim(engine, at: PromoTrailerScript.wrongNutID) {
+                    alignedAge += dt
+                    if alignedAge >= 0.06 {
+                        tryGrab(engine, id: PromoTrailerScript.wrongNutID)
+                    }
+                } else {
+                    alignedAge = 0
+                }
+            } else {
+                engine.setInput(0)
+            }
+
+        case .correctGrab:
+            engine.trailerReturnTargetX = engine.trailerNutTrolleyX(id: PromoTrailerScript.speedNutIDs[0])
+            recoverIdlePress(engine)
+            switch engine.trailerPhase {
+            case .grabbing, .ascending, .carrying, .dropping, .returning:
+                applyCharacter("lion", flash: false)
+            case .idle:
+                if completedGrabs >= 2 {
+                    applyCharacter("elephant", flash: false)
+                    collapseToSpeedPile(engine: engine, model: model)
+                    enter(.speed)
+                    break
+                }
+                applyCharacter("bear", flash: false)
+                if aim(engine, at: PromoTrailerScript.showcaseNutID) {
+                    alignedAge += dt
+                    if alignedAge >= 0.06 {
+                        tryGrab(engine, id: PromoTrailerScript.showcaseNutID)
+                    }
+                } else {
+                    alignedAge = 0
+                }
+            default:
+                engine.setInput(0)
+                if characterID != "lion" {
+                    applyCharacter("bear", flash: false)
+                }
+            }
+
+        case .speed:
+            applyCharacter("elephant", flash: false)
+            if speedIndex == 0, beatAge < 0.36, engine.trailerPhase == .idle {
+                engine.setInput(0)
+                break
+            }
+            let ids = PromoTrailerScript.speedNutIDs
+            engine.trailerSpeedScale = (speedIndex >= ids.count - 1)
+                ? PromoTrailerScript.lastSpeedScale
+                : PromoTrailerScript.speedScale
+            guard speedIndex < ids.count else {
+                engine.setInput(0)
+                engine.trailerSpeedScale = PromoTrailerScript.finaleSpeedScale
+                if engine.trailerPhase == .celebrating || playsLevelCompletion {
+                    enter(.finale)
+                }
+                break
+            }
+            let current = ids[speedIndex]
+            if speedIndex + 1 < ids.count {
+                engine.trailerReturnTargetX = engine.trailerNutTrolleyX(id: ids[speedIndex + 1])
+            } else {
+                engine.trailerReturnTargetX = nil
+            }
+            recoverIdlePress(engine)
+            if completedGrabs >= 2 + speedIndex + 1 {
+                speedIndex += 1
+                didPressForBeat = false
+                alignedAge = 0
+                if speedIndex < ids.count, speedIndex + 2 < session.rounds.count {
+                    model.trailerInstall(round: session.rounds[speedIndex + 2])
+                }
+                break
+            }
+            if engine.trailerPhase == .idle {
+                guard engine.trailerPileSettled else {
+                    engine.setInput(0)
+                    break
+                }
+                engine.trailerSnapOver(id: current)
+                tryGrab(engine, id: current)
+            } else {
+                engine.setInput(0)
+            }
+
+        case .finale:
+            engine.trailerSpeedScale = PromoTrailerScript.finaleSpeedScale
+            engine.setInput(0)
+            applyCharacter("elephant", flash: false)
+            if !playsLevelCompletion, engine.trailerPhase == .celebrating {
+                playsLevelCompletion = true
+            }
+            if iconRevealAt == nil, beatAge > 1.86 {
+                handleLevelCompletionFinished()
+            }
+            if iconRevealAt != nil {
+                enter(.icon)
+            }
+
+        case .icon:
+            engine.setInput(0)
+            engine.trailerSpeedScale = 1
+            backgroundBlur = min(2.4, backgroundBlur + dt * 3.5)
+
+        case .done:
+            engine.setInput(0)
         }
-        return result
     }
 
-    private func point(x: CGFloat, y: CGFloat, in engine: ReefEngine) -> CGPoint {
-        let size = engine.trailerPlayfieldSize
-        let top = engine.trailerTopReserve
-        let bottom = max(top + 40, engine.trailerSpawnLine - 30)
-        return CGPoint(x: size.width * x,
-                       y: top + (bottom - top) * y)
+    private func tryGrab(_ engine: ClawEngine, id: UUID) {
+        guard !didPressForBeat, engine.trailerIsReadyToGrab else { return }
+        engine.setInput(0)
+        engine.trailerPressGrab(id: id)
+        didPressForBeat = true
+        cueSFX("sfx_button_press", volume: 0.31)
+    }
+
+    private func recoverIdlePress(_ engine: ClawEngine) {
+        guard didPressForBeat, engine.trailerPhase == .idle else { return }
+        didPressForBeat = false
+        alignedAge = 0
+    }
+
+    @discardableResult
+    private func aim(_ engine: ClawEngine, at id: UUID) -> Bool {
+        guard let target = engine.trailerNutTrolleyX(id: id) else {
+            engine.setInput(0)
+            return false
+        }
+        let dist = target - engine.trailerTrolleyX
+        if abs(dist) <= 0.038 {
+            engine.setInput(0)
+            return true
+        }
+        let steer = min(1, max(-1, dist / 0.07))
+        engine.setInput(steer)
+        return false
+    }
+
+    private func parkForEntrance(_ engine: ClawEngine) {
+        let x = engine.trailerNutTrolleyX(id: PromoTrailerScript.openingNutID) ?? 0.42
+        engine.trailerParkForEntrance(x: x)
+        engine.setInput(0)
+    }
+
+    private func collapseToSpeedPile(engine: ClawEngine, model: GameViewModel) {
+        guard !didCollapsePile else { return }
+        didCollapsePile = true
+        engine.trailerCollapseToPyramid(keeping: PromoTrailerScript.speedNutIDs,
+                                        positions: PromoTrailerScript.speedPyramid)
+        model.trailerInstall(round: session.rounds[2])
+        model.trailerSetClock(total: PromoTrailerScript.clockTotal,
+                              remaining: PromoTrailerScript.speedClockRemaining)
+        engine.trailerSpeedScale = PromoTrailerScript.speedScale
+        speedStartedAt = elapsed
+        speedIndex = 0
+    }
+
+    private func enter(_ next: Beat) {
+        beat = next
+        beatAge = 0
+        didPressForBeat = false
+        alignedAge = 0
+        edgeDwellAge = 0
+        print("PROMO_TRAILER_BEAT \(next) t=\(String(format: "%.2f", elapsed))")
+    }
+
+    // MARK: Phase / character / audio
+
+    private func observePhase(_ engine: ClawEngine) {
+        let phase = engine.trailerPhase
+        if phase != lastPhase {
+            switch phase {
+            case .grabbing:
+                cueSFX("sfx_take_nut", volume: 0.50)
+                if beat == .correctGrab {
+                    applyCharacter("lion", flash: false)
+                }
+            case .dropping:
+                cueSFX("sfx_release_grip", volume: 0.07)
+            case .carrying:
+                if beat == .wrongGrab, engine.trailerIsHangingOverBin {
+                    applyCharacter("bear", flash: false)
+                }
+            case .celebrating:
+                engine.trailerSpeedScale = PromoTrailerScript.finaleSpeedScale
+                if !playsLevelCompletion {
+                    playsLevelCompletion = true
+                    cueSFX("sfx_level_complete", volume: 0.10)
+                }
+            default:
+                break
+            }
+            lastPhase = phase
+        } else if beat == .wrongGrab, engine.trailerIsHangingOverBin {
+            applyCharacter("bear", flash: false)
+        }
+    }
+
+    private func handleAnswer(isCorrect: Bool) {
+        if isCorrect {
+            completedGrabs += 1
+            cueSFX("sfx_correct", volume: 0.08)
+            if completedGrabs >= session.rounds.count {
+                model?.trailerForceLevelComplete()
+            }
+            print("PROMO_TRAILER_GRAB \(completedGrabs)/\(session.rounds.count) t=\(String(format: "%.2f", elapsed))")
+        } else {
+            cueSFX("sfx_wrong", volume: 0.10)
+            print("PROMO_TRAILER_MISS t=\(String(format: "%.2f", elapsed))")
+        }
+    }
+
+    private func applyCharacter(_ id: String, flash: Bool = true) {
+        let changed = characterID != id
+        characterID = id
+        lastCharacterID = id
+        GameSettings.characterID = id
+        engine?.setCharacter(CharacterCatalog.character(id: id))
+        if flash, changed, id == "octopus", !didCueUnlock {
+            didCueUnlock = true
+            themeFlash = 1
+            cueSFX("sfx_character_unlock", volume: 0.16)
+        } else if flash, changed, id != "elephant" {
+            themeFlash = 1
+        }
+    }
+
+    // MARK: Overlays / clock / icon
+
+    private func updateOverlays() {
+        switch beat {
+        case .entrance:
+            headlineText = PromoTrailerScript.instruction
+            headlineOpacity = beatAge > 0.42 ? 1 : 0
+        case .hold, .moveRight, .moveLeft, .returnCenter:
+            headlineText = PromoTrailerScript.instruction
+            headlineOpacity = 1
+        case .firstGrab:
+            headlineText = PromoTrailerScript.instruction
+            headlineOpacity = didPressForBeat ? max(0, 1 - beatAge * 2.4) : 1
+        case .unlockAlign, .wrongGrab, .correctGrab:
+            headlineText = PromoTrailerScript.unlockHeadline
+            headlineOpacity = 1
+        case .speed:
+            headlineText = PromoTrailerScript.speedHeadline
+            headlineOpacity = playsLevelCompletion ? max(0, 1 - beatAge) : 1
+        case .finale, .icon, .done:
+            headlineOpacity = max(0, headlineOpacity - 0.08)
+        }
+    }
+
+    private func updateClock(model: GameViewModel, dt: Double) {
+        switch beat {
+        case .entrance, .hold, .moveRight, .moveLeft, .returnCenter,
+             .firstGrab, .unlockAlign, .wrongGrab, .correctGrab:
+            model.trailerAdvanceClock(by: dt * 0.35)
+        case .speed:
+            let start = speedStartedAt ?? elapsed
+            let remaining = max(0.55, PromoTrailerScript.speedClockRemaining - (elapsed - start))
+            model.trailerSetClock(total: PromoTrailerScript.clockTotal, remaining: remaining)
+        case .finale, .icon, .done:
+            break
+        }
+    }
+
+    private func updateIcon() {
+        guard let iconRevealAt else { return }
+        let local = max(0, elapsed - iconRevealAt)
+        let t = min(1, local / PromoTrailerScript.iconSpinDuration)
+        let eased = 1 - pow(1 - t, 3)
+        iconOpacity = eased
+        iconScale = 0.84 + 0.16 * CGFloat(eased)
+        iconRotation = -16 * (1 - eased)
+        if local >= PromoTrailerScript.iconHold - 0.02 {
+            beat = .done
+            isFinished = true
+        }
+    }
+
+    private func cueSFX(_ file: String, volume: Float, at time: TimeInterval? = nil) {
+        let at = time ?? elapsed
+        audioCues.append((at, file, volume))
+        print("PROMO_TRAILER_SFX \(file) t=\(String(format: "%.2f", at))")
     }
 }

@@ -113,13 +113,15 @@ nonisolated public final class MemoryGame {
     /// A wrong answer leaves the sum standing. Only a correct answer moves the
     /// session on to the next sum, so the clock is the mistake's only cost.
     private var repeatsRound = false
+    /// Trailer-only cap so a 7-nut teaser can complete without a 45-nut board.
+    private var trailerRoundCap: Int?
 
     // MARK: Derived
 
     /// Number of physical answer nuts on this board. A golden answer may raise
     /// the score faster, but the session still visits every one of these rounds
     /// so the machine is empty when the level completes.
-    public var maximumRounds: Int { board.maximum }
+    public var maximumRounds: Int { trailerRoundCap ?? board.maximum }
 
     /// Whether a tap on an answer card can be accepted right now.
     public var acceptsInput: Bool { state == .answering }
@@ -446,6 +448,24 @@ nonisolated public final class MemoryGame {
         }
     }
 
+    /// Replaces the factory pile with a scripted teaser session.
+    public func trailerInstallSession(puzzle: ClawPuzzle, rounds: [GameRound]) {
+        clawPuzzle = puzzle
+        plannedRounds = rounds
+        trailerRoundCap = max(1, rounds.count)
+        collectedNutIDs = []
+        cards = 0
+        result = SessionResult()
+        correctStreak = 0
+        selectedOptionID = nil
+        lastOutcome = nil
+        repeatsRound = false
+        roundNumber = 1
+        round = rounds.first
+        preparedRound = rounds.dropFirst().first
+        state = .answering
+    }
+
     /// After a trailer answer resolves, stay on the current scripted sum so the
     /// director can swap the next beat without a factory round sneaking in.
     public func trailerResumeAnswering() {
@@ -467,7 +487,7 @@ nonisolated public final class MemoryGame {
     /// teaser answer, without inventing a parallel finale.
     public func trailerForceLevelComplete() {
         guard state != .gameOver else { return }
-        cards = max(cards, board.maximum)
+        cards = max(cards, maximumRounds)
         finish(reason: .roundsCompleted)
     }
 }

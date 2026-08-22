@@ -489,7 +489,7 @@ struct LevelCardView: View {
 
     /// A level that crosses its maximum on this return stays in its ordinary
     /// card until the nuts have finished counting. Only then do the gold
-    /// card, crown and ferns arrive together.
+    /// card, crown and empty hook arrive together.
     private var isNewMaximumCelebration: Bool {
         celebrationStartedAt != nil && (celebrationStart ?? best) < maximum && best >= maximum
     }
@@ -810,7 +810,7 @@ struct LevelCardView: View {
                 .stroke(metal, lineWidth: 2.5 * cardScale)
         )
         .overlay {
-            completedFerns(color: hero, highlight: metal)
+            completedHookDecoration(metal: metal)
         }
         .overlay(alignment: .top) {
             completedRibbon(fill: hero, crown: metal)
@@ -819,32 +819,21 @@ struct LevelCardView: View {
         .shadow(color: metal.opacity(0.35), radius: 6, y: 3)
     }
 
-    /// Ferns curl up both sides of every maxed level. Their stems sit just
-    /// outside the card edge while the leaves overlap it slightly, framing the
-    /// score without narrowing the number or nut line.
-    private func completedFerns(color _: Color, highlight: Color) -> some View {
-        HStack(spacing: 0) {
-            CompletionFern(color: highlight, revealStartedAt: fernRevealStartedAt)
-                .frame(width: 25 * cardScale, height: 52 * cardScale)
-                .rotationEffect(.degrees(-3), anchor: .bottom)
-                .offset(x: 9 * cardScale, y: 3 * cardScale)
-
-            Spacer(minLength: 0)
-
-            CompletionFern(color: highlight, revealStartedAt: fernRevealStartedAt)
-                .frame(width: 25 * cardScale, height: 52 * cardScale)
-                .scaleEffect(x: -1, y: 1)
-                .rotationEffect(.degrees(3), anchor: .bottom)
-                .offset(x: -9 * cardScale, y: 3 * cardScale)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+    /// The selected animal's empty hook hangs from the leading-top corner,
+    /// with a short rope and a few gold sparkles. Leading/trailing placement
+    /// turns over with Arabic so the hook never sits on the trailing edge.
+    private func completedHookDecoration(metal: Color) -> some View {
+        CompletionHookDecoration(
+            character: theme,
+            metal: metal,
+            cardScale: cardScale,
+            revealStartedAt: decorationRevealStartedAt
+        )
     }
 
-    /// The completed card is inserted at this exact instant. Giving the ferns
-    /// the shared timestamp keeps both sides perfectly synchronized even when
-    /// SwiftUI creates one side a frame later than the other.
-    private var fernRevealStartedAt: Date? {
+    /// The completed card is inserted at this exact instant. Giving the hook
+    /// the shared timestamp keeps the rope, claw and sparkles synchronized.
+    private var decorationRevealStartedAt: Date? {
         guard isNewMaximumCelebration, let celebrationStartedAt else { return nil }
         return celebrationStartedAt.addingTimeInterval(Self.scoreCountDelay + Self.scoreCountDuration)
     }
@@ -889,133 +878,164 @@ struct LevelCardView: View {
     }
 }
 
-/// A compact water fern for the sides of a completed level card. Its detached,
-/// oval leaves and bowed stem deliberately echo a celebratory laurel, while the
-/// irregular spacing keeps it organic enough for the reef setting.
-private struct CompletionFern: View {
-    let color: Color
+/// The empty mechanical hook of the selected animal, a short rope, and a few
+/// gold sparkles. Already-maxed cards draw once; only a freshly completed
+/// card spends frames on the drop-in, which matters with dozens of maxed
+/// levels on screen.
+private struct CompletionHookDecoration: View {
+    let character: AnimalCharacter
+    let metal: Color
+    let cardScale: CGFloat
     /// Nil means this is an already-completed card and should render fully.
     let revealStartedAt: Date?
 
+    @Environment(\.layoutDirection) private var layoutDirection
+
     var body: some View {
         Group {
-            // Only a fern that is actually growing needs a frame-by-frame
-            // redraw. An already-completed card renders its finished fern once
-            // and then costs nothing — which matters because the menu can show
-            // dozens of completed levels, each carrying two of these.
             if let revealStartedAt {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                    FernCanvas(color: color,
-                               elapsed: max(0, context.date.timeIntervalSince(revealStartedAt)))
+                    canvas(progress: revealProgress(
+                        at: max(0, context.date.timeIntervalSince(revealStartedAt))))
                 }
             } else {
-                FernCanvas(color: color, elapsed: .greatestFiniteMagnitude)
+                canvas(progress: 1)
             }
         }
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
-}
 
-private struct FernCanvas: View {
-    let color: Color
-    let elapsed: TimeInterval
+    private func canvas(progress: CGFloat) -> some View {
+        ZStack {
+            hookCluster(progress: progress)
+                .scaleEffect(x: layoutDirection == .rightToLeft ? -1 : 1, y: 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.leading, 12 * cardScale)
+                .padding(.top, 2 * cardScale)
 
-    private let leaves: [(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, rotation: Double, id: Int)] = [
-        (0.63, 0.82, 0.25, 0.12, 48, 0),
-        (0.29, 0.75, 0.27, 0.12, 27, 1),
-        (0.62, 0.66, 0.28, 0.12, -42, 2),
-        (0.18, 0.58, 0.28, 0.12, 13, 3),
-        (0.57, 0.49, 0.29, 0.12, -52, 4),
-        (0.19, 0.39, 0.27, 0.115, -7, 5),
-        (0.62, 0.31, 0.27, 0.115, -58, 6),
-        (0.34, 0.20, 0.25, 0.11, -25, 7),
-        (0.70, 0.14, 0.23, 0.105, -45, 8)
-    ]
+            CompletionSparkle(size: 7 * cardScale, color: metal)
+                .modifier(CompletionSparklePop(progress: starProgress(0, at: progress)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.leading, 16 * cardScale)
+                .padding(.top, 52 * cardScale)
 
-    var body: some View {
-        Canvas { context, size in
-            let stemProgress = CGFloat(min(1, max(0, elapsed / 0.48)))
-            var stem = FernStemShape().path(in: CGRect(origin: .zero, size: size))
-            stem = stem.trimmedPath(from: 0, to: stemProgress)
-            context.stroke(
-                stem,
-                with: .color(color.opacity(0.62)),
-                style: StrokeStyle(lineWidth: max(1, size.width * 0.05), lineCap: .round)
-            )
+            CompletionSparkle(size: 9 * cardScale, color: metal)
+                .modifier(CompletionSparklePop(progress: starProgress(1, at: progress)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.trailing, 17 * cardScale)
+                .padding(.top, 22 * cardScale)
 
-            for leaf in leaves {
-                let progress = leafProgress(leaf.id, at: elapsed)
-                let leafX = size.width * leaf.x
-                let leafY = size.height * leaf.y
-                let stemX = stemX(at: leaf.y)
-                var petiole = Path()
-                petiole.move(to: CGPoint(x: size.width * stemX, y: leafY))
-                petiole.addLine(to: CGPoint(x: leafX, y: leafY))
-                petiole = petiole.trimmedPath(from: 0, to: min(1, progress))
-                context.stroke(
-                    petiole,
-                    with: .color(color.opacity(0.48)),
-                    style: StrokeStyle(lineWidth: max(0.7, size.width * 0.025), lineCap: .round)
-                )
-
-                let leafWidth = size.width * leaf.width * progress
-                let leafHeight = size.height * leaf.height * progress
-                let rect = CGRect(x: 0, y: -leafHeight / 2, width: leafWidth, height: leafHeight)
-                let extra = (leaf.x < stemX ? -14.0 : 14.0) * (1 - Double(progress))
-                var drawContext = context
-                drawContext.opacity = min(1, progress)
-                drawContext.translateBy(x: leafX, y: leafY)
-                drawContext.rotate(by: .degrees(leaf.rotation + extra))
-                drawContext.fill(
-                    FernLeafShape().path(in: rect),
-                    with: .linearGradient(
-                        Gradient(colors: [color.opacity(0.95), color.opacity(0.62)]),
-                        startPoint: CGPoint(x: rect.minX, y: rect.minY),
-                        endPoint: CGPoint(x: rect.maxX, y: rect.maxY)
-                    )
-                )
-            }
+            CompletionSparkle(size: 6.5 * cardScale, color: metal)
+                .modifier(CompletionSparklePop(progress: starProgress(2, at: progress)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.trailing, 13 * cardScale)
+                .padding(.top, 42 * cardScale)
         }
     }
 
-    private func leafProgress(_ id: Int, at elapsed: TimeInterval) -> CGFloat {
-        let delay = 0.16 + Double(id) * 0.055
-        let raw = min(1, max(0, (elapsed - delay) / 0.30))
-        let c1 = 1.70158
-        let c3 = c1 + 1
-        return CGFloat(1 + c3 * pow(raw - 1, 3) + c1 * pow(raw - 1, 2))
+    private func hookCluster(progress: CGFloat) -> some View {
+        let ropeProgress = min(1, max(0, progress / 0.36))
+        let clawProgress = min(1, max(0, (progress - 0.10) / 0.42))
+        // Every hanging claw lives in the top-centre ~40% of its 768² canvas.
+        // Crop to that window so the open pincers stay whole on a 96-pt card.
+        let windowWidth = 22.8 * cardScale
+        let windowHeight = 25.2 * cardScale
+        let canvas = 52.8 * cardScale
+        return VStack(spacing: -1.5 * cardScale) {
+            CompletionHookRope(progress: ropeProgress)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color(red: 0.70, green: 0.56, blue: 0.32),
+                                 Color(red: 0.22, green: 0.14, blue: 0.08)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    style: StrokeStyle(lineWidth: 1.3 * cardScale, lineCap: .round)
+                )
+                .frame(width: 8 * cardScale, height: 25 * cardScale)
+
+            EmptyClawArtwork(character: character)
+                .frame(width: canvas, height: canvas)
+                .frame(width: windowWidth, height: windowHeight, alignment: .top)
+                .clipped()
+                .opacity(clawProgress)
+                .offset(y: (1 - clawProgress) * 7 * cardScale)
+        }
+        .frame(width: windowWidth, alignment: .top)
     }
 
-    private func stemX(at y: CGFloat) -> CGFloat {
-        let fromBottom = 1 - y
-        return 0.76 - 0.10 * fromBottom - 0.34 * sin(fromBottom * .pi)
+    private func revealProgress(at elapsed: TimeInterval) -> CGFloat {
+        CGFloat(min(1, elapsed / 0.72))
+    }
+
+    private func starProgress(_ index: Int, at progress: CGFloat) -> CGFloat {
+        let delay = 0.38 + CGFloat(index) * 0.10
+        let raw = min(1, max(0, (progress - delay) / 0.22))
+        let c1 = 1.70158
+        let c3 = c1 + 1
+        return 1 + c3 * pow(raw - 1, 3) + c1 * pow(raw - 1, 2)
     }
 }
 
-/// A pointed, slightly asymmetric leaf reads more naturally at this tiny size
-/// than a capsule, while remaining crisp on both phone and iPad.
-private struct FernLeafShape: Shape {
+private struct CompletionSparklePop: ViewModifier {
+    let progress: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(max(0, progress))
+            .opacity(Double(min(1, max(0, progress))))
+    }
+}
+
+private struct CompletionSparkle: View {
+    let size: CGFloat
+    let color: Color
+
+    var body: some View {
+        SparkleShape()
+            .fill(color)
+            .frame(width: size, height: size)
+    }
+}
+
+/// A four-pointed sparkle drawn as a path so it stays crisp at the tiny
+/// size a level card can spare. The system `sparkle` glyph goes muddy here.
+private struct SparkleShape: Shape {
     func path(in rect: CGRect) -> Path {
+        let cx = rect.midX
+        let cy = rect.midY
+        let inner = min(rect.width, rect.height) * 0.15
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
-        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.midY),
-                      control1: CGPoint(x: rect.width * 0.30, y: rect.minY),
-                      control2: CGPoint(x: rect.width * 0.78, y: rect.minY + rect.height * 0.08))
-        path.addCurve(to: CGPoint(x: rect.minX, y: rect.midY),
-                      control1: CGPoint(x: rect.width * 0.72, y: rect.maxY),
-                      control2: CGPoint(x: rect.width * 0.22, y: rect.maxY - rect.height * 0.04))
+        path.move(to: CGPoint(x: cx, y: rect.minY))
+        path.addLine(to: CGPoint(x: cx + inner, y: cy - inner))
+        path.addLine(to: CGPoint(x: rect.maxX, y: cy))
+        path.addLine(to: CGPoint(x: cx + inner, y: cy + inner))
+        path.addLine(to: CGPoint(x: cx, y: rect.maxY))
+        path.addLine(to: CGPoint(x: cx - inner, y: cy + inner))
+        path.addLine(to: CGPoint(x: rect.minX, y: cy))
+        path.addLine(to: CGPoint(x: cx - inner, y: cy - inner))
         path.closeSubpath()
         return path
     }
 }
 
-private struct FernStemShape: Shape {
+private struct CompletionHookRope: Shape {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
     func path(in rect: CGRect) -> Path {
+        let endY = rect.minY + rect.height * max(0, min(1, progress))
         var path = Path()
-        path.move(to: CGPoint(x: rect.width * 0.76, y: rect.height * 0.94))
-        path.addCurve(to: CGPoint(x: rect.width * 0.66, y: rect.height * 0.10),
-                      control1: CGPoint(x: rect.width * 0.34, y: rect.height * 0.80),
-                      control2: CGPoint(x: rect.width * 0.08, y: rect.height * 0.34))
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.midX, y: endY),
+            control: CGPoint(x: rect.midX + rect.width * 0.22, y: rect.midY)
+        )
         return path
     }
 }
@@ -1451,7 +1471,7 @@ struct CardFlightView: View {
     let flight: CardFlight
 
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
             let elapsed = max(0, context.date.timeIntervalSince(flight.startedAt))
             let t = min(1, elapsed / flight.duration)
             // Ease progress along the path; keep the arc keyed to raw `t` so the
@@ -1487,7 +1507,7 @@ struct LevelReturnFocusGlow: View {
     let glowColor: Color
 
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
             let elapsed = max(0, context.date.timeIntervalSince(startedAt))
             RoundedRectangle(cornerRadius: cornerRadius)
                 .stroke(strokeColor, lineWidth: lineWidth)

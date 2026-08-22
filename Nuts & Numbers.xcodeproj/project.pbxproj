@@ -10,6 +10,16 @@
 		F9DE24203034DF31000416F3 /* Nuts & Numbers.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Nuts & Numbers.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F9DE24303034DF32000416F3 /* Exceptions for "Nuts & Numbers" folder in "Nuts & Numbers" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Products.storekit,
+			);
+			target = F9DE241F3034DF31000416F3 /* Nuts & Numbers */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F9DE24223034DF31000416F3 /* Nuts & Numbers */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -18,13 +28,6 @@
 			);
 			path = "Nuts & Numbers";
 			sourceTree = "<group>";
-		};
-		F9DE24303034DF32000416F3 /* Exceptions for "Nuts & Numbers" folder in "Nuts & Numbers" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Products.storekit,
-			);
-			target = F9DE241F3034DF31000416F3 /* Nuts & Numbers */;
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
@@ -261,7 +264,7 @@
 				ASSETCATALOG_COMPILER_OPTIMIZATION = space;
 				CODE_SIGN_ENTITLEMENTS = "Nuts & Numbers/Number Reef.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 4283ACUG4Y;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -306,7 +309,7 @@
 				ASSETCATALOG_COMPILER_OPTIMIZATION = space;
 				CODE_SIGN_ENTITLEMENTS = "Nuts & Numbers/Number Reef.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 4283ACUG4Y;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;

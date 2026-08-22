@@ -41,11 +41,39 @@ struct CurrencyIcon: View {
 }
 
 #if canImport(UIKit)
+/// Decode a catalog PNG once and, when it is larger than anything on screen,
+/// shrink it before it is cached. Hanging layers and portraits are authored
+/// around 1250px; the largest on-screen slot is the 280pt Premium hero.
+enum DisplayPreparedImage {
+    static func make(named name: String, maxPixel: CGFloat) -> UIImage {
+        let image = UIImage(named: name) ?? UIImage()
+        let pixelWidth = image.size.width * image.scale
+        let pixelHeight = image.size.height * image.scale
+        let longest = max(pixelWidth, pixelHeight)
+        if longest > maxPixel + 1, longest > 0 {
+            let scale = maxPixel / longest
+            let size = CGSize(width: max(1, (pixelWidth * scale).rounded()),
+                              height: max(1, (pixelHeight * scale).rounded()))
+            if let thumb = image.preparingThumbnail(of: size) {
+                return thumb
+            }
+        }
+        return image.preparingForDisplay() ?? image
+    }
+}
+
 /// Decode portrait sprites once. Opening the collection used to pay PNG
 /// decompression for ten characters on the sheet's first frame.
 enum CharacterArtworkCache {
     private static let lock = NSLock()
     private static var images: [String: UIImage] = [:]
+    private static var thumbnails: [String: UIImage] = [:]
+
+    /// Longest on-screen portrait is the Premium hero (280pt). Keep a little
+    /// headroom for iPad 3x without uploading the full authored canvas.
+    private static var displayPixelSide: CGFloat {
+        min(1024, (320 * UIScreen.main.scale).rounded())
+    }
 
     static func prewarm() {
         for character in CharacterCatalog.all {
@@ -55,7 +83,9 @@ enum CharacterArtworkCache {
 
     /// Decode the five loose hanging layers for the selected animal so the
     /// menu and the first claw-game frame do not hitch on PNG decompression.
+    /// The composite portrait is included because the collection hero reads it.
     static func prewarmHanging(for character: AnimalCharacter) {
+        _ = front(named: character.imageName)
         for name in character.hanging.layerNames {
             _ = front(named: name)
         }
@@ -68,13 +98,15 @@ enum CharacterArtworkCache {
             return cached
         }
         lock.unlock()
-        let image = (UIImage(named: name) ?? UIImage()).preparingForDisplay()
-            ?? UIImage(named: name)
-            ?? UIImage()
+        let decoded = DisplayPreparedImage.make(named: name, maxPixel: displayPixelSide)
         lock.lock()
-        images[name] = image
+        if let cached = images[name] {
+            lock.unlock()
+            return cached
+        }
+        images[name] = decoded
         lock.unlock()
-        return image
+        return decoded
     }
 
     /// Grid cells are ~44pt. Uploading the full portrait sprite for every
@@ -87,16 +119,17 @@ enum CharacterArtworkCache {
             return cached
         }
         lock.unlock()
-        let source = front(named: name)
         let pixels = max(1, side * UIScreen.main.scale)
-        let sized = source.preparingThumbnail(of: CGSize(width: pixels, height: pixels)) ?? source
+        let sized = DisplayPreparedImage.make(named: name, maxPixel: pixels)
         lock.lock()
+        if let cached = thumbnails[key] {
+            lock.unlock()
+            return cached
+        }
         thumbnails[key] = sized
         lock.unlock()
         return sized
     }
-
-    private static var thumbnails: [String: UIImage] = [:]
 }
 #endif
 
@@ -104,9 +137,9 @@ struct AnimalCharacter: Identifiable, Equatable {
     let id: String
     let name: String
     let emoji: String
-    /// Position in the catalog, 1-based. It is also the suffix of the standard
-    /// side artwork (`side_N`). Hanging layers use a separate index (elephant
-    /// is `1_*`, octopus `2_*`, crab `3_*`, then slot and hanging index match).
+    /// Position in the catalog, 1-based. Hanging layers use a separate index
+    /// (elephant is `1_*`, octopus `2_*`, crab `3_*`, then slot and hanging
+    /// index match).
     let slot: Int
 
     // Colour components (0–1).
@@ -114,11 +147,6 @@ struct AnimalCharacter: Identifiable, Equatable {
     let deepRGB: (Double, Double, Double)
     let skyRGB: (Double, Double, Double)
     let tintRGB: (Double, Double, Double)
-
-    /// Width ÷ height of the swimming artwork, measured from the asset itself.
-    /// The reef draws every character at its own proportions rather than
-    /// squeezing them all into one silhouette.
-    let sideAspectRatio: CGFloat
 
     static func == (lhs: AnimalCharacter, rhs: AnimalCharacter) -> Bool {
         lhs.id == rhs.id
@@ -153,10 +181,6 @@ struct AnimalCharacter: Identifiable, Equatable {
         artwork
 #endif
     }
-
-    /// Facing the way it swims, used while playing.
-    var sideImageName: String { "side_\(slot)" }
-    var sideArtwork: Image { Image(sideImageName) }
 
     /// Localized display name, resolved per language from the string catalog
     /// ("character.fox", "character.frog", …).
@@ -283,6 +307,16 @@ struct HooklessCharacterArtwork: View {
     }
 }
 
+/// Just the mechanical hook of the selected hanging animal, empty — no body.
+struct EmptyClawArtwork: View {
+    let character: AnimalCharacter
+
+    var body: some View {
+        hangingLayer(character.hanging.claw)
+            .aspectRatio(1, contentMode: .fit)
+    }
+}
+
 /// The complete hanging character, rebuilt in the same layer order as the claw
 /// game. Drawn outside the menu card so the hook and rope can sit in open air.
 struct HangingCharacterArtwork: View {
@@ -362,44 +396,34 @@ enum CharacterCatalog {
     static let all: [AnimalCharacter] = [
         AnimalCharacter(id: "elephant", name: "Elephant", emoji: "🐘", slot: 3,
                         primaryRGB: (0.36, 0.58, 0.78), deepRGB: (0.19, 0.38, 0.58),
-                        skyRGB: (0.90, 0.94, 0.97), tintRGB: (0.81, 0.89, 0.96),
-                        sideAspectRatio: 1.606),
+                        skyRGB: (0.90, 0.94, 0.97), tintRGB: (0.81, 0.89, 0.96)),
         AnimalCharacter(id: "octopus", name: "Octopus", emoji: "🐙", slot: 1,
                         primaryRGB: (0.62, 0.40, 0.87), deepRGB: (0.35, 0.18, 0.60),
-                        skyRGB: (0.93, 0.88, 0.99), tintRGB: (0.88, 0.79, 0.98),
-                        sideAspectRatio: 1.599),
+                        skyRGB: (0.93, 0.88, 0.99), tintRGB: (0.88, 0.79, 0.98)),
         AnimalCharacter(id: "crab", name: "Crab", emoji: "🦀", slot: 2,
                         primaryRGB: (0.90, 0.27, 0.10), deepRGB: (0.62, 0.13, 0.03),
-                        skyRGB: (1.00, 0.90, 0.87), tintRGB: (1.00, 0.82, 0.77),
-                        sideAspectRatio: 1.071),
+                        skyRGB: (1.00, 0.90, 0.87), tintRGB: (1.00, 0.82, 0.77)),
         AnimalCharacter(id: "bear", name: "Bear", emoji: "🐻", slot: 4,
                         primaryRGB: (0.72, 0.44, 0.16), deepRGB: (0.42, 0.20, 0.06),
-                        skyRGB: (0.99, 0.94, 0.88), tintRGB: (0.98, 0.89, 0.79),
-                        sideAspectRatio: 1.411),
+                        skyRGB: (0.99, 0.94, 0.88), tintRGB: (0.98, 0.89, 0.79)),
         AnimalCharacter(id: "fox", name: "Fox", emoji: "🦊", slot: 5,
                         primaryRGB: (0.94, 0.60, 0.26), deepRGB: (0.68, 0.30, 0.07),
-                        skyRGB: (1.00, 0.94, 0.87), tintRGB: (1.00, 0.89, 0.77),
-                        sideAspectRatio: 1.266),
+                        skyRGB: (1.00, 0.94, 0.87), tintRGB: (1.00, 0.89, 0.77)),
         AnimalCharacter(id: "frog", name: "Frog", emoji: "🐸", slot: 6,
                         primaryRGB: (0.45, 0.76, 0.18), deepRGB: (0.12, 0.47, 0.15),
-                        skyRGB: (0.93, 0.99, 0.88), tintRGB: (0.88, 0.97, 0.80),
-                        sideAspectRatio: 1.810),
+                        skyRGB: (0.93, 0.99, 0.88), tintRGB: (0.88, 0.97, 0.80)),
         AnimalCharacter(id: "penguin", name: "Penguin", emoji: "🐧", slot: 7,
                         primaryRGB: (0.22, 0.36, 0.68), deepRGB: (0.08, 0.16, 0.38),
-                        skyRGB: (0.89, 0.92, 0.98), tintRGB: (0.81, 0.86, 0.96),
-                        sideAspectRatio: 1.356),
+                        skyRGB: (0.89, 0.92, 0.98), tintRGB: (0.81, 0.86, 0.96)),
         AnimalCharacter(id: "bunny", name: "Bunny", emoji: "🐰", slot: 8,
                         primaryRGB: (0.94, 0.56, 0.60), deepRGB: (0.72, 0.29, 0.37),
-                        skyRGB: (1.00, 0.87, 0.89), tintRGB: (0.99, 0.78, 0.80),
-                        sideAspectRatio: 1.352),
+                        skyRGB: (1.00, 0.87, 0.89), tintRGB: (0.99, 0.78, 0.80)),
         AnimalCharacter(id: "dog", name: "Dog", emoji: "🐶", slot: 9,
                         primaryRGB: (0.20, 0.66, 0.69), deepRGB: (0.06, 0.42, 0.46),
-                        skyRGB: (0.89, 0.97, 0.98), tintRGB: (0.81, 0.95, 0.96),
-                        sideAspectRatio: 1.544),
+                        skyRGB: (0.89, 0.97, 0.98), tintRGB: (0.81, 0.95, 0.96)),
         AnimalCharacter(id: "lion", name: "Lion", emoji: "🦁", slot: 10,
                         primaryRGB: (0.95, 0.74, 0.20), deepRGB: (0.68, 0.45, 0.08),
-                        skyRGB: (1.00, 0.96, 0.87), tintRGB: (1.00, 0.94, 0.77),
-                        sideAspectRatio: 1.384)
+                        skyRGB: (1.00, 0.96, 0.87), tintRGB: (1.00, 0.94, 0.77))
     ]
 
     static func character(id: String) -> AnimalCharacter {

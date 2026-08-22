@@ -89,9 +89,10 @@ final class AppAudio: NSObject, ObservableObject {
 
     var hasAnyAudioEnabled: Bool { gameSoundsEnabled || musicEnabled || spokenSumsEnabled }
 
-    /// True only when both localized math wording and a matching installed
-    /// system voice exist for the language currently selected in the app.
+    /// True only when spoken sums are offered, and both localized math wording
+    /// and a matching installed system voice exist for the app language.
     var isSpokenMathAvailable: Bool {
+        guard GameSettings.spokenSumsOffered else { return false }
         let languageCode = LanguageManager.shared.effective.code
         guard SpokenMath.lexicons[languageCode] != nil else { return false }
         // Voice discovery is deliberately asynchronous. Until it completes,
@@ -254,7 +255,7 @@ final class AppAudio: NSObject, ObservableObject {
     private override init() {
         self.gameSoundsEnabled = GameSettings.gameSoundsEnabled
         self.musicEnabled = GameSettings.musicEnabled
-        self.spokenSumsEnabled = GameSettings.spokenSumsEnabled
+        self.spokenSumsEnabled = GameSettings.spokenSumsOffered && GameSettings.spokenSumsEnabled
         super.init()
         registerForInterruptions()
     }
@@ -778,7 +779,7 @@ final class AppAudio: NSObject, ObservableObject {
     /// language. No-op unless that language has both localized math wording and
     /// an installed system voice. Speech is deferred (see `speechStartDelay`).
     func speakQuestion(_ prompt: String) {
-        guard spokenSumsEnabled, isGameplayActive else { return }
+        guard GameSettings.spokenSumsOffered, spokenSumsEnabled, isGameplayActive else { return }
         let languageCode = LanguageManager.shared.effective.code
         guard let text = Self.spokenText(for: prompt, languageCode: languageCode) else { return }
         guard !text.isEmpty else { return }

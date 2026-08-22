@@ -12,7 +12,7 @@ struct SettingsView: View {
     @AppStorage(GameSettings.characterKey) private var characterID = CharacterCatalog.freeCharacterID
     @AppStorage(GameSettings.gameSoundsEnabledKey) private var gameSounds = true
     @AppStorage(GameSettings.musicEnabledKey) private var music = true
-    @AppStorage(GameSettings.spokenSumsEnabledKey) private var spokenSums = true
+    @AppStorage(GameSettings.spokenSumsEnabledKey) private var spokenSums = false
     @ObservedObject private var premium = PremiumStore.shared
     @ObservedObject private var tracker = PlaytimeTracker.shared
     @ObservedObject private var language = LanguageManager.shared

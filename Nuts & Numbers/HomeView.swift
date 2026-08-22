@@ -28,7 +28,7 @@ private struct ScoreCelebration: Identifiable {
     let topicStart: Int
     let totalStart: Int
     /// True only when this session turned an unfinished board into a maxed one.
-    /// That inserts the fern-and-crown reveal before its nut flies away.
+    /// That inserts the hook-and-crown reveal before its nut flies away.
     let revealsMaximum: Bool
     let id = UUID()
     /// Stamped when the celebration actually becomes visible, not when it was
@@ -229,6 +229,10 @@ struct HomeView: View {
 
         }
         .coordinateSpace(name: "home")
+        // Same left-origin placement as the nut flights above. The character
+        // slot itself turns over with Arabic, but `position` on this overlay
+        // would otherwise hang the portrait on the physical left of a
+        // right-hand slot.
         .overlayPreferenceValue(HomeCharacterAnchorKey.self) { anchor in
             GeometryReader { proxy in
                 if let anchor {
@@ -242,6 +246,7 @@ struct HomeView: View {
                     )
                 }
             }
+            .environment(\.layoutDirection, .leftToRight)
             .ignoresSafeArea()
             .allowsHitTesting(false)
         }
@@ -321,18 +326,21 @@ struct HomeView: View {
             AppAudio.shared.prepare()
             AppAudio.shared.startMusic()
 #if canImport(UIKit)
+            let animal = character
             Task(priority: .utility) {
                 await Task.yield()
-                CharacterArtworkCache.prewarm()
-                CharacterArtworkCache.prewarmHanging(for: character)
-                ClawArtworkCache.prewarm(character: character)
+                CharacterArtworkCache.prewarmHanging(for: animal)
+                ClawArtworkCache.prewarm(character: animal)
             }
 #endif
         }
         .onChange(of: characterID) { _ in
 #if canImport(UIKit)
-            CharacterArtworkCache.prewarmHanging(for: character)
-            ClawArtworkCache.prewarm(character: character)
+            let animal = character
+            Task(priority: .utility) {
+                CharacterArtworkCache.prewarmHanging(for: animal)
+                ClawArtworkCache.prewarm(character: animal)
+            }
 #endif
         }
         .onChange(of: scenePhase) { phase in
@@ -821,7 +829,7 @@ struct HomeView: View {
 
     /// Rows inside the outer `LazyVStack`, so off-screen cards are not built.
     /// A custom `Layout` or a `LazyVGrid` nested in a `VStack` still materialises
-    /// every level — up to 99 cards, each with shadows and ferns.
+    /// every level — up to 99 cards, each with shadows and a hanging hook.
     private func lazyLevelRows(_ levels: [MathLevel], recommendedID: String?) -> some View {
         let columns = visibleLevelColumns
         let rows: [LevelCardRow] = stride(from: 0, to: levels.count, by: columns).map { start in
@@ -1048,7 +1056,7 @@ struct HomeView: View {
     private static var cardSettleDelay: Double {
         LevelCardView.scoreCountDelay + LevelCardView.scoreCountDuration + 0.1
     }
-    /// Gives the springing max card, ferns and crown a clear beat on screen
+    /// Gives the springing max card, hook and crown a clear beat on screen
     /// before the reward nut starts its flight to the topic total.
     private static let maximumRevealPause = 0.9
     private static let flightDuration = 0.62

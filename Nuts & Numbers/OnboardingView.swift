@@ -115,6 +115,16 @@ struct OnboardingView: View {
                 .padding(.top, isPad ? 20 : 8)
                 .padding(.trailing, isPad ? 28 : 16)
         }
+        .onAppear {
+            AppAudio.shared.prepare()
+#if canImport(UIKit)
+            let animal = welcomeCharacter
+            Task(priority: .utility) {
+                await Task.yield()
+                ClawArtworkCache.prewarm(character: animal)
+            }
+#endif
+        }
     }
 
     private var backButton: some View {

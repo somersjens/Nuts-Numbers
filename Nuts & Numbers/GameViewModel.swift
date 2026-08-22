@@ -111,6 +111,7 @@ final class GameViewModel: ObservableObject {
     /// entrance) is still on screen. Round generation is pure CPU work and
     /// does not belong on the frame that responds to Start.
     func prepare() {
+        if PromoTrailerRuntime.isActive { return }
         guard engine.state == .intro, preparationTask == nil else { return }
         let paused = PausedSessionStore.shared.session(request.board)
         startPreparation(pausedSession: paused)
@@ -149,6 +150,17 @@ final class GameViewModel: ObservableObject {
 
     /// Starts the level, resuming a paused session when one is waiting.
     func begin() async {
+        if PromoTrailerRuntime.isActive {
+            isPaused = false
+            isTutorialClockPaused = true
+            trailerOwnsRounds = true
+            let session = PromoTrailerScript.session()
+            engine.trailerInstallSession(puzzle: session.puzzle, rounds: session.rounds)
+            clock.configure(total: PromoTrailerScript.clockTotal,
+                            remaining: PromoTrailerScript.clockStart)
+            sync()
+            return
+        }
         guard engine.state == .intro else { return }
         let token = generation
         prepare()
@@ -165,14 +177,6 @@ final class GameViewModel: ObservableObject {
         AppAudio.shared.setGameplayActive(true, questionText: nil)
         AppAudio.shared.playSessionStart()
         hasBonusFishPower = prepared.pausedSession?.hasBonusFishPower ?? false
-        if PromoTrailerRuntime.isActive {
-            // Director owns every math beat — install the opening sum immediately
-            // so frame 0 never flashes a factory question from `prepare()`.
-            trailerOwnsRounds = true
-            engine.trailerInstall(round: PromoTrailerScript.openingRound(number: 1))
-            sync()
-            return
-        }
         openRound()
         announceRound()
         sync()
@@ -188,12 +192,16 @@ final class GameViewModel: ObservableObject {
 
     private func announceRound() {
         AppAudio.shared.playCardReveal()
+        if let prompt = engine.round?.question.prompt {
+            AppAudio.shared.speakQuestion(prompt)
+        }
     }
 
     func end() {
-        // Leaving without finishing pauses the level rather than discarding it.
-        savePausedSessionIfNeeded()
-        recordResultIfNeeded()
+        if !PromoTrailerRuntime.isActive {
+            savePausedSessionIfNeeded()
+            recordResultIfNeeded()
+        }
         PlaytimeTracker.shared.challengeEnded()
         AppAudio.shared.setGameplayActive(false, questionText: nil)
         AppAudio.shared.setGameplayRate(1)
@@ -226,7 +234,7 @@ final class GameViewModel: ObservableObject {
         startClock()
         prepareHaptics()
         PlaytimeTracker.shared.challengeStarted()
-        AppAudio.shared.setGameplayActive(true, questionText: nil)
+        AppAudio.shared.setGameplayActive(true, questionText: engine.round?.question.prompt)
         AppAudio.shared.setGameplayRate(1)
         let work = pendingScheduledWork
         pendingScheduledWork = nil
@@ -380,7 +388,7 @@ final class GameViewModel: ObservableObject {
             // into the middle of the travel to centre.
             delay = engine.roundNumber >= engine.maximumRounds
                 ? 0
-                : GameConfig.nextRoundDelay.correct
+                : (trailerOwnsRounds ? 0 : GameConfig.nextRoundDelay.correct)
         case .wrong:
             sync()
             onAnswerResolved?(false, false)
@@ -455,7 +463,9 @@ final class GameViewModel: ObservableObject {
         stopClock()
         recordResultIfNeeded()
         // Hide replay generation under the reef finale/result card too.
-        startPreparation(pausedSession: nil)
+        if !PromoTrailerRuntime.isActive {
+            startPreparation(pausedSession: nil)
+        }
     }
 
     /// Writes the session to disk exactly once, whichever way the screen is
@@ -463,6 +473,10 @@ final class GameViewModel: ObservableObject {
     private func recordResultIfNeeded() {
         guard engine.state == .gameOver, !hasRecordedResult else { return }
         hasRecordedResult = true
+        if PromoTrailerRuntime.isActive {
+            result = engine.result
+            return
+        }
         // A level that reached its end is finished, not paused.
         if engine.gameOverReason != .quit {
             PausedSessionStore.shared.clear(request.board)
@@ -575,6 +589,14 @@ final class GameViewModel: ObservableObject {
         engine.trailerInstall(round: round)
         trailerOwnsRounds = true
         sync()
+    }
+
+    func trailerSetClock(total: Double, remaining: Double) {
+        clock.configure(total: total, remaining: remaining)
+    }
+
+    func trailerAdvanceClock(by dt: Double) {
+        clock.advance(by: dt)
     }
 
     func trailerSeedCorrectStreak(_ value: Int) {

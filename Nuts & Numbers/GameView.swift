@@ -2,20 +2,44 @@
 //  GameView.swift
 //  Math Memory
 //
-//  The playing surface. A round runs on the reef: the sum stands on a piece of
-//  coral on the sea floor, the coral lets answer bubbles up through the water,
-//  and the player steers a fish into the bubble carrying the right answer.
+//  The playing surface. A round runs on the claw machine: the sum sits on the
+//  cabinet, walnuts carry the answers, and the player steers the hanging
+//  character to grab the right nut.
 //
-//  All rules live in `MemoryGame` and the whole of the reef lives in
-//  `ReefGame.swift`; this file only puts the HUD, the reef and the helper
-//  together and hands every touched answer straight to the engine, which is the
-//  single place that decides whether it counts.
+//  All rules live in `MemoryGame`; this file puts the HUD and the playfield
+//  together and hands every grabbed nut straight to the engine.
 //
 
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
+
+/// The window's own safe area. Sample in `onAppear`, never from `body` —
+/// a nested GeometryReader reports zero once its container is already inset.
+struct ScreenSafeArea: Equatable {
+    var top: CGFloat = 0
+    var bottom: CGFloat = 0
+    var leading: CGFloat = 0
+    var trailing: CGFloat = 0
+
+    @MainActor
+    static var current: ScreenSafeArea {
+#if canImport(UIKit)
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }
+        guard let insets = window?.safeAreaInsets else { return ScreenSafeArea() }
+        return ScreenSafeArea(top: insets.top,
+                              bottom: insets.bottom,
+                              leading: insets.left,
+                              trailing: insets.right)
+#else
+        return ScreenSafeArea()
+#endif
+    }
+}
 
 /// Everything a session needs to start: which level to draw questions from and
 /// how many answer cards each round lays out.
@@ -171,6 +195,13 @@ struct GameView: View {
         .onAppear {
             screenInsets = ScreenSafeArea.current
             model.prepare()
+#if canImport(UIKit)
+            let animal = character
+            Task(priority: .utility) {
+                await Task.yield()
+                ClawArtworkCache.prewarm(character: animal)
+            }
+#endif
         }
 #if canImport(UIKit)
         .onReceive(NotificationCenter.default.publisher(
@@ -471,7 +502,7 @@ struct GameView: View {
     }
 }
 
-private struct ClawTimerBadge: View {
+struct ClawTimerBadge: View {
     @ObservedObject var clock: GameClock
     let isPad: Bool
     let size: CGFloat
@@ -614,7 +645,7 @@ private struct TutorialTimerFocus: View {
     }
 }
 
-private struct CabinetMountFasteners: View {
+struct CabinetMountFasteners: View {
     let size: CGFloat
     let inset: CGFloat
     let palette: ClawPalette
@@ -650,7 +681,7 @@ private struct CabinetMountFasteners: View {
     }
 }
 
-private struct CabinetHUDWoodGrain: View {
+struct CabinetHUDWoodGrain: View {
     let color: Color
 
     var body: some View {

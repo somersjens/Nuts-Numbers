@@ -117,6 +117,11 @@ struct PremiumView: View {
                 previewCharacterID = celebratedUnlockCharacterID
                 playUnlockCelebration(characterID: celebratedUnlockCharacterID)
             }
+#if canImport(UIKit)
+            Task(priority: .utility) {
+                CharacterArtworkCache.prewarm()
+            }
+#endif
         }
         .task { await premium.refreshIfNeeded() }
         .sheet(isPresented: $showsParentApproval) {
