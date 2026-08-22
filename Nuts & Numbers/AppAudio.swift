@@ -154,14 +154,11 @@ final class AppAudio: NSObject, ObservableObject {
         Effect(key: "releaseGrip",   file: "sfx_release_grip",   ext: "caf", volume: 0.07, lead: 0.0),
         Effect(key: "buttonPress",   file: "sfx_button_press",   ext: "caf", volume: 0.31, lead: 0.0),
         Effect(key: "move",          file: "sfx_move",           ext: "caf", volume: 0.24, lead: 0.0),
-        // The card flip that opens a round.
-        Effect(key: "cardFlip",      file: "sfx_card_flip",      ext: "caf", volume: 0.10, lead: 0.015),
         // The question card turning face up.
         Effect(key: "cardReveal",    file: "sfx_card_reveal",    ext: "caf", volume: 0.19, lead: 0.010),
         // The thick double card appearing, and the doubled score landing.
         Effect(key: "doubleCard",    file: "sfx_double_card",    ext: "caf", volume: 0.18, lead: 0.0),
         Effect(key: "doubleScore",   file: "sfx_double_score",   ext: "caf", volume: 0.15, lead: 0.0),
-        Effect(key: "flamethrower",  file: "sfx_flamethrower",   ext: "caf", volume: 0.31, lead: 0.045),
         Effect(key: "sessionStart",  file: "sfx_session_start",  ext: "caf", volume: 0.16, lead: 0.225),
         Effect(key: "sessionComplete", file: "sfx_level_complete", ext: "caf", volume: 0.10, lead: 0.010),
         Effect(key: "highScore",     file: "sfx_high_score",     ext: "caf", volume: 0.14, lead: 0.025),
@@ -713,11 +710,9 @@ final class AppAudio: NSObject, ObservableObject {
     func playReleaseGrip()      { playEffect("releaseGrip") }
     func playButtonPress()      { playEffect("buttonPress") }
     func playMove()             { playEffect("move") }
-    func playCardFlip()         { playEffect("cardFlip") }         // a card turns over
     func playCardReveal()       { playEffect("cardReveal") }       // the question becomes visible
     func playDoubleCardAppear() { playEffect("doubleCard") }       // the thick special card
     func playDoubleScore()      { playEffect("doubleScore") }      // a double card paid out
-    func playFlamethrower()     { playEffect("flamethrower") }     // the helper fires
     func playSessionStart()     { playEffect("sessionStart") }
     func playSessionComplete()  { playEffect("sessionComplete") }
     func playHighScore()        { playEffect("highScore") }        // new personal best

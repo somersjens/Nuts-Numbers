@@ -754,28 +754,50 @@ final class ClawEngine: ObservableObject {
         return max(0, min(1, (desiredTrolleyY - restY) / span))
     }
 
-    /// The walnut the hands would hit: the highest shell under the trunk.
-    /// Buried-only targeting used to skip that shell and grab air instead.
+    /// The walnut the player steered onto. Every animal aims first with the
+    /// hanging body (the trolley), then with its own paws / claws / tentacles /
+    /// flippers, whose rest contacts were measured per sprite. Using only the
+    /// swung centre-point made a still-swaying grab pinch air above the mound
+    /// and only land the same nut after the pendulum settled.
     private func nearestNut() -> ClawNutRuntime? {
         let remaining = nuts.filter(\.isPresent)
         guard !remaining.isEmpty else { return nil }
-        let gripX = trunkPoint.x
 
         func halfWidth(_ nut: ClawNutRuntime) -> CGFloat {
             max(18, nut.pixelRadius * ClawConfig.nutPackScale)
         }
 
-        let overlapping = remaining.filter { abs($0.position.x - gripX) < halfWidth($0) * 0.95 }
-        let pool = overlapping.isEmpty
-            ? remaining.filter { abs($0.position.x - gripX) < halfWidth($0) * 1.22 }
-            : overlapping
-        guard !pool.isEmpty else { return nil }
-
-        return pool.min { lhs, rhs in
-            let dy = lhs.position.y - rhs.position.y
-            if abs(dy) > 6 { return dy < 0 }
-            return abs(lhs.position.x - gripX) < abs(rhs.position.x - gripX)
+        func overlapping(_ aimX: CGFloat, scale: CGFloat) -> [ClawNutRuntime] {
+            remaining.filter { abs($0.position.x - aimX) < halfWidth($0) * scale }
         }
+
+        func pick(_ pool: [ClawNutRuntime], aimX: CGFloat) -> ClawNutRuntime? {
+            pool.min { lhs, rhs in
+                let dy = lhs.position.y - rhs.position.y
+                if abs(dy) > 6 { return dy < 0 }
+                return abs(lhs.position.x - aimX) < abs(rhs.position.x - aimX)
+            }
+        }
+
+        let rig = hangingCharacter.hanging
+        let bodyX = trolleyScreen.x
+        if let nut = pick(overlapping(bodyX, scale: 0.95), aimX: bodyX) {
+            return nut
+        }
+
+        let leftX = hangingPoint(x: rig.leftGripX, y: rig.gripReach).x
+        let rightX = hangingPoint(x: rig.rightGripX, y: rig.gripReach).x
+        let limbHits = overlapping(leftX, scale: 0.95) + overlapping(rightX, scale: 0.95)
+        if let nut = pick(limbHits, aimX: bodyX) {
+            return nut
+        }
+
+        if let nut = pick(overlapping(bodyX, scale: 1.22), aimX: bodyX) {
+            return nut
+        }
+
+        let looseLimbs = overlapping(leftX, scale: 1.22) + overlapping(rightX, scale: 1.22)
+        return pick(looseLimbs, aimX: bodyX)
     }
 
     // MARK: Tick
@@ -856,11 +878,13 @@ final class ClawEngine: ObservableObject {
             break
         case .descending:
             let t = min(1, phaseAge / descendTime)
-            // The swing keeps settling during the descent. Re-solve the end
-            // depth each frame so the hands still finish on the nut centre.
+            // The swing keeps settling, which lengthens the vertical reach and
+            // would otherwise shrink grabDepth mid-drop — the body then stalls
+            // or even rises, looking like a pinch that never arrives. Keep the
+            // deepest commit so the hands finish through the nut.
             if let id = grabTarget,
                let target = nuts.first(where: { $0.id == id }) {
-                grabDepth = depthToward(target)
+                grabDepth = max(grabDepth, depthToward(target))
             }
             trolleyY = easeInOut(t) * grabDepth
             if t >= 1 {
@@ -1262,14 +1286,23 @@ final class ClawEngine: ObservableObject {
     }
 
     var trunkPoint: CGPoint {
+        hangingPoint(x: 0.5, y: hangingCharacter.hanging.gripReach)
+    }
+
+    /// A point on the hanging canvas, in screen space. `(0.5, 0)` is the hook;
+    /// y grows down the body. Matches the sprite's swing around the attachment.
+    private func hangingPoint(x: CGFloat, y: CGFloat) -> CGPoint {
+        let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
         let origin = trolleyScreen
-        let length = ClawConfig.elephantVisibleHeight(isPad: isPad)
-            * hangingCharacter.hanging.gripReach
+        let dx = (x - 0.5) * side
+        let dy = y * side
+        let cosine = cos(swingAngle)
+        let sine = sin(swingAngle)
         // Screen-space rotation and a mathematical y-up rotation lean in
-        // opposite horizontal directions. Follow the rendered hands so a
-        // walnut cannot drift to the other side of a swinging elephant.
-        return CGPoint(x: origin.x - sin(swingAngle) * length,
-                       y: origin.y + cos(swingAngle) * length)
+        // opposite horizontal directions. Follow the rendered limbs so a
+        // walnut cannot drift to the other side of a swinging body.
+        return CGPoint(x: origin.x + dx * cosine - dy * sine,
+                       y: origin.y + dx * sine + dy * cosine)
     }
 
     private func refreshHighlights() {

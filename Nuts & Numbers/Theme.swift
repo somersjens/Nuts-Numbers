@@ -185,6 +185,10 @@ struct HangingCharacterRig: Equatable {
     /// Distance from the hook (top of the canvas) to the palms, as a fraction
     /// of the square side. Descent, carry and targeting all use this point.
     let gripReach: CGFloat
+    /// Resting contact of each grabbing limb, canvas-normalised. A nut under a
+    /// paw, claw, tentacle or flipper still counts — not only one under the face.
+    let leftGripX: CGFloat
+    let rightGripX: CGFloat
     /// Keep this fraction of `bottom` from the canvas floor. Several bottom
     /// plates still contain a stray hook remnant at the very top.
     let bottomVisibleFraction: CGFloat
@@ -197,29 +201,29 @@ struct HangingCharacterRig: Equatable {
 
     private static let table: [String: HangingCharacterRig] = [
         "elephant": .layers(1, leftPivot: (0.36, 0.76), rightPivot: (0.64, 0.76),
-                            close: 17, grip: 0.92),
+                            close: 17, grip: 0.92, grips: (0.353, 0.645)),
         "octopus": .layers(2, leftPivot: (0.38, 0.70), rightPivot: (0.62, 0.70),
-                           close: 11, grip: 0.943),
+                           close: 11, grip: 0.943, grips: (0.396, 0.628)),
         // Crab limbs are authored as claws, not arms.
         "crab": .layers(3, leftArm: "3_left_claw", rightArm: "3_right_claw",
                         leftPivot: (0.38, 0.80), rightPivot: (0.62, 0.80),
-                        close: 15, grip: 0.952),
+                        close: 15, grip: 0.952, grips: (0.383, 0.628)),
         "bear": .layers(4, leftPivot: (0.36, 0.79), rightPivot: (0.64, 0.79),
-                        close: 22, grip: 0.936),
+                        close: 22, grip: 0.936, grips: (0.342, 0.652)),
         // Source file is named `5_left_arn` (typo in the imageset).
         "fox": .layers(5, leftArm: "5_left_arn",
                        leftPivot: (0.38, 0.78), rightPivot: (0.62, 0.78),
-                       close: 21, grip: 0.938),
+                       close: 21, grip: 0.945, grips: (0.346, 0.655)),
         "frog": .layers(6, leftPivot: (0.39, 0.78), rightPivot: (0.61, 0.78),
-                        close: 22, grip: 0.946),
+                        close: 22, grip: 0.964, grips: (0.321, 0.673)),
         "penguin": .layers(7, leftPivot: (0.40, 0.75), rightPivot: (0.60, 0.75),
-                           close: 22, grip: 0.921),
+                           close: 22, grip: 0.951, grips: (0.302, 0.703)),
         "bunny": .layers(8, leftPivot: (0.36, 0.78), rightPivot: (0.64, 0.78),
-                         close: 24, grip: 0.912),
+                         close: 24, grip: 0.912, grips: (0.338, 0.659)),
         "dog": .layers(9, leftPivot: (0.37, 0.79), rightPivot: (0.63, 0.79),
-                       close: 20, grip: 0.948),
+                       close: 20, grip: 0.948, grips: (0.358, 0.656)),
         "lion": .layers(10, leftPivot: (0.37, 0.76), rightPivot: (0.63, 0.76),
-                        close: 16, grip: 0.951)
+                        close: 16, grip: 0.951, grips: (0.353, 0.640))
     ]
 
     private static func layers(
@@ -230,6 +234,7 @@ struct HangingCharacterRig: Equatable {
         rightPivot: (CGFloat, CGFloat),
         close: Double,
         grip: CGFloat,
+        grips: (CGFloat, CGFloat),
         bottomVisibleFraction: CGFloat = 0.76
     ) -> HangingCharacterRig {
         HangingCharacterRig(
@@ -243,6 +248,8 @@ struct HangingCharacterRig: Equatable {
             rightArmPivot: UnitPoint(x: rightPivot.0, y: rightPivot.1),
             armCloseDegrees: close,
             gripReach: grip,
+            leftGripX: grips.0,
+            rightGripX: grips.1,
             bottomVisibleFraction: bottomVisibleFraction
         )
     }
