@@ -313,6 +313,9 @@ struct PremiumView: View {
         return Button {
             AppAudio.shared.playMenuTap()
             previewCharacterID = animal.id
+#if canImport(UIKit)
+            CharacterArtworkCache.prewarmHanging(for: animal)
+#endif
             if isAccessible { characterID = animal.id }
         } label: {
             VStack(spacing: 5 * scale) {

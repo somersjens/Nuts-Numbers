@@ -181,15 +181,8 @@ struct ResultView: View {
     /// The result hangs the selected character the same way the menu does:
     /// no tile behind it, so it reads as the animal rather than a badge.
     private var resultPortrait: some View {
-        Group {
-            if character.id == "elephant" {
-                HangingElephantArtwork()
-            } else {
-                CroppedCharacterPortrait(character: character,
-                                         otherCharacterScale: 0.88)
-            }
-        }
-        .frame(width: 118 * scale, height: 92 * scale)
+        HangingCharacterArtwork(character: character)
+            .frame(width: 118 * scale, height: 92 * scale)
     }
 
     /// "×7 complete!" — where the "×7" is a drawn label (a stacked fraction, or

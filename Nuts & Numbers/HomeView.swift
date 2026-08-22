@@ -324,8 +324,15 @@ struct HomeView: View {
             Task(priority: .utility) {
                 await Task.yield()
                 CharacterArtworkCache.prewarm()
-                ClawArtworkCache.prewarm()
+                CharacterArtworkCache.prewarmHanging(for: character)
+                ClawArtworkCache.prewarm(character: character)
             }
+#endif
+        }
+        .onChange(of: characterID) { _ in
+#if canImport(UIKit)
+            CharacterArtworkCache.prewarmHanging(for: character)
+            ClawArtworkCache.prewarm(character: character)
 #endif
         }
         .onChange(of: scenePhase) { phase in
@@ -1277,16 +1284,9 @@ private struct HomeHangingCharacter: View, Animatable {
                                   y: frame.minY + 1 - lift),
                 lineWidth: ropeWidth
             )
-            if character.id == "elephant" {
-                HangingElephantArtwork()
-                    .frame(width: frame.width, height: frame.height)
-                    .position(x: frame.midX, y: frame.midY - lift)
-            } else {
-                CroppedCharacterPortrait(character: character,
-                                         otherCharacterScale: 0.84)
-                    .frame(width: frame.width, height: frame.height)
-                    .position(x: frame.midX, y: frame.midY - lift)
-            }
+            HangingCharacterArtwork(character: character)
+                .frame(width: frame.width, height: frame.height)
+                .position(x: frame.midX, y: frame.midY - lift)
         }
         .frame(width: canvasSize.width, height: canvasSize.height)
         .modifier(HomeTutorialDim(isActive: dimsForTutorial))

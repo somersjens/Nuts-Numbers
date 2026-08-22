@@ -60026,85 +60026,85 @@
         "af" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Verdien nog 'n paar neute om hierdie dier te ontsluit! 🐼"
+            "value" : "Versamel nog ’n paar neute om %@ vry te speel! 🐼"
           }
         },
         "am" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: ይህን እንስሳ ለመክፈት ጥቂት ተጨማሪ ለውዝ ያግኙ! 🐼"
+            "value" : "ጥቂት ተጨማሪ ለውዝ ሰብስብና %@ን ክፈት! 🐼"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: احصل على المزيد من المكسرات لفتح هذا الحيوان! 🐼"
+            "value" : "اجمع المزيد من المكسرات لفتح %@! 🐼"
           }
         },
         "as" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: এই জন্তুটোৰ তলা খুলিবলৈ আৰু কেইটামান বাদাম অৰ্জন কৰক! 🐼"
+            "value" : "আৰু কেইটামান বাদাম গোটাই %@ মুকলি কৰা! 🐼"
           }
         },
         "az" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Bu heyvanın kilidini açmaq üçün daha bir neçə qoz qazanın! 🐼"
+            "value" : "Daha bir neçə qoz toplayıb %@-ı aç! 🐼"
           }
         },
         "be" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Зарабіце яшчэ некалькі арэхаў, каб разблакаваць гэтую жывёлу! 🐼"
+            "value" : "Збяры яшчэ некалькі арэхаў, каб адкрыць %@! 🐼"
           }
         },
         "bg" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Спечелете още няколко ядки, за да отключите това животно! 🐼"
+            "value" : "Събери още няколко ядки, за да отключиш %@! 🐼"
           }
         },
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: এই প্রাণীটিকে আনলক করতে আরও কয়েকটি বাদাম অর্জন করুন! 🐼"
+            "value" : "আরও কয়েকটা বাদাম সংগ্রহ করে %@ খুলে ফেলো! 🐼"
           }
         },
         "bo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: སེམས་ཅན་འདི་ཕྱེ་ཆེད་དུ་རྟགས་མ་འགའ་ཤས་རག་རོགས། 🐼"
+            "value" : "གྲོ་མ་འགའ་ཤས་བསྡུས་ཏེ %@ ཕྱེས་ཤིག 🐼"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Zaradite još nekoliko oraha da otključate ovu životinju! 🐼"
+            "value" : "Skupi još nekoliko oraha da otključaš %@! 🐼"
           }
         },
         "ca" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Guanya uns quants nous més per desbloquejar aquest animal! 🐼"
+            "value" : "Recull uns quants nous més per desbloquejar %@! 🐼"
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Získejte několik dalších oříšků a odemkněte toto zvíře! 🐼"
+            "value" : "Sesbírej ještě pár oříšků a odemkni %@! 🐼"
           }
         },
         "cy" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Enillwch ychydig mwy o dlysau i ddatgloi'r anifail hwn! 🐼"
+            "value" : "Casgla ychydig mwy o gnau i ddatgloi %@! 🐼"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Tjen et par nødder mere for at låse dette dyr op! 🐼"
+            "value" : "Saml et par nødder mere for at låse %@ op! 🐼"
           }
         },
         "de" : {
@@ -60116,7 +60116,7 @@
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Κερδίστε μερικά ακόμη καρύδια για να ξεκλειδώσετε αυτό το ζώο! 🐼"
+            "value" : "Μάζεψε ακόμα μερικά καρύδια για να ξεκλειδώσεις %@! 🐼"
           }
         },
         "en" : {
@@ -60134,31 +60134,31 @@
         "et" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Teenige selle looma avamiseks veel mõned pähklid! 🐼"
+            "value" : "Kogu veel mõned pähklid, et avada %@! 🐼"
           }
         },
         "eu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Irabazi intxaur batzuk animalia hau desblokeatzeko! 🐼"
+            "value" : "Bildu intxaur batzuk gehiago %@ desblokeatzeko! 🐼"
           }
         },
         "fa" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: برای باز کردن قفل این حیوان چند تروفی دیگر به دست آورید! 🐼"
+            "value" : "چند فندق دیگر جمع کن تا %@ را باز کنی! 🐼"
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Ansaitse muutama pähkinä lisää avataksesi tämän eläimen! 🐼"
+            "value" : "Kerää vielä muutama pähkinä avataksesi hahmon %@! 🐼"
           }
         },
         "fo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Tjen nøkur steyp afturat fyri at læsa hetta djórið upp! 🐼"
+            "value" : "Savna nakrar nøtur afturat fyri at læsa %@ upp! 🐼"
           }
         },
         "fr" : {
@@ -60170,61 +60170,61 @@
         "ga" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Faigh cúpla cnónna eile chun an t-ainmhí seo a dhíghlasáil! 🐼"
+            "value" : "Bailigh cúpla cnó eile chun %@ a dhíghlasáil! 🐼"
           }
         },
         "gl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Gaña algúns noces máis para desbloquear este animal! 🐼"
+            "value" : "Recolle unhas noces máis para desbloquear a %@! 🐼"
           }
         },
         "gu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: આ પ્રાણીને અનલૉક કરવા માટે થોડી વધુ ટ્રોફી કમાઓ! 🐼"
+            "value" : "થોડી વધુ મગફળી ભેગી કરો અને %@ અનલૉક કરો! 🐼"
           }
         },
         "he" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: הרוויחו עוד כמה אגוזים כדי לפתוח את החיה הזו! 🐼"
+            "value" : "אספו עוד כמה אגוזים כדי לפתוח את %@! 🐼"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: इस जानवर को अनलॉक करने के लिए कुछ और मेवे अर्जित करें! 🐼"
+            "value" : "थोड़े और मेवे इकट्ठा करो और %@ को खोलो! 🐼"
           }
         },
         "hr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Zaradite još nekoliko oraha da otključate ovu životinju! 🐼"
+            "value" : "Skupi još nekoliko oraha da otključaš %@! 🐼"
           }
         },
         "hu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Szerezz még néhány dió, hogy feloldd ezt az állatot! 🐼"
+            "value" : "Gyűjts még néhány diót, hogy feloldd: %@! 🐼"
           }
         },
         "hy" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Վաստակեք ևս մի քանի գավաթներ՝ այս կենդանուն բացելու համար: 🐼"
+            "value" : "Հավաքիր ևս մի քանի ընկույզ՝ %@-ին բացելու համար։ 🐼"
           }
         },
         "id" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Hasilkan beberapa kacang lagi untuk membuka kunci hewan ini! 🐼"
+            "value" : "Kumpulkan beberapa kacang lagi untuk membuka %@! 🐼"
           }
         },
         "is" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Fáðu þér nokkra titla í viðbót til að opna þetta dýr! 🐼"
+            "value" : "Safnaðu nokkrum hnetum í viðbót til að opna %@! 🐼"
           }
         },
         "it" : {
@@ -60236,103 +60236,103 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: この動物のロックを解除するには、さらにいくつかのナッツを獲得してください! 🐼"
+            "value" : "ナッツをあと少し集めて、%@のロックを解除しよう！ 🐼"
           }
         },
         "ka" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: იშოვე კიდევ რამდენიმე ტროფი ამ ცხოველის განბლოკვისთვის! 🐼"
+            "value" : "შეაგროვე კიდევ რამდენიმე თხილი, რომ %@ გაიხსნას! 🐼"
           }
         },
         "kk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Осы жануардың құлпын ашу үшін тағы бірнеше жүлде ұтып алыңыз! 🐼"
+            "value" : "Тағы бірнеше жаңғақ жинап, %@ кейіпкерін аш! 🐼"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: ទទួលបានពានរង្វាន់ពីរបីទៀតដើម្បីដោះសោសត្វនេះ! 🐼"
+            "value" : "ប្រមូលគ្រាប់បន្ថែមទៀតដើម្បីដោះសោ %@! 🐼"
           }
         },
         "kn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: ಈ ಪ್ರಾಣಿಯನ್ನು ಅನ್‌ಲಾಕ್ ಮಾಡಲು ಇನ್ನೂ ಕೆಲವು ಟ್ರೋಫಿಗಳನ್ನು ಗಳಿಸಿ! 🐼"
+            "value" : "ಇನ್ನೂ ಕೆಲವು ಕಾಯಿಗಳನ್ನು ಸಂಗ್ರಹಿಸಿ %@ ಅನ್‌ಲಾಕ್ ಮಾಡಿ! 🐼"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: 이 동물의 잠금을 해제하려면 넛을 몇 개 더 획득하세요! 🐼"
+            "value" : "넛을 조금만 더 모아서 %@의 잠금을 해제하세요! 🐼"
           }
         },
         "lo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: ຮັບຮາງວັນອີກສອງສາມອັນເພື່ອປົດລັອກສັດນີ້! 🐼"
+            "value" : "ເກັບຖົ່ວຕື່ມອີກໜ້ອຍໜຶ່ງເພື່ອປົດລັອກ %@! 🐼"
           }
         },
         "lt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Uždirbkite dar kelis riešutas, kad atrakintumėte šį gyvūną! 🐼"
+            "value" : "Surink dar keletą riešutų, kad atrakintum %@! 🐼"
           }
         },
         "lv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Nopelniet vēl dažas riekstus, lai atbloķētu šo dzīvnieku! 🐼"
+            "value" : "Savāc vēl dažus riekstus, lai atbloķētu %@! 🐼"
           }
         },
         "mk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Заработете уште неколку ореви за да го отклучите ова животно! 🐼"
+            "value" : "Собери уште неколку ореви за да го отклучиш ликот %@! 🐼"
           }
         },
         "ml" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: ഈ മൃഗത്തെ അൺലോക്ക് ചെയ്യാൻ കുറച്ച് ട്രോഫികൾ കൂടി നേടൂ! 🐼"
+            "value" : "കുറച്ച് പരിപ്പ് കൂടി ശേഖരിച്ച് %@ തുറക്കൂ! 🐼"
           }
         },
         "mn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Энэ амьтны түгжээг тайлахын тулд хэд хэдэн цом цуглуулаарай! 🐼"
+            "value" : "Самар нэмж цуглуулаад %@-г нээ! 🐼"
           }
         },
         "mr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: या प्राण्याला अनलॉक करण्यासाठी आणखी काही ट्रॉफी मिळवा! 🐼"
+            "value" : "आणखी थोडे बदाम गोळा करून %@ मोकळे कर! 🐼"
           }
         },
         "ms" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Peroleh beberapa lagi kacang untuk membuka kunci haiwan ini! 🐼"
+            "value" : "Kumpul lagi beberapa kacang untuk buka %@! 🐼"
           }
         },
         "my" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: ဤတိရစ္ဆာန်ကိုသော့ဖွင့်ရန် နောက်ထပ်ဆုဖလားအချို့ကို ရယူလိုက်ပါ။ 🐼"
+            "value" : "အခွံမာသီး အနည်းငယ်ထပ်စုပြီး %@ ကို ဖွင့်လိုက်ပါ! 🐼"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Tjen noen flere nøtter for å låse opp dette dyret! 🐼"
+            "value" : "Samle noen nøtter til for å låse opp %@! 🐼"
           }
         },
         "ne" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: यो जनावर अनलक गर्न केहि थप ट्रफीहरू कमाउनुहोस्! 🐼"
+            "value" : "केही बदाम थप जम्मा गरेर %@ खोल्नुहोस्! 🐼"
           }
         },
         "nl" : {
@@ -60344,13 +60344,13 @@
         "or" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: ଏହି ପଶୁକୁ ଖୋଲିବା ପାଇଁ ଆଉ କିଛି ଟ୍ରଫି ରୋଜଗାର କର! 🐼"
+            "value" : "ଆଉ କିଛି ବାଦାମ ସଂଗ୍ରହ କରି %@ ଖୋଲ! 🐼"
           }
         },
         "pa" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: ਇਸ ਜਾਨਵਰ ਨੂੰ ਅਨਲੌਕ ਕਰਨ ਲਈ ਕੁਝ ਹੋਰ ਟਰਾਫੀਆਂ ਕਮਾਓ! 🐼"
+            "value" : "ਹੋਰ ਕੁਝ ਬਦਾਮ ਇਕੱਠੇ ਕਰਕੇ %@ ਨੂੰ ਖੋਲ੍ਹੋ! 🐼"
           }
         },
         "pl" : {
@@ -60368,7 +60368,7 @@
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Câștigă încă câteva alune pentru a debloca acest animal! 🐼"
+            "value" : "Strânge încă câteva alune ca să deblochezi %@! 🐼"
           }
         },
         "ru" : {
@@ -60380,109 +60380,109 @@
         "si" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: මෙම සතා අගුලු හැරීමට තවත් කුසලාන කිහිපයක් උපයන්න! 🐼"
+            "value" : "තව ගෙඩි කිහිපයක් එකතු කර %@ අරින්න! 🐼"
           }
         },
         "sk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Získajte niekoľko ďalších orieškov a odomknite toto zviera! 🐼"
+            "value" : "Nazbieraj ešte pár orieškov a odomkni %@! 🐼"
           }
         },
         "sl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Zaslužite še nekaj oreškov, da odklenete to žival! 🐼"
+            "value" : "Zberi še nekaj oreškov, da odkleniš %@! 🐼"
           }
         },
         "sq" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Fitoni disa arra të tjerë për të zhbllokuar këtë kafshë! 🐼"
+            "value" : "Mblidh edhe disa arra për të zhbllokuar %@! 🐼"
           }
         },
         "sr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Зарадите још неколико ораха да бисте откључали ову животињу! 🐼"
+            "value" : "Скупи још неколико ораха да откључаш лик %@! 🐼"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Tjäna några fler nötter för att låsa upp detta djur! 🐼"
+            "value" : "Samla några nötter till för att låsa upp %@! 🐼"
           }
         },
         "sw" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Pata vikombe vichache zaidi ili kumfungulia mnyama huyu! 🐼"
+            "value" : "Kusanya kokwa chache zaidi ili kufungua %@! 🐼"
           }
         },
         "ta" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: இந்த விலங்கைத் திறக்க இன்னும் சில கோப்பைகளைப் பெறுங்கள்! 🐼"
+            "value" : "இன்னும் சில கொட்டைகள் சேர்த்து %@-ஐத் திற! 🐼"
           }
         },
         "te" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ను తెరవడానికి మరికొన్ని ట్రోఫీలు సంపాదించు! 🐼"
+            "value" : "మరికొన్ని గింజలు సేకరించి %@ను తెరువు! 🐼"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: รับถั่วเพิ่มอีกเล็กน้อยเพื่อปลดล็อคสัตว์ตัวนี้! 🐼"
+            "value" : "เก็บถั่วเพิ่มอีกนิดเพื่อปลดล็อก %@! 🐼"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Bu hayvanın kilidini açmak için birkaç fındık daha kazanın! 🐼"
+            "value" : "Birkaç fındık daha toplayıp %@ karakterini aç! 🐼"
           }
         },
         "ug" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: بۇ ھايۋاننىڭ قۇلۇپىنى ئېچىش ئۈچۈن يەنە بىر نەچچە لوڭقىغا ئېرىشىڭ! 🐼"
+            "value" : "ياڭاقنى يەنە ئازراق توپلاپ %@ نى ئېچىڭ! 🐼"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Заробіть ще кілька горіхів, щоб розблокувати цю тварину! 🐼"
+            "value" : "Збери ще кілька горіхів, щоб відкрити %@! 🐼"
           }
         },
         "ur" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: اس جانور کو غیر مقفل کرنے کے لیے کچھ اور بادام حاصل کریں! 🐼"
+            "value" : "کچھ اور بادام جمع کر کے %@ کو کھولیں! 🐼"
           }
         },
         "uz" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Bu hayvonning qulfini ochish uchun yana bir nechta yong‘oqlarni yutib oling! 🐼"
+            "value" : "Yana bir nechta yong‘oq yig‘ib, %@ ni oching! 🐼"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Kiếm thêm một vài danh hiệu để mở khóa con vật này! 🐼"
+            "value" : "Nhặt thêm vài hạt nữa để mở khóa %@! 🐼"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: 赢得更多坚果来解锁这只动物！ 🐼"
+            "value" : "再收集一些坚果来解锁 %@！ 🐼"
           }
         },
         "zu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: Zuza ezinye izindebe ezimbalwa ukuze uvule lesi silwane! 🐼"
+            "value" : "Qoqa amantongomane ambalwa ukuze uvule u-%@! 🐼"
           }
         }
       }

@@ -65,7 +65,7 @@ enum ClawConfig {
     static let celebrationReleaseAngle: CGFloat = -0.58
     static let timeUpRelease = 0.58
 
-    /// The four animated elephant layers share one square canvas. Keep the
+    /// The five animated hanging layers share one square canvas. Keep the
     /// assembled character at the same optical height as the previous sprite.
     static func elephantVisibleHeight(isPad: Bool) -> CGFloat {
         isPad ? 251 : 193
@@ -73,9 +73,6 @@ enum ClawConfig {
     /// Visible free rope between the trolley rail and the hook. The previous
     /// sprite sat almost flush against the rail, leaving no line to flex.
     static func elephantRopeLength(isPad: Bool) -> CGFloat { isPad ? 58 : 44 }
-    /// Distance from the hanging attachment to the centre between the front
-    /// hands. Both the descent and the carried walnut must use this same point.
-    static let elephantGripReach: CGFloat = 0.92
 
     /// Width of the bamboo side columns. Matches the original cabinet posts.
     static func cabinetPostWidth(size: CGSize, isPad _: Bool) -> CGFloat {
@@ -161,15 +158,10 @@ private enum CatchBinArtwork {
 }
 
 #if canImport(UIKit)
-/// Decode claw-machine sprites once. The elephant layers and walnut PNG are
+/// Decode claw-machine sprites once. The hanging layers and walnut PNG are
 /// large canvases; paying decompression on the first gameplay frame is a hitch.
 enum ClawArtworkCache {
     static let nut: UIImage = prepared(named: ClawConfig.nutImageName)
-    static let elephantClaw: UIImage = prepared(named: "1_claw")
-    static let elephantBottom: UIImage = prepared(named: "1_bottom")
-    static let elephantHead: UIImage = prepared(named: "1_head")
-    static let elephantLeftArm: UIImage = prepared(named: "1_left_arm")
-    static let elephantRightArm: UIImage = prepared(named: "1_right_arm")
     static let joystickBase: UIImage = prepared(named: "base")
     static let poke: UIImage = prepared(named: "poke")
     static let lightArrow: UIImage = prepared(named: "light arrow")
@@ -178,13 +170,14 @@ enum ClawArtworkCache {
     static let grabLip: UIImage = prepared(named: "button1")
     static let scorePad: UIImage = prepared(named: "score_pad")
 
-    static func prewarm() {
+    static func layer(_ name: String) -> UIImage {
+        CharacterArtworkCache.front(named: name)
+    }
+
+    static func prewarm(character: AnimalCharacter? = nil) {
         _ = nut
-        _ = elephantClaw
-        _ = elephantBottom
-        _ = elephantHead
-        _ = elephantLeftArm
-        _ = elephantRightArm
+        let animal = character ?? CharacterCatalog.character(id: CharacterCatalog.freeCharacterID)
+        CharacterArtworkCache.prewarmHanging(for: animal)
         _ = joystickBase
         _ = poke
         _ = lightArrow
@@ -366,6 +359,9 @@ final class ClawEngine: ObservableObject {
     private let moveSoundCommitTravel: CGFloat = 0.10
     var elephantVisible = false
     var elephantBodyVisible = true
+    /// The selected hanging animal. Arm reach and layer names come from its
+    /// rig, so a character switch still grabs at the right palms.
+    var hangingCharacter: AnimalCharacter = CharacterCatalog.character(id: CharacterCatalog.freeCharacterID)
     /// False until `beginEntrance` runs, so a pile install behind the start
     /// card cannot reveal the elephant before it is lowered in.
     private var hasStartedEntrance = false
@@ -602,6 +598,10 @@ final class ClawEngine: ObservableObject {
 
     func setLive(_ live: Bool) { isLive = live }
 
+    func setCharacter(_ character: AnimalCharacter) {
+        hangingCharacter = character
+    }
+
     func setReduceMotion(_ enabled: Bool) { reduceMotion = enabled }
 
     func setFinalRound(_ isFinal: Bool) { isFinalRound = isFinal }
@@ -740,7 +740,7 @@ final class ClawEngine: ObservableObject {
         let elephant = ClawConfig.elephantVisibleHeight(isPad: isPad)
         let restY = playRect.minY + ClawConfig.elephantRopeLength(isPad: isPad)
         let span = max(90, pileRect.maxY - restY - elephant * 0.22)
-        let gripReach = elephant * ClawConfig.elephantGripReach
+        let gripReach = elephant * hangingCharacter.hanging.gripReach
         let targetY: CGFloat
         if let target {
             targetY = target.position.y
@@ -1264,7 +1264,7 @@ final class ClawEngine: ObservableObject {
     var trunkPoint: CGPoint {
         let origin = trolleyScreen
         let length = ClawConfig.elephantVisibleHeight(isPad: isPad)
-            * ClawConfig.elephantGripReach
+            * hangingCharacter.hanging.gripReach
         // Screen-space rotation and a mathematical y-up rotation lean in
         // opposite horizontal directions. Follow the rendered hands so a
         // walnut cannot drift to the other side of a swinging elephant.
@@ -1510,6 +1510,7 @@ struct ClawPlayfield: View {
                 ClawFrameDrivenView(signal: engine.frameSignal) {
                     if engine.elephantVisible {
                         ClawElephantView(
+                            character: character,
                             origin: engine.trolleyScreen,
                             swing: engine.swingAngle,
                             phase: engine.phase,
@@ -1578,6 +1579,7 @@ struct ClawPlayfield: View {
                                question: round?.question,
                                targetNutID: round?.targetNutID)
                 engine.setLive(isLive)
+                engine.setCharacter(character)
                 engine.setRunning(isRunning)
                 engine.setScoreTarget(scoreTarget)
                 engine.setReduceMotion(reduceMotion)
@@ -1618,6 +1620,7 @@ struct ClawPlayfield: View {
             engine.setQuestion(round?.question, targetNutID: round?.targetNutID)
         }
         .onChange(of: isLive) { live in engine.setLive(live) }
+        .onChange(of: character.id) { _ in engine.setCharacter(character) }
         .onChange(of: isRunning) { running in engine.setRunning(running) }
         .onChange(of: scoreTarget) { target in engine.setScoreTarget(target) }
         .onChange(of: reduceMotion) { enabled in engine.setReduceMotion(enabled) }
@@ -2777,6 +2780,7 @@ private struct ClawPromptPlaque: View, Equatable {
 }
 
 private struct ClawElephantView: View {
+    let character: AnimalCharacter
     let origin: CGPoint
     let swing: CGFloat
     let phase: ClawPhase
@@ -2788,12 +2792,14 @@ private struct ClawElephantView: View {
     let reduceMotion: Bool
     let isPad: Bool
 
+    private var rig: HangingCharacterRig { character.hanging }
+
     var body: some View {
         let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
         let local = CGPoint(x: origin.x - play.minX, y: origin.y - play.minY)
         let grip = armGrip
         let isFinale = phase == .celebrating || phase == .timeUp
-        // The elephant hangs from its back feet, so the loose response grows
+        // The animal hangs from its back feet, so the loose response grows
         // gently down the body: the face and front arms travel a touch farther
         // than the legs nearest the rope. A tiny phase delay keeps the layers
         // connected while still suggesting soft weight below the attachment.
@@ -2812,28 +2818,31 @@ private struct ClawElephantView: View {
 
             // Once the body lets go, this empty mechanical claw continues to
             // follow the trolley and settles independently.
-            elephantLayer(.claw)
+            hangingLayer(rig.claw)
                 .frame(width: side, height: side)
                 .rotationEffect(.radians(Double(swing)), anchor: .top)
                 .position(x: local.x, y: local.y + side * 0.50)
 
             ZStack {
-                elephantLayer(.bottom)
+                hangingLayer(rig.bottom)
+                    .mask(alignment: .bottom) {
+                        Rectangle().frame(height: side * rig.bottomVisibleFraction)
+                    }
                     .rotationEffect(bottomLag, anchor: .top)
 
-                elephantLayer(.leftArm)
-                    .rotationEffect(.degrees(-17 * grip),
-                                    anchor: UnitPoint(x: 0.36, y: 0.76))
+                hangingLayer(rig.leftArm)
+                    .rotationEffect(.degrees(-rig.armCloseDegrees * grip),
+                                    anchor: rig.leftArmPivot)
                     .rotationEffect(armLag, anchor: .top)
 
-                elephantLayer(.rightArm)
-                    .rotationEffect(.degrees(17 * grip),
-                                    anchor: UnitPoint(x: 0.64, y: 0.76))
+                hangingLayer(rig.rightArm)
+                    .rotationEffect(.degrees(rig.armCloseDegrees * grip),
+                                    anchor: rig.rightArmPivot)
                     .rotationEffect(armLag, anchor: .top)
 
                 // The face deliberately renders last: it hides the arm and
                 // torso seams while the loose layers are moving.
-                elephantLayer(.head)
+                hangingLayer(rig.head)
                     .rotationEffect(headLag, anchor: .top)
             }
             .frame(width: side, height: side)
@@ -3086,37 +3095,17 @@ private struct ClawElephantView: View {
         .shadow(color: .black.opacity(0.28), radius: 1.2, x: 1, y: 1)
     }
 
-    private enum Layer {
-        case claw
-        case bottom
-        case head
-        case leftArm
-        case rightArm
-    }
-
-    private func elephantLayer(_ layer: Layer) -> some View {
-        layerImage(layer)
+    private func hangingLayer(_ name: String) -> some View {
+        layerImage(name)
             .resizable()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func layerImage(_ layer: Layer) -> Image {
+    private func layerImage(_ name: String) -> Image {
 #if canImport(UIKit)
-        switch layer {
-        case .claw: Image(uiImage: ClawArtworkCache.elephantClaw)
-        case .bottom: Image(uiImage: ClawArtworkCache.elephantBottom)
-        case .head: Image(uiImage: ClawArtworkCache.elephantHead)
-        case .leftArm: Image(uiImage: ClawArtworkCache.elephantLeftArm)
-        case .rightArm: Image(uiImage: ClawArtworkCache.elephantRightArm)
-        }
+        Image(uiImage: ClawArtworkCache.layer(name))
 #else
-        switch layer {
-        case .claw: Image("1_claw")
-        case .bottom: Image("1_bottom")
-        case .head: Image("1_head")
-        case .leftArm: Image("1_left_arm")
-        case .rightArm: Image("1_right_arm")
-        }
+        Image(name)
 #endif
     }
 }

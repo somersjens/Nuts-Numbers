@@ -53,6 +53,14 @@ enum CharacterArtworkCache {
         }
     }
 
+    /// Decode the five loose hanging layers for the selected animal so the
+    /// menu and the first claw-game frame do not hitch on PNG decompression.
+    static func prewarmHanging(for character: AnimalCharacter) {
+        for name in character.hanging.layerNames {
+            _ = front(named: name)
+        }
+    }
+
     static func front(named name: String) -> UIImage {
         lock.lock()
         if let cached = images[name] {
@@ -97,8 +105,8 @@ struct AnimalCharacter: Identifiable, Equatable {
     let name: String
     let emoji: String
     /// Position in the catalog, 1-based. It is also the suffix of the standard
-    /// front and side artwork assets. The elephant uses its bespoke full-body
-    /// `1_main` portrait everywhere outside the claw game.
+    /// side artwork (`side_N`). Hanging layers use a separate index (elephant
+    /// is `1_*`, octopus `2_*`, crab `3_*`, then slot and hanging index match).
     let slot: Int
 
     // Colour components (0–1).
@@ -122,9 +130,12 @@ struct AnimalCharacter: Identifiable, Equatable {
     var tintColor: Color { Color(red: tintRGB.0, green: tintRGB.1, blue: tintRGB.2) }
 
     /// Facing the player: menus, cards, the shop and every portrait slot.
-    /// All ten assets are square and optically equalised, so one square frame
+    /// All ten hanging canvases share one hook alignment, so one square frame
     /// renders any character at the same apparent size.
-    var imageName: String { id == "elephant" ? "1_main" : "front_\(slot)" }
+    var imageName: String { hanging.mainImageName }
+
+    /// Layer names, arm pivots and grab reach for the hanging / claw artwork.
+    var hanging: HangingCharacterRig { HangingCharacterRig.forID(id) }
     var artwork: Image {
 #if canImport(UIKit)
         Image(uiImage: CharacterArtworkCache.front(named: imageName))
@@ -154,47 +165,126 @@ struct AnimalCharacter: Identifiable, Equatable {
     }
 }
 
-/// The elephant body rebuilt from the same four loose layers as the claw game.
-/// `1_bottom` contains a tiny stray remnant at the very top of its transparent
-/// canvas, so that unused area is masked before the layers are joined. The claw
-/// layer is deliberately absent.
-struct HooklessElephantArtwork: View {
+/// Per-animal hanging artwork: the five loose layers share one 1254² canvas
+/// whose hook sits at the same top-centre, but the front limbs (or crab claws,
+/// or octopus grab-tentacles) attach at different places. Grab rotation and
+/// the nut's rest point are therefore authored per character, not shared.
+struct HangingCharacterRig: Equatable {
+    let mainImageName: String
+    let claw: String
+    let bottom: String
+    let head: String
+    let leftArm: String
+    let rightArm: String
+    /// Shoulder-ish pivot in the square canvas. Hidden behind the face as the
+    /// limb rotates in to hold a walnut.
+    let leftArmPivot: UnitPoint
+    let rightArmPivot: UnitPoint
+    /// Inward rotation of each front limb at full grip, in degrees.
+    let armCloseDegrees: Double
+    /// Distance from the hook (top of the canvas) to the palms, as a fraction
+    /// of the square side. Descent, carry and targeting all use this point.
+    let gripReach: CGFloat
+    /// Keep this fraction of `bottom` from the canvas floor. Several bottom
+    /// plates still contain a stray hook remnant at the very top.
+    let bottomVisibleFraction: CGFloat
+
+    var layerNames: [String] { [claw, bottom, head, leftArm, rightArm] }
+
+    static func forID(_ id: String) -> HangingCharacterRig {
+        table[id] ?? table["elephant"]!
+    }
+
+    private static let table: [String: HangingCharacterRig] = [
+        "elephant": .layers(1, leftPivot: (0.36, 0.76), rightPivot: (0.64, 0.76),
+                            close: 17, grip: 0.92),
+        "octopus": .layers(2, leftPivot: (0.38, 0.70), rightPivot: (0.62, 0.70),
+                           close: 11, grip: 0.943),
+        // Crab limbs are authored as claws, not arms.
+        "crab": .layers(3, leftArm: "3_left_claw", rightArm: "3_right_claw",
+                        leftPivot: (0.38, 0.80), rightPivot: (0.62, 0.80),
+                        close: 15, grip: 0.952),
+        "bear": .layers(4, leftPivot: (0.36, 0.79), rightPivot: (0.64, 0.79),
+                        close: 22, grip: 0.936),
+        // Source file is named `5_left_arn` (typo in the imageset).
+        "fox": .layers(5, leftArm: "5_left_arn",
+                       leftPivot: (0.38, 0.78), rightPivot: (0.62, 0.78),
+                       close: 21, grip: 0.938),
+        "frog": .layers(6, leftPivot: (0.39, 0.78), rightPivot: (0.61, 0.78),
+                        close: 22, grip: 0.946),
+        "penguin": .layers(7, leftPivot: (0.40, 0.75), rightPivot: (0.60, 0.75),
+                           close: 22, grip: 0.921),
+        "bunny": .layers(8, leftPivot: (0.36, 0.78), rightPivot: (0.64, 0.78),
+                         close: 24, grip: 0.912),
+        "dog": .layers(9, leftPivot: (0.37, 0.79), rightPivot: (0.63, 0.79),
+                       close: 20, grip: 0.948),
+        "lion": .layers(10, leftPivot: (0.37, 0.76), rightPivot: (0.63, 0.76),
+                        close: 16, grip: 0.951)
+    ]
+
+    private static func layers(
+        _ index: Int,
+        leftArm: String? = nil,
+        rightArm: String? = nil,
+        leftPivot: (CGFloat, CGFloat),
+        rightPivot: (CGFloat, CGFloat),
+        close: Double,
+        grip: CGFloat,
+        bottomVisibleFraction: CGFloat = 0.76
+    ) -> HangingCharacterRig {
+        HangingCharacterRig(
+            mainImageName: "\(index)_main",
+            claw: "\(index)_claw",
+            bottom: "\(index)_bottom",
+            head: "\(index)_head",
+            leftArm: leftArm ?? "\(index)_left_arm",
+            rightArm: rightArm ?? "\(index)_right_arm",
+            leftArmPivot: UnitPoint(x: leftPivot.0, y: leftPivot.1),
+            rightArmPivot: UnitPoint(x: rightPivot.0, y: rightPivot.1),
+            armCloseDegrees: close,
+            gripReach: grip,
+            bottomVisibleFraction: bottomVisibleFraction
+        )
+    }
+}
+
+/// The hanging body rebuilt from the same four loose layers as the claw game.
+/// The claw layer is deliberately absent. `bottom` is masked so leftover hook
+/// pixels at the top of that plate cannot peek above the animal.
+struct HooklessCharacterArtwork: View {
+    let character: AnimalCharacter
+
     var body: some View {
+        let rig = character.hanging
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height)
             ZStack {
-                elephantLayer("1_bottom")
+                hangingLayer(rig.bottom)
                     .mask(alignment: .bottom) {
-                        Rectangle().frame(height: side * 0.76)
+                        Rectangle().frame(height: side * rig.bottomVisibleFraction)
                     }
-                elephantLayer("1_left_arm")
-                elephantLayer("1_right_arm")
-                elephantLayer("1_head")
+                hangingLayer(rig.leftArm)
+                hangingLayer(rig.rightArm)
+                hangingLayer(rig.head)
             }
             .frame(width: side, height: side)
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .aspectRatio(1, contentMode: .fit)
     }
-
-    private func elephantLayer(_ name: String) -> some View {
-        Image(name)
-            .resizable()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }
 
-/// The complete hanging elephant, rebuilt in the same layer order as the claw
+/// The complete hanging character, rebuilt in the same layer order as the claw
 /// game. Drawn outside the menu card so the hook and rope can sit in open air.
-struct HangingElephantArtwork: View {
+struct HangingCharacterArtwork: View {
+    let character: AnimalCharacter
+
     var body: some View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height)
             ZStack {
-                Image("1_claw")
-                    .resizable()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                HooklessElephantArtwork()
+                hangingLayer(character.hanging.claw)
+                HooklessCharacterArtwork(character: character)
             }
             .frame(width: side, height: side)
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -203,9 +293,9 @@ struct HangingElephantArtwork: View {
     }
 }
 
-/// Square portrait treatment used by compact character slots. The main-menu
-/// elephant can keep its complete hanging artwork, while cards may explicitly
-/// request the body-only composition above.
+/// Square portrait treatment used by compact character slots. Menus hang the
+/// complete layered artwork; cards may explicitly request the body-only
+/// composition above.
 struct CroppedCharacterPortrait: View {
     let character: AnimalCharacter
     var elephantScale: CGFloat = 1.08
@@ -217,21 +307,31 @@ struct CroppedCharacterPortrait: View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height)
             Group {
-                if character.id == "elephant", usesHooklessElephant {
-                    HooklessElephantArtwork()
+                if usesHooklessElephant {
+                    HooklessCharacterArtwork(character: character)
                 } else {
-                    character.artwork
-                        .resizable()
-                        .scaledToFit()
+                    HangingCharacterArtwork(character: character)
                 }
             }
                 .frame(width: side, height: side)
-                .scaleEffect(character.id == "elephant" ? elephantScale : otherCharacterScale)
-                .offset(y: character.id == "elephant" ? side * elephantYOffset : 0)
+                .scaleEffect(elephantScale)
+                .offset(y: side * elephantYOffset)
                 .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .clipped()
     }
+}
+
+private func hangingLayer(_ name: String) -> some View {
+#if canImport(UIKit)
+    Image(uiImage: CharacterArtworkCache.front(named: name))
+        .resizable()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+#else
+    Image(name)
+        .resizable()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+#endif
 }
 
 enum CharacterCatalog {

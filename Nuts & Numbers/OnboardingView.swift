@@ -416,9 +416,7 @@ private struct OnboardingHangingElephant: View {
                     .frame(width: proxy.size.width, height: max(4, ropeLength + 8))
                     .shadow(color: .black.opacity(0.24), radius: 1, x: 1, y: 1)
 
-                character.artwork
-                    .resizable()
-                    .scaledToFit()
+                HangingCharacterArtwork(character: character)
                     .frame(width: side, height: side)
                     .rotationEffect(.degrees(angle), anchor: .top)
                     .position(x: hook.x, y: hook.y + side / 2)
