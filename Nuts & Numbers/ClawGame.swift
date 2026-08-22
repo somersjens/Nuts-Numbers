@@ -47,6 +47,10 @@ enum ClawConfig {
     static let dropGravity: CGFloat = 2400
 
     static let entranceDuration = 0.85
+    /// Resting trolley depth is 0. A negative value parks the elephant above
+    /// the glass so the start card never shows it already hanging, and the
+    /// entrance can lower it into view.
+    static let entranceParkY: CGFloat = -0.55
     static let completionDuration = 2.88
     static let timeUpDuration = 1.35
     /// The loaded trolley travels from the collection side to the exact centre
@@ -342,7 +346,7 @@ final class ClawEngine: ObservableObject {
     // invalidates only the moving layers; publishing the engine itself here
     // would make SwiftUI revisit the entire detailed cabinet every frame.
     var trolleyX: CGFloat = 0.5
-    var trolleyY: CGFloat = 0
+    var trolleyY: CGFloat = ClawConfig.entranceParkY
     var swingAngle: CGFloat = 0
     @Published var phase: ClawPhase = .idle
     var nuts: [ClawNutRuntime] = []
@@ -360,8 +364,11 @@ final class ClawEngine: ObservableObject {
     private let moveSoundDeadzone: CGFloat = 0.18
     private let moveSoundCommitInput: CGFloat = 0.72
     private let moveSoundCommitTravel: CGFloat = 0.10
-    var elephantVisible = true
+    var elephantVisible = false
     var elephantBodyVisible = true
+    /// False until `beginEntrance` runs, so a pile install behind the start
+    /// card cannot reveal the elephant before it is lowered in.
+    private var hasStartedEntrance = false
     var promptPulse = 0.0
     private(set) var highlightedNutIDs: Set<UUID> = []
     private var lastHighCadence = true
@@ -533,8 +540,13 @@ final class ClawEngine: ObservableObject {
             swingVelocity = 0
             trolleyY = 0
         }
-        elephantVisible = true
-        elephantBodyVisible = true
+        if hasStartedEntrance {
+            elephantVisible = true
+            elephantBodyVisible = true
+        } else {
+            elephantVisible = false
+            trolleyY = ClawConfig.entranceParkY
+        }
         applyQuestion(question, targetNutID: targetNutID)
         promptPulse = 1
         guard let puzzle else {
@@ -644,11 +656,14 @@ final class ClawEngine: ObservableObject {
 
     func beginEntrance(completion: @escaping () -> Void) {
         onEntranceComplete = completion
+        hasStartedEntrance = true
         entranceAge = 0
-        trolleyY = -0.55
+        trolleyY = ClawConfig.entranceParkY
         swingAngle = 0.35
         elephantVisible = true
         elephantBodyVisible = true
+        objectWillChange.send()
+        frameSignal.send()
     }
 
     func beginLevelCompletion(reduceMotion: Bool, completion: @escaping () -> Void) {
@@ -788,7 +803,7 @@ final class ClawEngine: ObservableObject {
             let next = age + dt
             let t = min(1, next / ClawConfig.entranceDuration)
             let eased = 1 - pow(1 - t, 3)
-            trolleyY = -0.55 * (1 - eased)
+            trolleyY = ClawConfig.entranceParkY * (1 - eased)
             swingAngle = 0.35 * cos(t * .pi * 2.2) * (1 - t)
             entranceAge = next
             if t >= 1 {

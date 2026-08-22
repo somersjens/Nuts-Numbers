@@ -55,6 +55,7 @@ struct HomeView: View {
     @ObservedObject private var progressSync = ProgressSync.shared
     @ObservedObject private var language = LanguageManager.shared
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var selection: LevelSelection?
     @State private var showPremium = false
@@ -94,6 +95,10 @@ struct HomeView: View {
     /// The last step of the walkthrough: on the way back from that first game
     /// the menu points out where the score is kept.
     @State private var showsTutorialHint = false
+    /// Pulls the hanging menu character up while a level cover is presenting,
+    /// covering the existing load time rather than adding to it. 0 is hanging,
+    /// 1 is fully reeled off the top of the screen.
+    @State private var menuCharacterHoist: CGFloat = 0
     /// Avoids walking every board of every level on each menu state change
     /// (opening Premium, pausing the backdrop, rotating).
     @State private var topicTotalCache = TopicTotalCache()
@@ -227,29 +232,14 @@ struct HomeView: View {
         .overlayPreferenceValue(HomeCharacterAnchorKey.self) { anchor in
             GeometryReader { proxy in
                 if let anchor {
-                    let frame = proxy[anchor]
-                    let ropeWidth: CGFloat = isPad ? 2 : 1.5
-                    ZStack(alignment: .topLeading) {
-                        MenuHangingRope(
-                            // Run one point behind the hook so no background
-                            // seam can open at their connection.
-                            endPoint: CGPoint(x: frame.midX,
-                                              y: frame.minY + 1),
-                            lineWidth: ropeWidth
-                        )
-                        if character.id == "elephant" {
-                            HangingElephantArtwork()
-                                .frame(width: frame.width, height: frame.height)
-                                .position(x: frame.midX, y: frame.midY)
-                        } else {
-                            CroppedCharacterPortrait(character: character,
-                                                     otherCharacterScale: 0.84)
-                                .frame(width: frame.width, height: frame.height)
-                                .position(x: frame.midX, y: frame.midY)
-                        }
-                    }
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .modifier(HomeTutorialDim(isActive: showsTutorialHint))
+                    HomeHangingCharacter(
+                        character: character,
+                        frame: proxy[anchor],
+                        canvasSize: proxy.size,
+                        hoist: menuCharacterHoist,
+                        isPad: isPad,
+                        dimsForTutorial: showsTutorialHint
+                    )
                 }
             }
             .ignoresSafeArea()
@@ -316,6 +306,9 @@ struct HomeView: View {
                     handleSessionDismissed()
                 }
             }
+        }
+        .onChange(of: selection != nil) { isOpen in
+            retractMenuCharacter(isOpen)
         }
         .onChange(of: totalCards) { _ in
             // A returning session banks its cards before any of the celebration
@@ -868,6 +861,7 @@ struct HomeView: View {
             // the session is live, so anything captured there would be
             // overwritten with post-session values.
             rememberBeforePlaying(level)
+            retractMenuCharacter(true)
             selection = LevelSelection(level: level)
         }
         .modifier(HomeTutorialDim(isActive: dimsForTutorialHint(level),
@@ -956,6 +950,21 @@ struct HomeView: View {
 
     // MARK: - Actions
 
+    /// Reels the hanging menu character up or down. The lift is meant to play
+    /// over the existing cover presentation, not to delay it.
+    private func retractMenuCharacter(_ retracted: Bool) {
+        let target: CGFloat = retracted ? 1 : 0
+        guard menuCharacterHoist != target else { return }
+        let animation: Animation? = reduceMotion
+            ? nil
+            : (retracted
+               ? .easeIn(duration: 0.28)
+               : .spring(response: 0.55, dampingFraction: 0.86))
+        withAnimation(animation) {
+            menuCharacterHoist = target
+        }
+    }
+
     /// Records what the level and the running total were worth before play, so
     /// the return can count up from there. The session banks its cards while
     /// the cover is still up and `@AppStorage` mirrors that write immediately,
@@ -983,6 +992,7 @@ struct HomeView: View {
         tutorialPending = false
         rememberBeforePlaying(level)
         guard !isCoveredByFirstSession else { return }
+        retractMenuCharacter(true)
         withAnimation(.easeInOut(duration: 0.3)) {
             selection = LevelSelection(level: level, startsTutorialArmed: true)
         }
@@ -1238,6 +1248,48 @@ private struct HomeCharacterAnchorKey: PreferenceKey {
     static var defaultValue: Anchor<CGRect>?
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
         value = nextValue() ?? value
+    }
+}
+
+/// The hanging menu character and its rope. `hoist` is animatable so the
+/// reel-up still interpolates when the overlay is driven from a preference.
+private struct HomeHangingCharacter: View, Animatable {
+    let character: AnimalCharacter
+    let frame: CGRect
+    let canvasSize: CGSize
+    var hoist: CGFloat
+    let isPad: Bool
+    var dimsForTutorial = false
+
+    var animatableData: CGFloat {
+        get { hoist }
+        set { hoist = newValue }
+    }
+
+    var body: some View {
+        let lift = hoist * (frame.maxY + 28)
+        let ropeWidth: CGFloat = isPad ? 2 : 1.5
+        ZStack(alignment: .topLeading) {
+            MenuHangingRope(
+                // Run one point behind the hook so no background
+                // seam can open at their connection.
+                endPoint: CGPoint(x: frame.midX,
+                                  y: frame.minY + 1 - lift),
+                lineWidth: ropeWidth
+            )
+            if character.id == "elephant" {
+                HangingElephantArtwork()
+                    .frame(width: frame.width, height: frame.height)
+                    .position(x: frame.midX, y: frame.midY - lift)
+            } else {
+                CroppedCharacterPortrait(character: character,
+                                         otherCharacterScale: 0.84)
+                    .frame(width: frame.width, height: frame.height)
+                    .position(x: frame.midX, y: frame.midY - lift)
+            }
+        }
+        .frame(width: canvasSize.width, height: canvasSize.height)
+        .modifier(HomeTutorialDim(isActive: dimsForTutorial))
     }
 }
 
