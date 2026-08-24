@@ -90,6 +90,10 @@ nonisolated public final class MemoryGame {
     /// a later copy of 40 that was grabbed still stays gone after the pile
     /// is rebuilt for the next sum.
     public private(set) var collectedNutIDs: [UUID] = []
+    /// Puzzle-question indices not yet answered, including the standing sum.
+    private var remainingQuestionIndices: [Int] = []
+    /// Which puzzle question is currently on the plaque.
+    private var standingQuestionIndex: Int?
 
     // MARK: Observable state (read by the view)
 
@@ -183,10 +187,10 @@ nonisolated public final class MemoryGame {
         result.cardsEarned = session.cards
         correctStreak = session.correctStreak ?? 0
         installPlan(startingAt: session.roundNumber,
-                    restoring: session.puzzle)
-        if let ids = session.collectedNutIDs {
-            collectedNutIDs = ids
-        }
+                    restoring: session.puzzle,
+                    collectedIDs: session.collectedNutIDs,
+                    remainingIndices: session.remainingQuestionIndices,
+                    standingIndex: session.standingQuestionIndex)
         state = .memorising
         return true
     }
@@ -210,7 +214,9 @@ nonisolated public final class MemoryGame {
                              remainingTime: remainingTime,
                              puzzleSeed: puzzleSeed,
                              puzzle: clawPuzzle,
-                             collectedNutIDs: collectedNutIDs)
+                             collectedNutIDs: collectedNutIDs,
+                             remainingQuestionIndices: remainingQuestionIndices,
+                             standingQuestionIndex: standingQuestionIndex)
     }
 
     /// The tap that turns the answer cards face down and brings the question
@@ -253,8 +259,9 @@ nonisolated public final class MemoryGame {
                              correctOptionID: round.correctOption?.id ?? optionID)
     }
 
-    /// Resolves a grabbed nut against the standing sum. The printed number is
-    /// what the player is asked for: every 40 is a correct grab for 5×8.
+    /// Resolves a grabbed nut against the standing sum. A matching printed
+    /// number is correct. The standing sum was chosen because that number is
+    /// already grabable, so the digits on the shells never have to move.
     @discardableResult
     public func resolveGrab(nut: ClawNut) -> AnswerOutcome {
         guard state == .answering,
@@ -314,9 +321,12 @@ nonisolated public final class MemoryGame {
             return state
         }
 
+        if let standing = standingQuestionIndex {
+            remainingQuestionIndices.removeAll { $0 == standing }
+        }
         roundNumber += 1
-        round = plannedRound(number: roundNumber)
-        preparedRound = plannedRound(number: roundNumber + 1)
+        presentNextAvailableQuestion()
+        preparedRound = nil
         selectedOptionID = nil
         lastOutcome = nil
         state = .memorising
@@ -332,9 +342,13 @@ nonisolated public final class MemoryGame {
     // MARK: - Private
 
     /// Builds the full sum list and the matching nut pile once, so a level
-    /// never sprouts new answers after the first frame.
+    /// never sprouts new answers after the first frame. The next sum is then
+    /// chosen from remaining questions whose answer is already grabable.
     nonisolated private func installPlan(startingAt number: Int,
-                                         restoring savedPuzzle: ClawPuzzle? = nil) {
+                                         restoring savedPuzzle: ClawPuzzle? = nil,
+                                         collectedIDs: [UUID]? = nil,
+                                         remainingIndices: [Int]? = nil,
+                                         standingIndex: Int? = nil) {
         let puzzle: ClawPuzzle
         if let savedPuzzle, isValidPlan(savedPuzzle) {
             puzzle = savedPuzzle
@@ -348,18 +362,82 @@ nonisolated public final class MemoryGame {
             )
         }
         clawPuzzle = puzzle
+        trailerRoundCap = nil
         plannedRounds = puzzle.questions.enumerated().map { index, question in
             factory.makeRound(number: index + 1,
                               question: question,
                               targetNutID: puzzle.assignedNut(forQuestionIndex: index)?.id)
         }
-        let start = min(max(1, number), plannedRounds.count)
-        collectedNutIDs = (0..<max(0, start - 1)).compactMap { index in
-            puzzle.assignedNut(forQuestionIndex: index)?.id
+        let start = min(max(1, number), max(1, plannedRounds.count))
+        if let collectedIDs {
+            collectedNutIDs = collectedIDs
+        } else {
+            collectedNutIDs = (0..<max(0, start - 1)).compactMap { index in
+                puzzle.assignedNut(forQuestionIndex: index)?.id
+            }
+        }
+        let fallbackRemaining = Array((start - 1)..<puzzle.questions.count)
+        if let remainingIndices {
+            let restored = remainingIndices.filter { puzzle.questions.indices.contains($0) }
+            remainingQuestionIndices = restored.isEmpty ? fallbackRemaining : restored
+        } else {
+            remainingQuestionIndices = fallbackRemaining
         }
         roundNumber = start
-        round = plannedRound(number: start)
-        preparedRound = plannedRound(number: start + 1)
+        if let standingIndex,
+           remainingQuestionIndices.contains(standingIndex) {
+            presentQuestion(standingIndex)
+        } else {
+            presentNextAvailableQuestion()
+        }
+        preparedRound = nil
+    }
+
+    /// Picks the next standing sum from remaining questions whose answer is
+    /// currently grabable. Reeks keeps the earliest available teaching step;
+    /// Random and Mixed draw uniformly from the free answers.
+    private func presentNextAvailableQuestion() {
+        if trailerRoundCap != nil {
+            round = plannedRound(number: roundNumber)
+            standingQuestionIndex = round.flatMap { current in
+                clawPuzzle?.questions.firstIndex { $0 == current.question }
+            }
+            return
+        }
+        guard let puzzle = clawPuzzle else {
+            round = plannedRound(number: roundNumber)
+            return
+        }
+        let pile = puzzle.remainingNuts(afterGrabbing: collectedNutIDs)
+        let random = RandomSource(seed: puzzleSeed &+ UInt64(collectedNutIDs.count) &+ 0x51E4_A11A)
+        let index = ClawPuzzle.chooseAvailableQuestion(
+            remainingIndices: remainingQuestionIndices,
+            questions: puzzle.questions,
+            pile: pile,
+            prefersEarliest: board.mode == .order,
+            random: random
+        )
+        guard let index else {
+            round = nil
+            standingQuestionIndex = nil
+            return
+        }
+        presentQuestion(index)
+    }
+
+    private func presentQuestion(_ index: Int) {
+        guard let puzzle = clawPuzzle,
+              puzzle.questions.indices.contains(index)
+        else { return }
+        standingQuestionIndex = index
+        let pile = puzzle.remainingNuts(afterGrabbing: collectedNutIDs)
+        let target = ClawPuzzle.grabableTarget(
+            matching: AnswerValue(puzzle.questions[index].correctAnswer),
+            in: pile
+        )
+        round = factory.makeRound(number: roundNumber,
+                                  question: puzzle.questions[index],
+                                  targetNutID: target?.id)
     }
 
     /// A persisted plan is accepted only when it still describes this exact
@@ -436,6 +514,9 @@ nonisolated public final class MemoryGame {
     public func trailerInstall(round: GameRound) {
         self.round = round
         roundNumber = max(1, round.number)
+        standingQuestionIndex = clawPuzzle.flatMap { puzzle in
+            puzzle.questions.firstIndex { $0 == round.question }
+        }
         selectedOptionID = nil
         lastOutcome = nil
         repeatsRound = false
@@ -453,6 +534,10 @@ nonisolated public final class MemoryGame {
         clawPuzzle = puzzle
         plannedRounds = rounds
         trailerRoundCap = max(1, rounds.count)
+        remainingQuestionIndices = Array(puzzle.questions.indices)
+        standingQuestionIndex = rounds.first.flatMap { first in
+            puzzle.questions.firstIndex { $0 == first.question }
+        }
         collectedNutIDs = []
         cards = 0
         result = SessionResult()

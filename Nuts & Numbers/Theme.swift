@@ -395,8 +395,8 @@ enum CharacterCatalog {
     /// the player is actually looking at.
     static let all: [AnimalCharacter] = [
         AnimalCharacter(id: "elephant", name: "Elephant", emoji: "🐘", slot: 3,
-                        primaryRGB: (0.36, 0.58, 0.78), deepRGB: (0.19, 0.38, 0.58),
-                        skyRGB: (0.90, 0.94, 0.97), tintRGB: (0.81, 0.89, 0.96)),
+                        primaryRGB: (1.00, 0.59, 0.54), deepRGB: (0.76, 0.31, 0.28),
+                        skyRGB: (1.00, 0.91, 0.89), tintRGB: (0.98, 0.77, 0.74)),
         AnimalCharacter(id: "octopus", name: "Octopus", emoji: "🐙", slot: 1,
                         primaryRGB: (0.62, 0.40, 0.87), deepRGB: (0.35, 0.18, 0.60),
                         skyRGB: (0.93, 0.88, 0.99), tintRGB: (0.88, 0.79, 0.98)),

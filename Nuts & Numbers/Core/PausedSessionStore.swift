@@ -43,6 +43,12 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     /// Shells collected so far, in grab order. Missing on older saves, which
     /// rebuild the pile from the assigned sequence instead.
     public let collectedNutIDs: [UUID]?
+    /// Puzzle-question indices not yet answered, including the standing sum.
+    /// Missing on older saves, which rebuild remaining from `roundNumber`.
+    public let remainingQuestionIndices: [Int]?
+    /// Which puzzle question is on the plaque. Missing on older saves, which
+    /// pick the next grabable remaining answer instead.
+    public let standingQuestionIndex: Int?
 
     public init(boardID: String,
                 roundNumber: Int,
@@ -57,7 +63,9 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
                 remainingTime: Double? = nil,
                 puzzleSeed: UInt64? = nil,
                 puzzle: ClawPuzzle? = nil,
-                collectedNutIDs: [UUID]? = nil) {
+                collectedNutIDs: [UUID]? = nil,
+                remainingQuestionIndices: [Int]? = nil,
+                standingQuestionIndex: Int? = nil) {
         self.boardID = boardID
         self.roundNumber = roundNumber
         self.cards = cards
@@ -72,6 +80,8 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
         self.puzzleSeed = puzzleSeed
         self.puzzle = puzzle
         self.collectedNutIDs = collectedNutIDs
+        self.remainingQuestionIndices = remainingQuestionIndices
+        self.standingQuestionIndex = standingQuestionIndex
     }
 
     /// A record is only usable if it describes a session that can still be

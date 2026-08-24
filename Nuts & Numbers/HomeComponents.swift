@@ -811,6 +811,7 @@ struct LevelCardView: View {
         )
         .overlay {
             completedHookDecoration(metal: metal)
+                .clipShape(RoundedRectangle(cornerRadius: 18 * cardScale, style: .continuous))
         }
         .overlay(alignment: .top) {
             completedRibbon(fill: hero, crown: metal)
@@ -894,7 +895,7 @@ private struct CompletionHookDecoration: View {
     var body: some View {
         Group {
             if let revealStartedAt {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
                     canvas(progress: revealProgress(
                         at: max(0, context.date.timeIntervalSince(revealStartedAt))))
                 }
@@ -935,15 +936,18 @@ private struct CompletionHookDecoration: View {
     }
 
     private func hookCluster(progress: CGFloat) -> some View {
-        let ropeProgress = min(1, max(0, progress / 0.36))
-        let clawProgress = min(1, max(0, (progress - 0.10) / 0.42))
+        // Rope and claw travel as one rig. Growing the stroke independently
+        // left a gap under a short rope, while the claw faded in from below.
+        let drop = min(1, max(0, progress / 0.52))
+        let eased = 1 - (1 - drop) * (1 - drop) * (1 - drop)
         // Every hanging claw lives in the top-centre ~40% of its 768² canvas.
         // Crop to that window so the open pincers stay whole on a 96-pt card.
         let windowWidth = 22.8 * cardScale
         let windowHeight = 25.2 * cardScale
         let canvas = 52.8 * cardScale
+        let travel = 54 * cardScale
         return VStack(spacing: -1.5 * cardScale) {
-            CompletionHookRope(progress: ropeProgress)
+            CompletionHookRope(progress: 1)
                 .stroke(
                     LinearGradient(
                         colors: [Color(red: 0.70, green: 0.56, blue: 0.32),
@@ -959,10 +963,9 @@ private struct CompletionHookDecoration: View {
                 .frame(width: canvas, height: canvas)
                 .frame(width: windowWidth, height: windowHeight, alignment: .top)
                 .clipped()
-                .opacity(clawProgress)
-                .offset(y: (1 - clawProgress) * 7 * cardScale)
         }
         .frame(width: windowWidth, alignment: .top)
+        .offset(y: (1 - eased) * -travel)
     }
 
     private func revealProgress(at elapsed: TimeInterval) -> CGFloat {
@@ -1029,12 +1032,14 @@ private struct CompletionHookRope: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        let endY = rect.minY + rect.height * max(0, min(1, progress))
+        let length = rect.height * max(0, min(1, progress))
+        let endY = rect.minY + length
         var path = Path()
         path.move(to: CGPoint(x: rect.midX, y: rect.minY))
         path.addQuadCurve(
             to: CGPoint(x: rect.midX, y: endY),
-            control: CGPoint(x: rect.midX + rect.width * 0.22, y: rect.midY)
+            control: CGPoint(x: rect.midX + rect.width * 0.22,
+                             y: rect.minY + length * 0.5)
         )
         return path
     }

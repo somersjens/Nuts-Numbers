@@ -34,9 +34,9 @@ nonisolated public struct GameRound: Identifiable, Equatable, Sendable {
     public let question: MathQuestion
     /// Exactly one option has `isCorrect == true`.
     public let options: [AnswerOption]
-    /// The nut laid for this sum. Another shell with the same printed value
-    /// also counts; this id is the preferred target for layout and highlighting.
-    /// Nil for scripted rounds that still score through `options`.
+    /// A grabable shell that currently prints this sum's answer. Grabbing is
+    /// scored by printed value; this id is the claw's preferred target. Nil
+    /// for scripted rounds that still score through `options`.
     public let targetNutID: UUID?
     public init(id: UUID = UUID(),
                 number: Int,

@@ -5,14 +5,12 @@
 //  Builds one claw-machine level: the full sum list, the gold nuts, and a
 //  physical pile that is guaranteed to stay solvable and finish empty.
 //
-//  The brick mound is built first. Each sum is then parked on a nut that is
-//  already grabable at that point in the session — sometimes the peak, often
-//  a half-free nut one or two rows down — so later shells can sit on top for
-//  many rounds. The sums are scheduled in that same peel order: the twelve
-//  distinct table products occupy the free layer first; a repeated 40 stays
-//  buried until that peel has happened. Late in a level every leftover shell
-//  may be free — any matching 40 then counts. Printed numbers never jump: the
-//  live pile is not rebuilt or swapped between sums.
+//  The brick mound is built first and every sum is printed onto a nut before
+//  play starts. Those printed numbers never move. The next sum is chosen from
+//  the remaining questions whose answer is already grabable on the pile, so a
+//  buried 49 simply waits until 7×7 is asked — 7×6 is asked instead while 42
+//  sits on top. With no decoys the peak is always a remaining answer, so a
+//  playable sum is always available.
 //
 
 import Foundation
@@ -36,8 +34,8 @@ nonisolated public struct ClawPoint: Equatable, Codable, Sendable {
 
 nonisolated public struct ClawNut: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
-    /// The value printed on the shell. That printed number is the answer:
-    /// any 40 scores for 5×8, even if another 40 was laid for a later sum.
+    /// The value printed on the shell. Fixed at generation: play picks a sum
+    /// that this number can already answer, rather than rewriting the shell.
     public let text: String
     /// 0-based index of the sum this nut was laid for. The optional shape is
     /// retained for save compatibility, although new piles contain no decoys.
@@ -76,7 +74,9 @@ nonisolated public struct ClawNut: Identifiable, Equatable, Codable, Sendable {
 // MARK: - Puzzle
 
 nonisolated public struct ClawPuzzle: Equatable, Codable, Sendable {
-    /// The sums in the order they will be asked. Same length as the board.
+    /// The predetermined sums for this board. Play asks whichever remaining
+    /// question already has a grabable matching shell, so this list is the
+    /// set of sums rather than the live ask sequence.
     public let questions: [MathQuestion]
     public let nuts: [ClawNut]
     public let seed: UInt64
@@ -86,35 +86,49 @@ nonisolated public struct ClawPuzzle: Equatable, Codable, Sendable {
         nuts.first { $0.isAssigned(toQuestionIndex: index) }
     }
 
-    /// Verifies the immutable question-to-nut plan by playing its complete
-    /// removal order in memory. This is used before a saved plan is restored;
-    /// the live playfield never needs to rewrite or relocate a printed answer.
+    /// Verifies that from the opening mound a remaining answer is always
+    /// grabable, so play can keep choosing a sum from the free shells until
+    /// the pile is empty. Printed labels are never rewritten.
     nonisolated public func isPlayablePlan(expectedCount: Int) -> Bool {
         guard questions.count == expectedCount,
               nuts.count >= expectedCount,
               Set(nuts.map(\.id)).count == nuts.count
         else { return false }
 
+        for question in questions {
+            guard question.isValid(requiredDistractors: GameConfig.distractorCount) else {
+                return false
+            }
+        }
+
+        var remaining = Set(questions.indices)
         var pile = nuts
-        for (index, question) in questions.enumerated() {
-            guard question.isValid(requiredDistractors: GameConfig.distractorCount),
-                  let target = pile.first(where: { $0.isAssigned(toQuestionIndex: index) }),
-                  AnswerValue(target.text) == AnswerValue(question.correctAnswer),
-                  ClawPuzzle.isGrabable(target, among: pile)
+        while !remaining.isEmpty {
+            guard let index = ClawPuzzle.chooseAvailableQuestion(
+                remainingIndices: remaining.sorted(),
+                questions: questions,
+                pile: pile,
+                prefersEarliest: true,
+                random: nil
+            ),
+                  let target = ClawPuzzle.grabableTarget(
+                    matching: AnswerValue(questions[index].correctAnswer),
+                    in: pile
+                  )
             else { return false }
+            remaining.remove(index)
             ClawPuzzleBuilder.applyFall(&pile, removing: target)
         }
         return true
     }
 
     /// Nuts that still belong in the machine after `collected` correct answers.
-    /// Earlier assigned nuts leave. Positions follow the same cascade as a live
-    /// session, so a rebuilt playfield does not put later answers back under a
-    /// stack that should already have slid. At the full count this returns an
-    /// empty pile.
+    /// Legacy resume path: peels assigned nuts in generation order. New play
+    /// uses `remainingNuts(afterGrabbing:)` so the live grab order is kept.
     nonisolated public func remainingNuts(afterCollected collected: Int) -> [ClawNut] {
         var pile = nuts
-        for index in 0..<collected {
+        let count = min(max(0, collected), questions.count)
+        for index in 0..<count {
             guard let target = pile.first(where: { $0.isAssigned(toQuestionIndex: index) }) else {
                 break
             }
@@ -123,9 +137,8 @@ nonisolated public struct ClawPuzzle: Equatable, Codable, Sendable {
         return pile
     }
 
-    /// Replays the grabs the player actually made, so a 40 taken from the
-    /// floor is the one that leaves — not a different 40 that was assigned
-    /// to this sum.
+    /// Replays the grabs the player actually made. Printed numbers stay on the
+    /// shells they were generated with; only positions cascade.
     nonisolated public func remainingNuts(afterGrabbing ids: [UUID]) -> [ClawNut] {
         var pile = nuts
         for id in ids {
@@ -133,6 +146,36 @@ nonisolated public struct ClawPuzzle: Equatable, Codable, Sendable {
             ClawPuzzleBuilder.applyFall(&pile, removing: target)
         }
         return pile
+    }
+
+    /// Remaining questions whose correct answer currently sits on a grabable
+    /// shell. Reeks prefers the earliest of those; Random and Mixed pick one.
+    nonisolated public static func chooseAvailableQuestion(remainingIndices: [Int],
+                                                           questions: [MathQuestion],
+                                                           pile: [ClawNut],
+                                                           prefersEarliest: Bool,
+                                                           random: RandomSource?) -> Int? {
+        let grabable = pile.filter { isGrabable($0, among: pile) }
+        let available = remainingIndices.filter { index in
+            guard questions.indices.contains(index) else { return false }
+            let answer = AnswerValue(questions[index].correctAnswer)
+            return grabable.contains { AnswerValue($0.text) == answer }
+        }
+        if prefersEarliest {
+            return available.min()
+        }
+        return random?.element(available) ?? available.first
+    }
+
+    /// A grabable shell that currently prints `answer`, preferring the highest
+    /// free nut so the claw has a clear target.
+    nonisolated public static func grabableTarget(matching answer: AnswerValue,
+                                                  in pile: [ClawNut]) -> ClawNut? {
+        pile.filter { isGrabable($0, among: pile) && AnswerValue($0.text) == answer }
+            .min { lhs, rhs in
+                if lhs.position.y != rhs.position.y { return lhs.position.y < rhs.position.y }
+                return lhs.position.x < rhs.position.x
+            }
     }
 
     /// Whether `nut` can be grabbed given the nuts still sitting in the pile.
@@ -824,13 +867,15 @@ nonisolated private enum ClawPuzzleBuilder {
         }
     }
 
+    /// True when every remaining answer nut can be taken by always grabbing a
+    /// currently free remaining answer. Play order follows those free shells,
+    /// so assigned index order does not have to be peelable.
     static func isSolvableWithCascade(_ nuts: [ClawNut], answerCount: Int) -> Bool {
         var pile = nuts
-        for index in 0..<answerCount {
-            guard let target = pile.first(where: { $0.isAssigned(toQuestionIndex: index) }) else {
-                return false
-            }
-            if !ClawPuzzle.isGrabable(target, among: pile) { return false }
+        for _ in 0..<answerCount {
+            guard let target = pile.first(where: {
+                !$0.isDistractor && ClawPuzzle.isGrabable($0, among: pile)
+            }) else { return false }
             applyFall(&pile, removing: target)
         }
         return true
@@ -839,13 +884,10 @@ nonisolated private enum ClawPuzzleBuilder {
     static func repairGrabability(_ nuts: inout [ClawNut], answerCount: Int) {
         for _ in 0..<48 {
             guard !isSolvableWithCascade(nuts, answerCount: answerCount) else { return }
-            guard let (index, target, pile) = firstUngrabable(in: nuts, answerCount: answerCount)
+            guard let (target, pile) = firstUngrabable(in: nuts, answerCount: answerCount)
             else { return }
             let partners = pile.filter { nut in
-                guard nut.id != target.id else { return false }
-                guard ClawPuzzle.isGrabable(nut, among: pile) else { return false }
-                if nut.isDistractor { return true }
-                return (nut.sequenceIndex ?? -1) > index
+                nut.id != target.id && ClawPuzzle.isGrabable(nut, among: pile)
             }
             guard let partner = partners.min(by: { a, b in
                 if a.isDistractor != b.isDistractor { return a.isDistractor }
@@ -861,19 +903,19 @@ nonisolated private enum ClawPuzzleBuilder {
         }
     }
 
-    /// Simulated pile at the first question whose assigned nut is not at least
-    /// half-free, after earlier answers have been taken and the cascade applied.
+    /// Simulated pile at the first moment no remaining answer nut is grabable.
     static func firstUngrabable(in nuts: [ClawNut],
-                                answerCount: Int) -> (index: Int, target: ClawNut, pile: [ClawNut])? {
+                                answerCount: Int) -> (target: ClawNut, pile: [ClawNut])? {
         var pile = nuts
-        for index in 0..<answerCount {
-            guard let target = pile.first(where: { $0.isAssigned(toQuestionIndex: index) }) else {
-                return nil
+        for _ in 0..<answerCount {
+            if let target = pile.first(where: {
+                !$0.isDistractor && ClawPuzzle.isGrabable($0, among: pile)
+            }) {
+                applyFall(&pile, removing: target)
+                continue
             }
-            if !ClawPuzzle.isGrabable(target, among: pile) {
-                return (index, target, pile)
-            }
-            applyFall(&pile, removing: target)
+            guard let buried = pile.first(where: { !$0.isDistractor }) else { return nil }
+            return (buried, pile)
         }
         return nil
     }

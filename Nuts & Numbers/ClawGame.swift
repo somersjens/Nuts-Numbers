@@ -34,7 +34,7 @@ enum ClawConfig {
 
     /// Full-depth lower; kept gentle so the whole grab loop can breathe.
     static let descendDuration = 0.58
-    static let grabPause = 0.20
+    static let grabPause = 0.26
     static let ascendDuration = 0.50
     static let carryDuration = 0.42
     static let dropDuration = 0.40
@@ -51,18 +51,47 @@ enum ClawConfig {
     /// the glass so the start card never shows it already hanging, and the
     /// entrance can lower it into view.
     static let entranceParkY: CGFloat = -0.55
-    static let completionDuration = 2.88
+    static let completionDuration = 2.18
     static let timeUpDuration = 1.35
-    /// The loaded trolley travels from the collection side to the exact centre
-    /// before it stops. Braking there sends the elephant to its left apex.
-    static let celebrationCenterArrival = 0.68
-    /// The hook stays parked while the elephant accelerates back to the right.
-    /// Release happens during that swing, not at its apex, so the body carries
-    /// real horizontal speed into the somersault.
-    static let celebrationRelease = 1.68
-    static let celebrationMouthArrival = 2.43
-    static let celebrationLeftAngle: CGFloat = 0.68
-    static let celebrationReleaseAngle: CGFloat = -0.58
+    /// Hook rides left and stays there for the throw, so the salto has the
+    /// full cabinet to fly through to the right.
+    static let celebrationParkArrival = 0.40
+    /// Left apex. The return throw starts immediately — no dwell at the dead point.
+    static let celebrationLeftPeak = 0.38
+    /// Release is past the bottom, still climbing right, with a whip.
+    static let celebrationRelease = 0.90
+    static let celebrationMouthArrival = 1.40
+    static let celebrationLeftAngle: CGFloat = 0.98
+    /// Fraction of a half-period at release (0.5 = bottom, 1 = right apex).
+    static let celebrationReleasePendulumT: Double = 0.66
+    static var celebrationReleaseAngle: CGFloat {
+        celebrationLeftAngle * 0.97 * CGFloat(cos(.pi * celebrationReleasePendulumT))
+    }
+    static func celebrationPendulumAngle(age: Double, startSwing: CGFloat) -> CGFloat {
+        let peak = celebrationLeftPeak
+        if age <= peak {
+            // Ease-out toward the apex, but keep a sliver of speed so the
+            // dead point is a turn, not a pause.
+            let p = min(1, age / peak)
+            let ease = 1 - (1 - p) * (1 - p)
+            let apex = celebrationLeftAngle * 0.97
+            return startSwing + (apex - startSwing) * CGFloat(ease)
+        }
+        let span = max(0.01, celebrationRelease - peak)
+        let linear = min(1, max(0, (age - peak) / span))
+        // Advance faster than linear at the start so the throw leaves the
+        // apex immediately instead of easing out of it in slow motion.
+        let warped = pow(linear, 0.78)
+        return celebrationLeftAngle * 0.97 * CGFloat(cos(.pi * warped * celebrationReleasePendulumT))
+    }
+    static func celebrationReleaseAngularVelocity() -> CGFloat {
+        let span = max(0.01, celebrationRelease - celebrationLeftPeak)
+        let t = celebrationReleasePendulumT
+        let k = 0.78
+        // d/dt [A cos(π t p^k)] at p=1.
+        let amplitude = celebrationLeftAngle * 0.97
+        return -amplitude * CGFloat(.pi * t * k * sin(.pi * t) / span)
+    }
     static let timeUpRelease = 0.58
 
     /// The five animated hanging layers share one square canvas. Keep the
@@ -429,6 +458,11 @@ final class ClawEngine: ObservableObject {
     private var reduceMotion = false
     private var isFinalRound = false
     private var didFinishFinale = false
+    private var hangingTapCount = 0
+    private var lastHangingTapAt: TimeInterval = 0
+    private var isPreviewingFinale = false
+    private var previewRestoreX: CGFloat = 0.5
+    private var previewRestoreSwing: CGFloat = 0
     private var slides: [ClawPuzzle.Fall] = []
     private var slideStart: [UUID: CGPoint] = [:]
     private var slideEnd: [UUID: CGPoint] = [:]
@@ -563,16 +597,17 @@ final class ClawEngine: ObservableObject {
             highlightedNutIDs = []
             return
         }
-        // Keep the live cascade. Rebuilding every round swapped printed
-        // numbers onto new shells, which looked like digits jumping.
+        // Keep the live cascade. Printed numbers stay on the shells they were
+        // generated with; the next sum is chosen from whichever remaining
+        // answer is already grabable.
         if installedSeed == puzzle.seed, nuts.contains(where: \.isPresent) {
             refreshHighlights()
             return
         }
         installedSeed = puzzle.seed
-        let remaining = collectedIDs.count == collected
-            ? puzzle.remainingNuts(afterGrabbing: collectedIDs)
-            : puzzle.remainingNuts(afterCollected: collected)
+        let remaining = collectedIDs.isEmpty
+            ? puzzle.remainingNuts(afterCollected: collected)
+            : puzzle.remainingNuts(afterGrabbing: collectedIDs)
         nuts = remaining.map { spec in
             let rest = screenPoint(spec.position)
             return ClawNutRuntime(spec: spec,
@@ -588,7 +623,8 @@ final class ClawEngine: ObservableObject {
         refreshHighlights()
     }
 
-    func setQuestion(_ question: MathQuestion?, targetNutID: UUID?) {
+    func setQuestion(_ question: MathQuestion?,
+                     targetNutID: UUID?) {
         objectWillChange.send()
         defer { nutSignal.send() }
         applyQuestion(question, targetNutID: targetNutID)
@@ -604,7 +640,8 @@ final class ClawEngine: ObservableObject {
     /// A nil question must not wipe a standing answer. The pile can be
     /// installed from `prepare()` before the first round is published; a late
     /// install would otherwise spit every correct nut and skip the score.
-    private func applyQuestion(_ question: MathQuestion?, targetNutID: UUID?) {
+    private func applyQuestion(_ question: MathQuestion?,
+                               targetNutID: UUID?) {
         if let question {
             currentTargetNutID = targetNutID
             currentAnswer = AnswerValue(question.correctAnswer)
@@ -700,6 +737,42 @@ final class ClawEngine: ObservableObject {
         // Game over arrives a beat after the last nut. If the finale already
         // started from the drop, keep travelling instead of restarting.
         guard phase != .celebrating else { return }
+        startCelebration()
+    }
+
+    /// Five taps on the hanging animal preview the full bin salto, then return
+    /// to the pose they had. Production level-complete still uses the same path.
+    func registerHangingCharacterTap(at point: CGPoint) {
+        guard !PromoTrailerRuntime.isActive else { return }
+        guard phase == .idle, isLive, entranceAge == nil, !isPreviewingFinale else { return }
+        guard hangingCharacterContains(point) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastHangingTapAt > 1.25 {
+            hangingTapCount = 0
+        }
+        lastHangingTapAt = now
+        hangingTapCount += 1
+        guard hangingTapCount >= 5 else { return }
+        hangingTapCount = 0
+        previewRestoreX = trolleyX
+        previewRestoreSwing = swingAngle
+        isPreviewingFinale = true
+        startCelebration()
+    }
+
+    func hangingCharacterContains(_ point: CGPoint) -> Bool {
+        let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
+        let origin = trolleyScreen
+        let radius = side * 0.50
+        let center = CGPoint(x: origin.x - radius * sin(swingAngle),
+                             y: origin.y + radius * cos(swingAngle))
+        let dx = point.x - center.x
+        let dy = point.y - center.y
+        let hit = side * 0.42
+        return dx * dx + dy * dy <= hit * hit
+    }
+
+    private func startCelebration() {
         objectWillChange.send()
         didFinishFinale = false
         phase = .celebrating
@@ -707,6 +780,7 @@ final class ClawEngine: ObservableObject {
         finaleAge = 0
         heldNutID = nil
         input = 0
+        joystickInput = 0
         isLive = false
         resetMoveSound()
         finaleStartX = trolleyX
@@ -716,6 +790,28 @@ final class ClawEngine: ObservableObject {
         swingVelocity = 0
         elephantVisible = true
         elephantBodyVisible = true
+        frameSignal.send()
+    }
+
+    private func restorePreviewFinale() {
+        isPreviewingFinale = false
+        didFinishFinale = false
+        phase = .idle
+        phaseAge = 0
+        finaleAge = nil
+        trolleyX = previewRestoreX
+        lastTrolleyX = previewRestoreX
+        trolleyY = 0
+        swingAngle = previewRestoreSwing
+        swingVelocity = 0
+        input = 0
+        joystickInput = 0
+        elephantVisible = true
+        elephantBodyVisible = true
+        isLive = true
+        objectWillChange.send()
+        frameSignal.send()
+        controlSignal.send()
     }
 
     func beginTimeUp(reduceMotion: Bool, completion: @escaping () -> Void) {
@@ -757,6 +853,8 @@ final class ClawEngine: ObservableObject {
             ?? nearestNut()
         grabTarget = target?.id
         grabStartX = trolleyX
+        // Lock depth on the press. Updating it from the still-settling swing
+        // made trolleyY jump whenever the pendulum passed centre.
         grabDepth = depthToward(target)
         descendTime = max(0.38, ClawConfig.descendDuration * Double(grabDepth))
         ascendTime = max(0.34, ClawConfig.ascendDuration * Double(grabDepth))
@@ -765,6 +863,7 @@ final class ClawEngine: ObservableObject {
         input = 0
         joystickInput = 0
         resetMoveSound()
+        applyCadence()
     }
 
     private func depthToward(_ target: ClawNutRuntime?) -> CGFloat {
@@ -793,13 +892,16 @@ final class ClawEngine: ObservableObject {
     private func nearestNut() -> ClawNutRuntime? {
         let remaining = nuts.filter(\.isPresent)
         guard !remaining.isEmpty else { return nil }
+        let specs = remaining.map(\.spec)
+        let grabable = remaining.filter { ClawPuzzle.isGrabable($0.spec, among: specs) }
+        guard !grabable.isEmpty else { return nil }
 
         func halfWidth(_ nut: ClawNutRuntime) -> CGFloat {
             max(18, nut.pixelRadius * ClawConfig.nutPackScale)
         }
 
         func overlapping(_ aimX: CGFloat, scale: CGFloat) -> [ClawNutRuntime] {
-            remaining.filter { abs($0.position.x - aimX) < halfWidth($0) * scale }
+            grabable.filter { abs($0.position.x - aimX) < halfWidth($0) * scale }
         }
 
         func pick(_ pool: [ClawNutRuntime], aimX: CGFloat) -> ClawNutRuntime? {
@@ -837,7 +939,7 @@ final class ClawEngine: ObservableObject {
     private func advance(_ displayLink: CADisplayLink) {
         let dt: Double
         if let last = lastFrameTargetTimestamp {
-            dt = min(1.0 / 30.0, max(1.0 / 120.0, displayLink.targetTimestamp - last))
+            dt = min(1.0 / 20.0, max(1.0 / 120.0, displayLink.targetTimestamp - last))
         } else {
             dt = ClawConfig.tick
         }
@@ -914,6 +1016,11 @@ final class ClawEngine: ObservableObject {
         swingVelocity += -velocity * ClawConfig.swingDrive * dtg
         swingVelocity += -swingAngle * ClawConfig.swingSpring * dtg
         swingVelocity += -swingVelocity * ClawConfig.swingDamping * dtg
+        if phase == .descending || phase == .grabbing {
+            // Kill leftover trolley sway so the hands meet the walnut
+            // without the body still drifting sideways through the pinch.
+            swingVelocity += -swingVelocity * 10 * dtg
+        }
         if phase == .idle, abs(input) < 0.04, entranceAge == nil, !reduceMotion {
             swingVelocity += CGFloat(sin(motionClock * 1.35)) * 0.018 * dtg
         }
@@ -929,14 +1036,6 @@ final class ClawEngine: ObservableObject {
             break
         case .descending:
             let t = min(1, phaseAge / descendTime)
-            // The swing keeps settling, which lengthens the vertical reach and
-            // would otherwise shrink grabDepth mid-drop — the body then stalls
-            // or even rises, looking like a pinch that never arrives. Keep the
-            // deepest commit so the hands finish through the nut.
-            if let id = grabTarget,
-               let target = nuts.first(where: { $0.id == id }) {
-                grabDepth = max(grabDepth, depthToward(target))
-            }
             trolleyY = easeInOut(t) * grabDepth
             if t >= 1 {
                 if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
@@ -949,8 +1048,8 @@ final class ClawEngine: ObservableObject {
         case .grabbing:
             if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
                 heldNutID = id
-                let u = easeOut(min(1, phaseAge / ClawConfig.grabPause))
-                nuts[index].position = lerp(grabFrom, trunkPoint, u)
+                let u = smoothStep(min(1, phaseAge / ClawConfig.grabPause))
+                nuts[index].position = lerp(grabFrom, trunkPoint, CGFloat(u))
             }
             if phaseAge >= ClawConfig.grabPause { enter(.ascending) }
         case .ascending:
@@ -1116,35 +1215,48 @@ final class ClawEngine: ObservableObject {
         }
     }
 
+    /// Far-left hook pose: the hanging silhouette stays just inside the glass.
+    /// The throw to the right starts from this same point, so the salto has
+    /// the full chamber to fly through.
+    private var celebrationLeftParkX: CGFloat {
+        let side = ClawConfig.elephantVisibleHeight(isPad: isPad)
+        let angle = reduceMotion ? 0 : ClawConfig.celebrationLeftAngle
+        let sine = CGFloat(sin(Double(angle)))
+        let cosine = CGFloat(cos(Double(angle)))
+        let inset: CGFloat = isPad ? 16 : 10
+        let leftOfHook = side * 0.50 * sine + side * 0.30 * cosine
+        let hookX = playRect.minX + inset + leftOfHook
+        let unit = CGFloat((hookX - playRect.minX) / max(playRect.width, 1))
+        return min(0.42, max(trolleyMinX, unit))
+    }
+
+    private func celebrationTrolleyX(at age: Double) -> CGFloat {
+        let left = celebrationLeftParkX
+        if reduceMotion {
+            return left
+        }
+        if age < ClawConfig.celebrationParkArrival {
+            // Ease-out so the hook gets left quickly, then settles.
+            let p = age / ClawConfig.celebrationParkArrival
+            let ease = 1 - pow(1 - p, 3)
+            return finaleStartX + (left - finaleStartX) * CGFloat(ease)
+        }
+        return left
+    }
+
     private func stepCelebration(dt: Double) {
-        let center: CGFloat = 0.5
-        let leftAngle = ClawConfig.celebrationLeftAngle
         let releaseAngle = ClawConfig.celebrationReleaseAngle
+        trolleyX = celebrationTrolleyX(at: phaseAge)
 
         if reduceMotion {
-            trolleyX = center
             swingAngle = 0
-        } else if phaseAge < ClawConfig.celebrationCenterArrival {
-            let p = smoothStep(phaseAge / ClawConfig.celebrationCenterArrival)
-            trolleyX = finaleStartX + (center - finaleStartX) * CGFloat(p)
-            // The trolley brakes at centre while the loaded body continues to
-            // the left. Both position and angle arrive with zero velocity.
-            swingAngle = finaleStartSwing + (leftAngle - finaleStartSwing) * CGFloat(p)
         } else if phaseAge < ClawConfig.celebrationRelease {
-            let span = ClawConfig.celebrationRelease - ClawConfig.celebrationCenterArrival
-            let p = min(1, max(0,
-                (phaseAge - ClawConfig.celebrationCenterArrival) / span
-            ))
-            let swingProgress = 1 - cos(p * .pi / 2)
-            trolleyX = center
-            // One uninterrupted arc crosses from the broad left apex to an
-            // almost equally broad right release. The quarter-cosine starts at
-            // rest but deliberately retains rightward speed at release.
-            swingAngle = leftAngle
-                + (releaseAngle - leftAngle) * CGFloat(swingProgress)
+            swingAngle = ClawConfig.celebrationPendulumAngle(
+                age: phaseAge,
+                startSwing: finaleStartSwing
+            )
         } else {
-            trolleyX = center
-            let recoil = smoothStep(min(1, (phaseAge - ClawConfig.celebrationRelease) / 0.30))
+            let recoil = smoothStep(min(1, (phaseAge - ClawConfig.celebrationRelease) / 0.22))
             // Only the empty claw settles after it lets go.
             swingAngle = releaseAngle * (1 - CGFloat(recoil))
         }
@@ -1152,6 +1264,10 @@ final class ClawEngine: ObservableObject {
         lastTrolleyX = trolleyX
 
         if phaseAge >= ClawConfig.completionDuration {
+            if isPreviewingFinale {
+                restorePreviewFinale()
+                return
+            }
             elephantBodyVisible = false
             if !didFinishFinale {
                 didFinishFinale = true
@@ -1369,8 +1485,10 @@ final class ClawEngine: ObservableObject {
             return
         }
         let remaining = nuts.filter(\.isPresent)
+        let specs = remaining.map(\.spec)
         highlightedNutIDs = Set(remaining.compactMap { nut in
-            AnswerValue(nut.spec.text) == currentAnswer ? nut.id : nil
+            AnswerValue(nut.spec.text) == currentAnswer
+                && ClawPuzzle.isGrabable(nut.spec, among: specs) ? nut.id : nil
         })
     }
 
@@ -1553,7 +1671,7 @@ final class ClawEngine: ObservableObject {
         lastHighCadence = true
         let link = CADisplayLink(target: displayLinkTarget,
                                  selector: #selector(DisplayLinkTarget.advance(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 45, maximum: 60, preferred: 60)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 60)
         link.add(to: .main, forMode: .common)
         displayLink = link
 #else
@@ -1582,13 +1700,19 @@ final class ClawEngine: ObservableObject {
     }
 
     private var wantsHighCadence: Bool {
-        phase != .idle
-            || abs(input) > 0.04
-            || entranceAge != nil
-            || finaleAge != nil
-            || !slides.isEmpty
-            || promptPulse > 0
-            || !flyingScores.isEmpty
+        if reduceMotion,
+           phase == .idle,
+           entranceAge == nil,
+           finaleAge == nil,
+           slides.isEmpty,
+           flyingScores.isEmpty,
+           promptPulse <= 0,
+           abs(input) < 0.04,
+           abs(swingAngle) < 0.004,
+           abs(swingVelocity) < 0.01 {
+            return false
+        }
+        return isLive || phase != .idle || entranceAge != nil || finaleAge != nil
     }
 
     private func applyCadence() {
@@ -1598,8 +1722,8 @@ final class ClawEngine: ObservableObject {
         guard high != lastHighCadence else { return }
         lastHighCadence = high
         displayLink.preferredFrameRateRange = high
-            ? CAFrameRateRange(minimum: 45, maximum: 60, preferred: 60)
-            : CAFrameRateRange(minimum: 15, maximum: 24, preferred: 20)
+            ? CAFrameRateRange(minimum: 60, maximum: 120, preferred: 60)
+            : CAFrameRateRange(minimum: 20, maximum: 30, preferred: 24)
 #endif
     }
 
@@ -1847,7 +1971,8 @@ struct ClawPlayfield: View {
                            targetNutID: round?.targetNutID)
         }
         .onChange(of: round?.id) { _ in
-            engine.setQuestion(round?.question, targetNutID: round?.targetNutID)
+            engine.setQuestion(round?.question,
+                               targetNutID: round?.targetNutID)
         }
         .onChange(of: isLive) { live in engine.setLive(live) }
         .onChange(of: character.id) { _ in
@@ -1944,6 +2069,10 @@ struct ClawPlayfield: View {
                     triggerScreenGrab()
                     return
                 }
+                let travel = hypot(value.translation.width, value.translation.height)
+                if travel < 24, engine.hangingCharacterContains(value.startLocation) {
+                    return
+                }
                 engine.setInput(value.location.x < width / 2 ? -1 : 1)
             }
             .onEnded { value in
@@ -1952,6 +2081,10 @@ struct ClawPlayfield: View {
                 }
                 didTriggerScreenGrab = false
                 engine.setInput(0)
+                let travel = hypot(value.translation.width, value.translation.height)
+                if travel < 24 {
+                    engine.registerHangingCharacterTap(at: value.startLocation)
+                }
             }
     }
 
@@ -2025,8 +2158,16 @@ struct ClawPlayfield: View {
                 .scaleEffect(habitatScale, anchor: .top)
                 .frame(width: geo.play.width, height: geo.play.height)
 
-            SanctuaryLivingDetails(isPad: isPad, reduceMotion: reduceMotion)
-                .scaleEffect(habitatScale, anchor: .top)
+            Group {
+                if character.id == "elephant" {
+                    SanctuaryLivingDetails(isPad: isPad, reduceMotion: reduceMotion)
+                } else {
+                    AnimalHabitatLivingDetails(characterID: character.id,
+                                               isPad: isPad,
+                                               reduceMotion: reduceMotion)
+                }
+            }
+            .scaleEffect(habitatScale, anchor: .top)
                 .frame(width: geo.play.width, height: geo.play.height)
 
             ClawFrameDrivenView(signal: engine.frameSignal) {
@@ -3126,7 +3267,7 @@ private struct ClawElephantView: View {
                     .rotationEffect(headLag, anchor: .top)
             }
             .frame(width: side, height: side)
-            .scaleEffect(motion.scale, anchor: .top)
+            .scaleEffect(motion.scale, anchor: motion.scaleAnchor)
             .rotationEffect(motion.attachmentRotation, anchor: .top)
             .rotationEffect(motion.spinRotation, anchor: .center)
             .position(x: local.x + motion.offset.width,
@@ -3176,13 +3317,13 @@ private struct ClawElephantView: View {
         let attachmentRotation: Angle
         let spinRotation: Angle
         let scale: CGFloat
+        var scaleAnchor: UnitPoint = .top
     }
 
-    /// The body remains mechanically attached through the leftward wind-up
-    /// and the return swing. It gets its own centre-axis rotation only after
-    /// the rightward release, then reaches the authored mouth before plunging
-    /// behind the foreground bin. Time-up uses the same exact target without
-    /// the somersault.
+    /// The body stays on the hook through the left wind-up and the return
+    /// swing. At release it leaves as one centre-axis salto: the first frame
+    /// matches the pendulum pose, then a single 360° carries it into the
+    /// mouth at nearly full size.
     private func bodyMotion(side: CGFloat) -> BodyMotion {
         switch phase {
         case .celebrating:
@@ -3200,10 +3341,15 @@ private struct ClawElephantView: View {
             let mouth = CatchBinArtwork.point(x: CatchBinArtwork.mouthX,
                                               y: CatchBinArtwork.mouthY,
                                               in: bin)
-            let approachScale: CGFloat = reduceMotion ? 0.68 : 0.62
+            let mouthScale: CGFloat = reduceMotion ? 0.86 : 0.90
+            let pendulumRadius = side * 0.50
+            let startOffset = reduceMotion
+                ? CGSize.zero
+                : CGSize(width: -pendulumRadius * sin(releaseAngle),
+                         height: pendulumRadius * (cos(releaseAngle) - 1))
             let mouthOffset = CGSize(
                 width: mouth.x - origin.x,
-                height: mouth.y - origin.y - side * 0.78 * approachScale
+                height: mouth.y - origin.y - side * 0.62 * mouthScale
             )
             let insideOffset = CGSize(
                 width: mouth.x - origin.x,
@@ -3211,51 +3357,40 @@ private struct ClawElephantView: View {
             )
             let plungeDuration = ClawConfig.completionDuration - ClawConfig.celebrationMouthArrival
 
-            // Match the detached body's first velocity to the angular speed
-            // it had on the final attached frame. This is the continuity that
-            // makes the release read as momentum instead of a new animation.
-            let swingDuration = CGFloat(
-                ClawConfig.celebrationRelease - ClawConfig.celebrationCenterArrival
+            let omega = reduceMotion ? 0 : ClawConfig.celebrationReleaseAngularVelocity()
+            var initialVelocity = CGSize(
+                width: -pendulumRadius * cos(releaseAngle) * omega,
+                height: -pendulumRadius * sin(releaseAngle) * omega
             )
-            let angularVelocity = reduceMotion ? 0 : CGFloat.pi / 2
-                * (ClawConfig.celebrationReleaseAngle - ClawConfig.celebrationLeftAngle)
-                / max(0.01, swingDuration)
-            let pendulumRadius = side * 0.50
-            let initialVelocity = CGSize(
-                width: -CGFloat(cos(Double(releaseAngle))) * pendulumRadius * angularVelocity,
-                // The release now turns into the downward part of the salto.
-                // Keeping this at zero prevents a brief upward kick first.
-                height: 0
-            )
+            if !reduceMotion {
+                // Extra upward whip so the body pops off the hook instead of
+                // sliding sideways into a spin.
+                initialVelocity.height -= side * 0.95
+            }
             let mouthVelocity = CGSize(
-                // Keep crossing the cabinet throughout the flip. Ending with
-                // zero horizontal velocity made the last part of the salto
-                // look like a spin in place beside the bin.
-                width: mouthOffset.width / CGFloat(max(0.01, approachDuration)),
+                width: max(36, (mouthOffset.width - startOffset.width)
+                    * 0.22 / CGFloat(max(0.01, approachDuration))),
                 height: (insideOffset.height - mouthOffset.height)
-                    * 0.35 / CGFloat(max(0.01, plungeDuration))
+                    * 0.55 / CGFloat(max(0.01, plungeDuration))
             )
 
             if approach < 1 {
                 let approachEase = smooth(approach)
-                let flightOffset = cubicHermite(from: .zero,
+                let flightOffset = cubicHermite(from: startOffset,
                                                 to: mouthOffset,
                                                 initialVelocity: initialVelocity,
                                                 finalVelocity: mouthVelocity,
                                                 duration: CGFloat(approachDuration),
                                                 progress: CGFloat(approach))
-                // The somersault advances with actual rightward travel. It can
-                // no longer keep rotating after the body has nearly stopped.
-                let travelProgress = abs(mouthOffset.width) > 1
-                    ? min(1, max(0, Double(flightOffset.width / mouthOffset.width)))
-                    : approach
+                let salto = reduceMotion ? 0.0 : pow(approach, 0.82)
                 return BodyMotion(
                     offset: flightOffset,
-                    attachmentRotation: .radians(
-                        Double(releaseAngle * CGFloat(1 - approachEase))
-                    ),
-                    spinRotation: reduceMotion ? .zero : .degrees(-360 * travelProgress),
-                    scale: 1 + (approachScale - 1) * CGFloat(approachEase)
+                    attachmentRotation: .zero,
+                    spinRotation: reduceMotion
+                        ? .zero
+                        : .radians(Double(releaseAngle) - 2 * .pi * salto),
+                    scale: 1 + (mouthScale - 1) * CGFloat(approachEase),
+                    scaleAnchor: .center
                 )
             }
 
@@ -3263,22 +3398,16 @@ private struct ClawElephantView: View {
                 (phaseAge - ClawConfig.celebrationMouthArrival) / plungeDuration
             ))
             let plungeEase = smooth(plunge)
-            // A linear component preserves the downward mouth-arrival speed;
-            // the quadratic remainder accelerates the elephant into the bin.
-            let plungeTravel = 0.35 * plunge + 0.65 * plunge * plunge
-            // Continue the rightward release velocity behind the rim and ease
-            // it to rest there, instead of stopping on the mouth's centreline.
-            let horizontalCarry = mouthVelocity.width * CGFloat(plungeDuration)
-                * CGFloat(plunge - plunge * plunge + plunge * plunge * plunge / 3)
+            let plungeTravel = 0.25 * plunge + 0.75 * plunge * plunge
             let finalScale = diveScale(side: side)
             return BodyMotion(
-                offset: CGSize(
-                    width: mouthOffset.width + horizontalCarry,
-                    height: interpolate(mouthOffset, insideOffset, CGFloat(plungeTravel)).height
-                ),
-                attachmentRotation: .radians(Double(releaseAngle * CGFloat(1 - plungeEase))),
-                spinRotation: reduceMotion ? .zero : .degrees(-360),
-                scale: approachScale + (finalScale - approachScale) * CGFloat(plungeEase)
+                offset: interpolate(mouthOffset, insideOffset, CGFloat(plungeTravel)),
+                attachmentRotation: .zero,
+                spinRotation: reduceMotion
+                    ? .zero
+                    : .radians(Double(releaseAngle) - 2 * .pi),
+                scale: mouthScale + (finalScale - mouthScale) * CGFloat(plungeEase),
+                scaleAnchor: .center
             )
 
         case .timeUp:
@@ -3314,7 +3443,7 @@ private struct ClawElephantView: View {
     }
 
     private func diveScale(side: CGFloat) -> CGFloat {
-        max(0.38, min(0.52, bin.width / max(1, side * 0.78)))
+        max(0.58, min(0.72, bin.width / max(1, side * 0.72)))
     }
 
     private func interpolate(_ from: CGSize, _ to: CGSize, _ progress: CGFloat) -> CGSize {
@@ -3999,7 +4128,13 @@ private struct SanctuaryScene: View, Equatable {
     let isPad: Bool
 
     var body: some View {
-        SavannaHabitatArtwork(palette: palette, character: character, isPad: isPad)
+        Group {
+            if character.id == "elephant" {
+                SavannaHabitatArtwork(palette: palette, character: character, isPad: isPad)
+            } else {
+                AnimalHabitatArtwork(palette: palette, character: character, isPad: isPad)
+            }
+        }
         .allowsHitTesting(false)
     }
 
@@ -6374,9 +6509,10 @@ private struct SanctuaryLivingDetails: View {
     let reduceMotion: Bool
 
     var body: some View {
-        // Birds and motes do not need to share the claw's 60 Hz pose clock.
-        // A 12 Hz timeline keeps the habitat alive at a fraction of the cost.
-        TimelineView(.animation(minimumInterval: 1.0 / 12.0, paused: reduceMotion)) { timeline in
+        // Cheap ambient motion on its own clock so it never contends with the
+        // claw's 60 Hz pose. 30 Hz with a handful of solid fills is smoother
+        // than 12 Hz of gradient leaves, and far cheaper to composite.
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
             let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
@@ -6386,7 +6522,7 @@ private struct SanctuaryLivingDetails: View {
 
                 // Slow dust motes add life while remaining far quieter than
                 // the claw and without introducing decorative UI symbols.
-                for index in 0..<6 {
+                for index in 0..<4 {
                     let seed = CGFloat((index * 29) % 91) / 91
                     let x = size.width * (0.16 + seed * 0.68)
                     let cycle = (travel + CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1)
@@ -6401,13 +6537,13 @@ private struct SanctuaryLivingDetails: View {
                 // Slow travelling wavelets stay inside the irregular water
                 // silhouette. Broken strokes feel reflective rather than like
                 // a loading indicator placed over the scenery.
-                for index in 0..<5 {
+                for index in 0..<3 {
                     let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.82 + Double(index) * 0.91))
-                    let y = size.height * (0.557 + CGFloat(index) * 0.014)
+                    let y = size.height * (0.557 + CGFloat(index) * 0.018)
                         + phase * size.height * 0.0018
-                    let startX = size.width * (0.365 + CGFloat(index) * 0.012)
+                    let startX = size.width * (0.365 + CGFloat(index) * 0.016)
                         + phase * size.width * 0.008
-                    let endX = size.width * (0.525 + CGFloat(index) * 0.030)
+                    let endX = size.width * (0.525 + CGFloat(index) * 0.038)
                         + phase * size.width * 0.006
                     let gapCenter = startX + (endX - startX) * (0.44 + phase * 0.06)
                     let gap = size.width * (0.012 + CGFloat(index) * 0.0015)
@@ -6461,7 +6597,7 @@ private struct SanctuaryLivingDetails: View {
                                   time: TimeInterval) {
         let w = size.width
         let h = size.height
-        for index in 0..<4 {
+        for index in 0..<3 {
             let duration = 13.0 + Double(index) * 2.7
             let offset = Double(index) * 0.23
             let progress = reduceMotion
@@ -6502,51 +6638,29 @@ private struct SanctuaryLivingDetails: View {
                                       time: TimeInterval) {
         let w = size.width
         let h = size.height
-        for index in 0..<14 {
-            let offset = Double(index) * 0.083
-            let duration = 5.1 + Double(index % 4) * 1.05
+        // Six solid ovals at 30 Hz cost less than fourteen gradient leaves
+        // with wakes at 12 Hz, and they no longer hitch the claw clock.
+        for index in 0..<6 {
+            let offset = Double(index) * 0.16
+            let duration = 7.4 + Double(index % 3) * 1.35
             let progress = reduceMotion
                 ? CGFloat(0.12 + offset * 0.72)
                 : CGFloat((time / duration + offset).truncatingRemainder(dividingBy: 1))
+            let x = w * (-0.08 + progress * 1.16)
+            guard x > -24, x < w + 24 else { continue }
             let wave = CGFloat(sin(Double(progress) * .pi * 2 + Double(index) * 0.84))
-            let center = CGPoint(x: w * (-0.07 + progress * 1.15),
-                                 y: h * (0.070 + CGFloat(index % 5) * 0.043 + wave * 0.024))
-            let length = w * (0.014 + CGFloat(index % 4) * 0.003)
-            let angle = -0.20 + Double(wave) * 0.78 + Double(index % 2) * 0.22
-            let direction = CGVector(dx: CGFloat(cos(angle)), dy: CGFloat(sin(angle)))
-            let normal = CGVector(dx: -direction.dy, dy: direction.dx)
-            let root = CGPoint(x: center.x - direction.dx * length * 0.50,
-                               y: center.y - direction.dy * length * 0.50)
-            let tip = CGPoint(x: center.x + direction.dx * length * 0.50,
-                              y: center.y + direction.dy * length * 0.50)
-
-            // A very faint wake supplies the requested whoosh without looking
-            // like a UI speed-line effect.
-            var wake = Path()
-            wake.move(to: CGPoint(x: root.x - w * 0.024, y: root.y - wave * h * 0.003))
-            wake.addQuadCurve(to: root,
-                              control: CGPoint(x: root.x - w * 0.010, y: root.y + wave * h * 0.004))
-            context.stroke(wake,
-                           with: .color(Color(red: 0.35, green: 0.46, blue: 0.12).opacity(0.18)),
-                           style: StrokeStyle(lineWidth: isPad ? 1.4 : 0.8, lineCap: .round))
-
-            var leaf = Path()
-            leaf.move(to: root)
-            leaf.addQuadCurve(to: tip,
-                              control: CGPoint(x: center.x + normal.dx * length * 0.30,
-                                               y: center.y + normal.dy * length * 0.30))
-            leaf.addQuadCurve(to: root,
-                              control: CGPoint(x: center.x - normal.dx * length * 0.30,
-                                               y: center.y - normal.dy * length * 0.30))
-            leaf.closeSubpath()
-            let leafColor = index.isMultiple(of: 3)
+            let y = h * (0.072 + CGFloat(index % 3) * 0.055 + wave * 0.018)
+            let leafWidth = w * (0.016 + CGFloat(index % 3) * 0.003)
+            let leafHeight = leafWidth * 0.55
+            let leafColor = index.isMultiple(of: 2)
                 ? Color(red: 0.55, green: 0.64, blue: 0.20)
                 : Color(red: 0.29, green: 0.43, blue: 0.10)
-            context.fill(leaf,
-                         with: .linearGradient(
-                            Gradient(colors: [leafColor.opacity(0.90), leafColor.opacity(0.56)]),
-                            startPoint: root,
-                            endPoint: tip))
+            let rect = CGRect(x: x - leafWidth / 2,
+                              y: y - leafHeight / 2,
+                              width: leafWidth,
+                              height: leafHeight)
+            context.fill(Path(ellipseIn: rect),
+                         with: .color(leafColor.opacity(0.72)))
         }
     }
 
