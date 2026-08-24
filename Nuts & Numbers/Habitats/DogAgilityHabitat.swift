@@ -3,8 +3,8 @@
 //  Nuts & Numbers
 //
 //  A full agility ground: mown competition turf with an A-frame, weave poles,
-//  a tunnel, jumps, a tyre and a seesaw laid out in depth, ringed by a fence,
-//  a show tent and a line of bunting across the top of the frame.
+//  a tunnel, jumps, a tyre and a seesaw laid out in depth, ringed by a fence
+//  and a line of bunting on poles that stand in the ring.
 //
 
 import SwiftUI
@@ -33,13 +33,11 @@ struct DogAgilityHabitatArtwork: View, Equatable {
             let brush = HabitatBrush(size: size, isPad: isPad)
             paintSky(brush, in: &context)
             paintTreeLine(brush, in: &context)
-            paintShowTent(brush, in: &context)
             paintRingFence(brush, in: &context)
             paintTurf(brush, in: &context)
             paintMownStripes(brush, in: &context)
             paintWornGround(brush, in: &context)
             paintWeavePoles(brush, in: &context)
-            paintPauseTable(brush, in: &context)
             paintAFrame(brush, in: &context)
             paintTunnel(brush, in: &context)
             paintHurdles(brush, in: &context)
@@ -114,50 +112,6 @@ struct DogAgilityHabitatArtwork: View, Equatable {
                         lobes: 4)
         }
         brush.hazeBand(in: &context, top: 0.480, bottom: 0.560, color: Color.white.opacity(0.22))
-    }
-
-    private func paintShowTent(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A small striped marquee beyond the ring, with a flag on top.
-        let apex = brush.p(0.135, 0.428)
-        let left = brush.p(0.038, 0.545)
-        let right = brush.p(0.232, 0.545)
-        var roof = Path()
-        roof.move(to: apex)
-        roof.addQuadCurve(to: right, control: brush.p(0.205, 0.500))
-        roof.addQuadCurve(to: left, control: brush.p(0.135, 0.560))
-        roof.addQuadCurve(to: apex, control: brush.p(0.065, 0.500))
-        roof.closeSubpath()
-        context.fill(roof, with: .color(equipWhite))
-        for index in 0..<5 {
-            var stripe = Path()
-            let t = CGFloat(index) / 4
-            stripe.move(to: apex)
-            stripe.addLine(to: brush.p(0.038 + t * 0.194, 0.545))
-            stripe.addLine(to: brush.p(0.038 + t * 0.194 + 0.024, 0.545))
-            stripe.closeSubpath()
-            context.fill(stripe, with: .color(index.isMultiple(of: 2)
-                                              ? equipRed.opacity(0.75)
-                                              : equipWhite.opacity(0.0)))
-        }
-        context.stroke(roof, with: .color(Color.black.opacity(0.18)), style: brush.joined(brush.lw(0.9)))
-
-        for x in [CGFloat(0.045), CGFloat(0.226)] {
-            var leg = Path()
-            leg.move(to: brush.p(x, 0.542))
-            leg.addLine(to: brush.p(x, 0.585))
-            context.stroke(leg, with: .color(post.opacity(0.9)), style: brush.stroke(brush.lw(1.4)))
-        }
-
-        var mast = Path()
-        mast.move(to: apex)
-        mast.addLine(to: brush.p(0.135, 0.386))
-        context.stroke(mast, with: .color(post), style: brush.stroke(brush.lw(1.2)))
-        var pennant = Path()
-        pennant.move(to: brush.p(0.135, 0.386))
-        pennant.addLine(to: brush.p(0.188, 0.398))
-        pennant.addLine(to: brush.p(0.135, 0.410))
-        pennant.closeSubpath()
-        context.fill(pennant, with: .color(equipYellow))
     }
 
     private func paintRingFence(_ brush: HabitatBrush, in context: inout GraphicsContext) {
@@ -329,60 +283,20 @@ struct DogAgilityHabitatArtwork: View, Equatable {
         }
     }
 
-    private func paintPauseTable(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A low square table drawn in perspective behind the weaves.
-        let topBackLeft = brush.p(0.335, 0.648)
-        let topBackRight = brush.p(0.470, 0.648)
-        let topFrontLeft = brush.p(0.312, 0.672)
-        let topFrontRight = brush.p(0.494, 0.672)
-        brush.contactShadow(in: &context,
-                            center: brush.p(0.405, 0.700),
-                            width: brush.rx(0.22),
-                            height: brush.ry(0.028),
-                            opacity: 0.26)
-
-        var top = Path()
-        top.move(to: topBackLeft)
-        top.addLine(to: topBackRight)
-        top.addLine(to: topFrontRight)
-        top.addLine(to: topFrontLeft)
-        top.closeSubpath()
-        context.fill(top, with: .linearGradient(
-            Gradient(colors: [equipBlue, Color(red: 0.12, green: 0.32, blue: 0.60)]),
-            startPoint: topBackLeft,
-            endPoint: topFrontRight))
-
-        var face = Path()
-        face.move(to: topFrontLeft)
-        face.addLine(to: topFrontRight)
-        face.addLine(to: brush.p(0.494, 0.700))
-        face.addLine(to: brush.p(0.312, 0.700))
-        face.closeSubpath()
-        context.fill(face, with: .color(Color(red: 0.10, green: 0.26, blue: 0.50)))
-        context.stroke(top, with: .color(Color.white.opacity(0.30)), style: brush.joined(brush.lw(0.9)))
-
-        for x in [CGFloat(0.318), CGFloat(0.488)] {
-            var leg = Path()
-            leg.move(to: brush.p(x, 0.698))
-            leg.addLine(to: brush.p(x, 0.712))
-            context.stroke(leg, with: .color(Color(red: 0.08, green: 0.20, blue: 0.40)),
-                           style: brush.stroke(brush.lw(2.0)))
-        }
-    }
-
     private func paintAFrame(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // The biggest obstacle, set on the left so it frames that edge.
-        let apexLeft = brush.p(0.105, 0.560)
-        let apexRight = brush.p(0.196, 0.566)
-        let backFoot = brush.p(-0.03, 0.706)
-        let backTop = brush.p(0.062, 0.700)
-        let frontFoot = brush.p(0.330, 0.742)
-        let frontTop = brush.p(0.246, 0.748)
+        // Set well back of the near tyre jump, so the two obstacles read as
+        // separate pieces of the course rather than one stacked pile.
+        let apexLeft = brush.p(0.072, 0.488)
+        let apexRight = brush.p(0.154, 0.494)
+        let backFoot = brush.p(-0.05, 0.612)
+        let backTop = brush.p(0.032, 0.606)
+        let frontFoot = brush.p(0.252, 0.646)
+        let frontTop = brush.p(0.176, 0.652)
 
         brush.contactShadow(in: &context,
-                            center: brush.p(0.150, 0.752),
-                            width: brush.rx(0.44),
-                            height: brush.ry(0.050),
+                            center: brush.p(0.100, 0.654),
+                            width: brush.rx(0.40),
+                            height: brush.ry(0.042),
                             opacity: 0.28)
 
         var farPanel = Path()
@@ -408,9 +322,12 @@ struct DogAgilityHabitatArtwork: View, Equatable {
             endPoint: frontFoot))
 
         // Yellow contact zone at the bottom of the near ramp.
+        let contactT: CGFloat = 0.70
         var contact = Path()
-        contact.move(to: brush.p(0.208, 0.688))
-        contact.addLine(to: brush.p(0.288, 0.694))
+        contact.move(to: CGPoint(x: apexLeft.x + (frontTop.x - apexLeft.x) * contactT,
+                                 y: apexLeft.y + (frontTop.y - apexLeft.y) * contactT))
+        contact.addLine(to: CGPoint(x: apexRight.x + (frontFoot.x - apexRight.x) * contactT,
+                                    y: apexRight.y + (frontFoot.y - apexRight.y) * contactT))
         contact.addLine(to: frontFoot)
         contact.addLine(to: frontTop)
         contact.closeSubpath()
@@ -446,80 +363,144 @@ struct DogAgilityHabitatArtwork: View, Equatable {
     }
 
     private func paintTunnel(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // Ribbed fabric tunnel curving out of the right edge toward the front.
-        let spine: [(CGFloat, CGFloat, CGFloat)] = [
-            (1.05, 0.706, 0.052), (0.980, 0.716, 0.056), (0.910, 0.732, 0.060),
-            (0.845, 0.756, 0.065), (0.790, 0.788, 0.070), (0.752, 0.826, 0.075),
-            (0.734, 0.868, 0.079)
+        // A fabric tube with a flattened belly on the grass, ribs, a dark
+        // mouth you can look into, and a far opening of daylight. Stacked
+        // circles read as coins; this has to read as a walk-through.
+        let samples: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.988, 0.700, 0.042), (0.935, 0.712, 0.048), (0.882, 0.730, 0.055),
+            (0.832, 0.754, 0.062), (0.790, 0.786, 0.070), (0.758, 0.826, 0.078),
+            (0.738, 0.874, 0.086)
         ]
         brush.contactShadow(in: &context,
-                            center: brush.p(0.865, 0.878),
-                            width: brush.rx(0.42),
-                            height: brush.ry(0.050),
-                            opacity: 0.28)
-        for (index, segment) in spine.enumerated().reversed() {
-            let center = brush.p(segment.0, segment.1)
-            let radius = brush.rx(segment.2)
-            let shade = index.isMultiple(of: 2)
-                ? equipBlue
-                : Color(red: 0.13, green: 0.35, blue: 0.66)
-            context.fill(Path(ellipseIn: CGRect(x: center.x - radius,
-                                                y: center.y - radius * 1.02,
-                                                width: radius * 2,
-                                                height: radius * 2.04)),
-                         with: .linearGradient(
-                            Gradient(colors: [shade.opacity(0.95), Color(red: 0.08, green: 0.22, blue: 0.44)]),
-                            startPoint: CGPoint(x: center.x - radius, y: center.y - radius),
-                            endPoint: CGPoint(x: center.x + radius, y: center.y + radius)))
-            // Highlight along the top of every rib.
-            var sheen = Path()
-            sheen.addArc(center: center,
-                         radius: radius * 0.82,
-                         startAngle: .degrees(205),
-                         endAngle: .degrees(305),
-                         clockwise: false)
-            context.stroke(sheen, with: .color(Color.white.opacity(0.20)), style: brush.stroke(brush.lw(1.4)))
+                            center: brush.p(0.850, 0.890),
+                            width: brush.rx(0.46),
+                            height: brush.ry(0.055),
+                            opacity: 0.30)
+
+        var body = Path()
+        for (index, sample) in samples.enumerated() {
+            let center = brush.p(sample.0, sample.1)
+            let radius = brush.rx(sample.2)
+            let top = CGPoint(x: center.x - radius * 0.06, y: center.y - radius * 0.92)
+            if index == 0 { body.move(to: top) } else { body.addLine(to: top) }
+        }
+        for sample in samples.reversed() {
+            let center = brush.p(sample.0, sample.1)
+            let radius = brush.rx(sample.2)
+            body.addLine(to: CGPoint(x: center.x + radius * 0.10, y: center.y + radius * 0.52))
+        }
+        body.closeSubpath()
+        context.fill(body, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.22, green: 0.50, blue: 0.86),
+                              Color(red: 0.10, green: 0.26, blue: 0.52)]),
+            startPoint: brush.p(0.90, 0.700),
+            endPoint: brush.p(0.74, 0.920)))
+
+        // Ribs as fabric bands across the tube, not stacked full ellipses.
+        for (index, sample) in samples.enumerated() {
+            guard index > 0, index < samples.count - 1 else { continue }
+            let center = brush.p(sample.0, sample.1)
+            let radius = brush.rx(sample.2)
+            var rib = Path()
+            rib.move(to: CGPoint(x: center.x - radius * 0.78, y: center.y - radius * 0.62))
+            rib.addQuadCurve(to: CGPoint(x: center.x + radius * 0.70, y: center.y + radius * 0.18),
+                             control: CGPoint(x: center.x + radius * 0.12, y: center.y - radius * 0.08))
+            context.stroke(rib,
+                           with: .color((index.isMultiple(of: 2) ? Color.white : Color.black).opacity(0.22)),
+                           style: brush.stroke(brush.lw(2.4)))
         }
 
-        // The near mouth is a dark ellipse with a bright fabric rim.
-        let mouth = brush.p(0.734, 0.868)
-        let mouthRadius = brush.rx(0.079)
-        context.fill(Path(ellipseIn: CGRect(x: mouth.x - mouthRadius,
-                                            y: mouth.y - mouthRadius * 1.02,
-                                            width: mouthRadius * 2,
-                                            height: mouthRadius * 2.04)),
+        // Stitching along the side seam.
+        var seam = Path()
+        seam.move(to: brush.p(0.970, 0.718))
+        seam.addCurve(to: brush.p(0.760, 0.900),
+                      control1: brush.p(0.900, 0.760),
+                      control2: brush.p(0.810, 0.830))
+        context.stroke(seam, with: .color(Color.black.opacity(0.18)),
+                       style: StrokeStyle(lineWidth: brush.lw(1.0), dash: [brush.lw(3.5), brush.lw(2.5)]))
+
+        // Sheen along the ridge.
+        var ridge = Path()
+        ridge.move(to: brush.p(0.988, 0.700 - 0.038))
+        ridge.addCurve(to: brush.p(0.738, 0.874 - 0.078),
+                       control1: brush.p(0.900, 0.690),
+                       control2: brush.p(0.800, 0.760))
+        context.stroke(ridge, with: .color(Color.white.opacity(0.28)), style: brush.stroke(brush.lw(2.0)))
+
+        // Far opening: a hole in the tube end, not a disc sitting on top.
+        let far = brush.p(0.972, 0.708)
+        let farR = brush.rx(0.030)
+        let farRect = CGRect(x: far.x - farR * 0.55, y: far.y - farR * 0.72,
+                             width: farR * 1.10, height: farR * 1.28)
+        context.fill(Path(ellipseIn: farRect),
+                     with: .color(Color(red: 0.06, green: 0.14, blue: 0.28)))
+        context.fill(Path(ellipseIn: farRect.insetBy(dx: farR * 0.18, dy: farR * 0.20)),
+                     with: .color(Color(red: 0.55, green: 0.72, blue: 0.42).opacity(0.70)))
+        context.stroke(Path(ellipseIn: farRect),
+                       with: .color(Color(red: 0.16, green: 0.32, blue: 0.55)),
+                       style: brush.stroke(brush.lw(1.6)))
+
+        // Near mouth: stacked rings receding toward a bright far end.
+        let mouth = brush.p(0.738, 0.874)
+        let mouthR = brush.rx(0.086)
+        let mouthRect = CGRect(x: mouth.x - mouthR, y: mouth.y - mouthR * 0.92,
+                               width: mouthR * 2, height: mouthR * 1.52)
+        context.fill(Path(ellipseIn: mouthRect),
                      with: .radialGradient(
-                        Gradient(colors: [Color.black.opacity(0.90), Color(red: 0.06, green: 0.16, blue: 0.32)]),
+                        Gradient(colors: [Color.black.opacity(0.92),
+                                          Color(red: 0.05, green: 0.12, blue: 0.26)]),
                         center: mouth,
                         startRadius: 0,
-                        endRadius: mouthRadius))
-        context.stroke(Path(ellipseIn: CGRect(x: mouth.x - mouthRadius,
-                                              y: mouth.y - mouthRadius * 1.02,
-                                              width: mouthRadius * 2,
-                                              height: mouthRadius * 2.04)),
-                       with: .color(equipYellow.opacity(0.85)),
+                        endRadius: mouthR))
+        for ring in 1...3 {
+            let inset = CGFloat(ring) * 0.16
+            context.stroke(Path(ellipseIn: mouthRect.insetBy(dx: mouthR * inset, dy: mouthR * inset * 0.85)),
+                           with: .color(Color.white.opacity(0.08 + Double(3 - ring) * 0.04)),
+                           style: brush.stroke(brush.lw(1.1)))
+        }
+        let glowR = mouthR * 0.16
+        context.fill(Path(ellipseIn: CGRect(x: mouth.x + mouthR * 0.28 - glowR,
+                                            y: mouth.y - mouthR * 0.28 - glowR * 0.7,
+                                            width: glowR * 1.6, height: glowR * 1.2)),
+                     with: .color(Color(red: 0.62, green: 0.76, blue: 0.58).opacity(0.40)))
+        context.stroke(Path(ellipseIn: mouthRect),
+                       with: .color(Color(red: 0.22, green: 0.22, blue: 0.24)),
+                       style: brush.stroke(brush.lw(3.4)))
+        context.stroke(Path(ellipseIn: mouthRect),
+                       with: .color(equipYellow.opacity(0.92)),
                        style: brush.stroke(brush.lw(2.2)))
 
-        // Sandbags holding the tunnel down.
+        // Fabric ties pinning the tube to the turf.
         for index in 0..<3 {
-            let center = brush.p(0.792 + CGFloat(index) * 0.058, 0.905 - CGFloat(index) * 0.026)
-            let width = brush.rx(0.062)
+            let t = CGFloat(index) / 2
+            let x = 0.790 + t * 0.140
+            let y = 0.900 - t * 0.070
+            var tie = Path()
+            tie.move(to: brush.p(x, y - 0.012))
+            tie.addLine(to: brush.p(x + 0.012, y + 0.018))
+            context.stroke(tie, with: .color(Color(red: 0.28, green: 0.26, blue: 0.22)),
+                           style: brush.stroke(brush.lw(1.3)))
+        }
+
+        for index in 0..<3 {
+            let center = brush.p(0.800 + CGFloat(index) * 0.058, 0.912 - CGFloat(index) * 0.028)
+            let width = brush.rx(0.058)
             context.fill(Path(roundedRect: CGRect(x: center.x - width * 0.5,
-                                                  y: center.y - width * 0.22,
+                                                  y: center.y - width * 0.20,
                                                   width: width,
-                                                  height: width * 0.44),
-                              cornerRadius: width * 0.20),
+                                                  height: width * 0.40),
+                              cornerRadius: width * 0.16),
                          with: .color(Color(red: 0.44, green: 0.40, blue: 0.30)))
         }
     }
 
     private func paintHurdles(_ brush: HabitatBrush, in context: inout GraphicsContext) {
         let jumps: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (0.230, 0.742, 0.230, 0.105),
+            (0.430, 0.748, 0.210, 0.100),
             (0.640, 0.712, 0.190, 0.088),
             (0.115, 0.960, 0.300, 0.140)
         ]
-        for (index, jump) in jumps.enumerated() {
+        for jump in jumps {
             let baseY = jump.1
             let halfWidth = jump.2 * 0.5
             let height = jump.3
@@ -545,14 +526,12 @@ struct DogAgilityHabitatArtwork: View, Equatable {
                 // Wing panel on the outer side of each upright.
                 var wing = Path()
                 wing.move(to: brush.p(x, baseY))
-                wing.addLine(to: brush.p(x + side * 0.048, baseY))
-                wing.addLine(to: brush.p(x + side * 0.048, baseY - height * 0.52))
-                wing.addLine(to: brush.p(x, baseY - height * 0.74))
+                wing.addLine(to: brush.p(x + side * 0.022, baseY))
+                wing.addLine(to: brush.p(x + side * 0.022, baseY - height * 0.58))
+                wing.addLine(to: brush.p(x, baseY - height * 0.70))
                 wing.closeSubpath()
-                context.fill(wing, with: .color(index.isMultiple(of: 2)
-                                                ? equipRed.opacity(0.85)
-                                                : equipBlue.opacity(0.85)))
-                context.stroke(wing, with: .color(Color.white.opacity(0.35)), style: brush.joined(brush.lw(0.9)))
+                context.fill(wing, with: .color(equipRed.opacity(0.88)))
+                context.stroke(wing, with: .color(Color.white.opacity(0.40)), style: brush.joined(brush.lw(0.9)))
             }
 
             for bar in 0..<2 {
@@ -675,34 +654,13 @@ struct DogAgilityHabitatArtwork: View, Equatable {
     }
 
     private func paintRingDressing(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // Marker cones, a water bowl and a ball basket around the edges.
+        // Marker cones kept off the A-frame and the jumps.
         let cones: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.055, 0.672, 0.030), (0.930, 0.664, 0.028),
-            (0.395, 0.628, 0.020), (0.615, 0.930, 0.048)
+            (0.348, 0.638, 0.026),
+            (0.615, 0.930, 0.048)
         ]
-        for (index, cone) in cones.enumerated() {
-            let base = brush.p(cone.0, cone.1)
-            let height = brush.ry(cone.2 * 2.0)
-            let width = brush.rx(cone.2)
-            brush.contactShadow(in: &context, center: base,
-                                width: width * 2.2, height: width * 0.7, opacity: 0.24)
-            var body = Path()
-            body.move(to: CGPoint(x: base.x - width * 0.5, y: base.y))
-            body.addQuadCurve(to: CGPoint(x: base.x, y: base.y - height),
-                              control: CGPoint(x: base.x - width * 0.24, y: base.y - height * 0.5))
-            body.addQuadCurve(to: CGPoint(x: base.x + width * 0.5, y: base.y),
-                              control: CGPoint(x: base.x + width * 0.24, y: base.y - height * 0.5))
-            body.closeSubpath()
-            context.fill(body, with: .linearGradient(
-                Gradient(colors: [Color(red: 0.98, green: 0.52, blue: 0.16),
-                                  Color(red: 0.76, green: 0.30, blue: 0.06)]),
-                startPoint: CGPoint(x: base.x - width * 0.5, y: base.y - height),
-                endPoint: CGPoint(x: base.x + width * 0.5, y: base.y)))
-            var band = Path()
-            band.move(to: CGPoint(x: base.x - width * 0.30, y: base.y - height * 0.46))
-            band.addLine(to: CGPoint(x: base.x + width * 0.30, y: base.y - height * 0.46))
-            context.stroke(band, with: .color(equipWhite.opacity(0.9)), style: brush.stroke(brush.lw(1.6)))
-            _ = index
+        for cone in cones {
+            paintCone(brush, in: &context, at: cone.0, y: cone.1, size: cone.2)
         }
 
         // Water bowl with a bright reflection.
@@ -721,37 +679,142 @@ struct DogAgilityHabitatArtwork: View, Equatable {
                                             height: bowlWidth * 0.34)),
                      with: .color(Color(red: 0.62, green: 0.84, blue: 0.94)))
 
-        // Tennis balls scattered in the grass.
-        for index in 0..<4 {
-            let point = brush.p(habitatNoise(index, 21, 0.30, 0.92),
-                                habitatNoise(index, 22, 0.860, 0.990))
-            let radius = brush.rx(0.016)
-            brush.contactShadow(in: &context,
-                                center: CGPoint(x: point.x, y: point.y + radius * 0.8),
-                                width: radius * 2.4, height: radius * 0.8, opacity: 0.24)
-            context.fill(Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius,
-                                                width: radius * 2, height: radius * 2)),
-                         with: .radialGradient(
-                            Gradient(colors: [Color(red: 0.88, green: 0.94, blue: 0.34),
-                                              Color(red: 0.58, green: 0.68, blue: 0.16)]),
-                            center: CGPoint(x: point.x - radius * 0.3, y: point.y - radius * 0.35),
-                            startRadius: 0,
-                            endRadius: radius * 1.4))
-            var seam = Path()
-            seam.move(to: CGPoint(x: point.x - radius * 0.9, y: point.y - radius * 0.2))
-            seam.addQuadCurve(to: CGPoint(x: point.x + radius * 0.9, y: point.y - radius * 0.2),
-                              control: CGPoint(x: point.x, y: point.y + radius * 0.7))
-            context.stroke(seam, with: .color(Color.white.opacity(0.75)), style: brush.stroke(brush.lw(0.9)))
+        // Loose balls sit in the grass, never jammed against kit. A small
+        // wire basket on the right keeps the extras together.
+        paintTennisBall(brush, in: &context, at: (0.455, 0.888), radius: 0.016)
+        paintTennisBall(brush, in: &context, at: (0.175, 0.938), radius: 0.015)
+        paintBallBasket(brush, in: &context)
+    }
+
+    private func paintCone(_ brush: HabitatBrush,
+                           in context: inout GraphicsContext,
+                           at x: CGFloat,
+                           y: CGFloat,
+                           size: CGFloat) {
+        let base = brush.p(x, y)
+        let height = brush.ry(size * 2.05)
+        let width = brush.rx(size)
+        brush.contactShadow(in: &context, center: CGPoint(x: base.x, y: base.y + width * 0.08),
+                            width: width * 2.8, height: width * 0.85, opacity: 0.26)
+
+        // Weighted rubber base: a squat ellipse, then a raised inner disc so
+        // the cone doesn't look sliced off at the grass.
+        let baseRect = CGRect(x: base.x - width * 1.25, y: base.y - width * 0.18,
+                              width: width * 2.50, height: width * 0.72)
+        context.fill(Path(roundedRect: baseRect, cornerRadius: width * 0.16),
+                     with: .color(Color(red: 0.70, green: 0.22, blue: 0.06)))
+        context.fill(Path(ellipseIn: baseRect.insetBy(dx: width * 0.16, dy: width * 0.14)),
+                     with: .color(Color(red: 0.88, green: 0.38, blue: 0.10)))
+        context.stroke(Path(roundedRect: baseRect, cornerRadius: width * 0.16),
+                       with: .color(Color.black.opacity(0.22)),
+                       style: brush.stroke(brush.lw(0.8)))
+
+        var body = Path()
+        let sit = base.y - width * 0.10
+        body.move(to: CGPoint(x: base.x - width * 0.52, y: sit))
+        body.addQuadCurve(to: CGPoint(x: base.x, y: sit - height),
+                          control: CGPoint(x: base.x - width * 0.22, y: sit - height * 0.55))
+        body.addQuadCurve(to: CGPoint(x: base.x + width * 0.52, y: sit),
+                          control: CGPoint(x: base.x + width * 0.22, y: sit - height * 0.55))
+        body.closeSubpath()
+        context.fill(body, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.98, green: 0.52, blue: 0.16),
+                              Color(red: 0.76, green: 0.30, blue: 0.06)]),
+            startPoint: CGPoint(x: base.x - width * 0.5, y: sit - height),
+            endPoint: CGPoint(x: base.x + width * 0.5, y: sit)))
+        var band = Path()
+        band.move(to: CGPoint(x: base.x - width * 0.30, y: sit - height * 0.46))
+        band.addLine(to: CGPoint(x: base.x + width * 0.30, y: sit - height * 0.46))
+        context.stroke(band, with: .color(equipWhite.opacity(0.92)), style: brush.stroke(brush.lw(1.6)))
+        // Rounded cap so the tip isn't a hard spike.
+        let cap = brush.rx(size * 0.16)
+        context.fill(Path(ellipseIn: CGRect(x: base.x - cap, y: sit - height - cap * 0.6,
+                                            width: cap * 2, height: cap * 1.4)),
+                     with: .color(Color(red: 0.98, green: 0.56, blue: 0.20)))
+    }
+
+    private func paintTennisBall(_ brush: HabitatBrush,
+                                 in context: inout GraphicsContext,
+                                 at fraction: (CGFloat, CGFloat),
+                                 radius: CGFloat) {
+        let point = brush.p(fraction.0, fraction.1)
+        let r = brush.rx(radius)
+        brush.contactShadow(in: &context,
+                            center: CGPoint(x: point.x, y: point.y + r * 0.8),
+                            width: r * 2.4, height: r * 0.8, opacity: 0.24)
+        context.fill(Path(ellipseIn: CGRect(x: point.x - r, y: point.y - r,
+                                            width: r * 2, height: r * 2)),
+                     with: .radialGradient(
+                        Gradient(colors: [Color(red: 0.88, green: 0.94, blue: 0.34),
+                                          Color(red: 0.58, green: 0.68, blue: 0.16)]),
+                        center: CGPoint(x: point.x - r * 0.3, y: point.y - r * 0.35),
+                        startRadius: 0,
+                        endRadius: r * 1.4))
+        var seam = Path()
+        seam.move(to: CGPoint(x: point.x - r * 0.9, y: point.y - r * 0.2))
+        seam.addQuadCurve(to: CGPoint(x: point.x + r * 0.9, y: point.y - r * 0.2),
+                          control: CGPoint(x: point.x, y: point.y + r * 0.7))
+        context.stroke(seam, with: .color(Color.white.opacity(0.75)), style: brush.stroke(brush.lw(0.9)))
+    }
+
+    private func paintBallBasket(_ brush: HabitatBrush, in context: inout GraphicsContext) {
+        let origin = brush.p(0.965, 0.978)
+        let width = brush.rx(0.070)
+        let height = brush.ry(0.055)
+        brush.contactShadow(in: &context,
+                            center: CGPoint(x: origin.x, y: origin.y + height * 0.45),
+                            width: width * 1.6, height: height * 0.5, opacity: 0.26)
+        var basket = Path()
+        basket.move(to: CGPoint(x: origin.x - width * 0.55, y: origin.y - height * 0.55))
+        basket.addLine(to: CGPoint(x: origin.x - width * 0.42, y: origin.y + height * 0.45))
+        basket.addQuadCurve(to: CGPoint(x: origin.x + width * 0.42, y: origin.y + height * 0.45),
+                            control: CGPoint(x: origin.x, y: origin.y + height * 0.58))
+        basket.addLine(to: CGPoint(x: origin.x + width * 0.55, y: origin.y - height * 0.55))
+        context.stroke(basket, with: .color(Color(red: 0.32, green: 0.32, blue: 0.34)),
+                       style: brush.joined(brush.lw(1.6)))
+        for t in [CGFloat(0.25), 0.50, 0.75] {
+            var wire = Path()
+            wire.move(to: CGPoint(x: origin.x - width * (0.55 - t * 0.13),
+                                  y: origin.y - height * 0.55 + height * t * 0.95))
+            wire.addQuadCurve(to: CGPoint(x: origin.x + width * (0.55 - t * 0.13),
+                                          y: origin.y - height * 0.55 + height * t * 0.95),
+                              control: CGPoint(x: origin.x, y: origin.y - height * 0.48 + height * t))
+            context.stroke(wire, with: .color(Color(red: 0.32, green: 0.32, blue: 0.34).opacity(0.75)),
+                           style: brush.stroke(brush.lw(1.0)))
         }
+        paintTennisBall(brush, in: &context, at: (0.952, 0.968), radius: 0.014)
+        paintTennisBall(brush, in: &context, at: (0.978, 0.962), radius: 0.013)
+        paintTennisBall(brush, in: &context, at: (0.965, 0.950), radius: 0.012)
     }
 
     private func paintBunting(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // Two poles carrying a sagging line of pennants across the top of the
-        // cabinet, so the upper third belongs to the scene as well.
-        for x in [CGFloat(0.045), CGFloat(0.955)] {
+        // Two poles planted at the ring fence, carrying a sagging line of
+        // pennants across the top of the cabinet.
+        let poleXs: [CGFloat] = [0.016, 0.984]
+        let poleBase: CGFloat = 0.662
+        for x in poleXs {
+            brush.contactShadow(in: &context,
+                                center: brush.p(x, poleBase + 0.006),
+                                width: brush.rx(0.070),
+                                height: brush.ry(0.022),
+                                opacity: 0.32)
+            // A turf collar so the foot is in the grass, not hovering on it.
+            context.fill(Path(ellipseIn: CGRect(
+                x: brush.p(x, poleBase).x - brush.rx(0.028),
+                y: brush.p(x, poleBase).y - brush.ry(0.006),
+                width: brush.rx(0.056),
+                height: brush.ry(0.018))),
+                         with: .color(turfDeep.opacity(0.55)))
+            let footW = brush.rx(0.032)
+            context.fill(Path(roundedRect: CGRect(x: brush.p(x, poleBase).x - footW * 0.5,
+                                                  y: brush.p(x, poleBase).y - brush.ry(0.012),
+                                                  width: footW,
+                                                  height: brush.ry(0.018)),
+                              cornerRadius: brush.ry(0.004)),
+                         with: .color(Color(red: 0.42, green: 0.40, blue: 0.36)))
             var pole = Path()
-            pole.move(to: brush.p(x, 0.020))
-            pole.addLine(to: brush.p(x, 0.420))
+            pole.move(to: brush.p(x, 0.018))
+            pole.addLine(to: brush.p(x, poleBase - 0.006))
             context.stroke(pole, with: .color(Color.black.opacity(0.16)), style: brush.stroke(brush.lw(4.0)))
             context.stroke(pole, with: .linearGradient(
                 Gradient(colors: [post, Color(red: 0.56, green: 0.55, blue: 0.52)]),
@@ -759,13 +822,13 @@ struct DogAgilityHabitatArtwork: View, Equatable {
                 endPoint: brush.p(x + 0.01, 0)),
                            style: brush.stroke(brush.lw(2.8)))
             var finial = Path()
-            let tip = brush.p(x, 0.020)
+            let tip = brush.p(x, 0.018)
             finial.addEllipse(in: CGRect(x: tip.x - brush.rx(0.012), y: tip.y - brush.rx(0.012),
                                          width: brush.rx(0.024), height: brush.rx(0.024)))
             context.fill(finial, with: .color(equipYellow))
         }
 
-        let lines: [(CGFloat, CGFloat, CGFloat)] = [(0.045, 0.955, 0.150), (0.045, 0.955, 0.245)]
+        let lines: [(CGFloat, CGFloat, CGFloat)] = [(0.016, 0.984, 0.150), (0.016, 0.984, 0.245)]
         for (lineIndex, line) in lines.enumerated() {
             let start = brush.p(line.0, 0.045 + CGFloat(lineIndex) * 0.075)
             let end = brush.p(line.1, 0.055 + CGFloat(lineIndex) * 0.075)

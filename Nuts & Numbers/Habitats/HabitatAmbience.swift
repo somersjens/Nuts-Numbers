@@ -579,8 +579,8 @@ private extension AnimalHabitatLivingDetails {
             for index in 0..<13 {
                 let t = CGFloat(index) / 12
                 let sag = CGFloat(0.150 + CGFloat(line) * 0.095)
-                let start = brush.p(0.045, 0.045 + CGFloat(line) * 0.075)
-                let end = brush.p(0.955, 0.055 + CGFloat(line) * 0.075)
+                let start = brush.p(0.016, 0.045 + CGFloat(line) * 0.075)
+                let end = brush.p(0.984, 0.055 + CGFloat(line) * 0.075)
                 let controlY = (start.y + end.y) * 0.5 + brush.ry(sag)
                 let controlX = (start.x + end.x) * 0.5
                 let oneX = start.x + (controlX - start.x) * t

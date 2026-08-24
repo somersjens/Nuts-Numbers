@@ -36,8 +36,8 @@ struct FrogPondHabitatArtwork: View, Equatable {
         Canvas { context, size in
             let brush = HabitatBrush(size: size, isPad: isPad)
             paintSky(brush, in: &context)
-            paintDistantTrees(brush, in: &context)
             paintFarBank(brush, in: &context)
+            paintDistantTrees(brush, in: &context)
             paintWater(brush, in: &context)
             paintReflections(brush, in: &context)
             paintDuckweed(brush, in: &context)
@@ -92,31 +92,36 @@ struct FrogPondHabitatArtwork: View, Equatable {
     }
 
     private func paintDistantTrees(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A line of willows and alders on the far shore, flattened by mist.
+        // Shoreline willows sit in the far bank. Crowns overlap the soil line
+        // so nothing reads as a floating ball of leaves in the sky.
+        brush.hazeBand(in: &context, top: 0.400, bottom: 0.495, color: Color.white.opacity(0.22))
         let trees: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.03, 0.470, 0.170), (0.13, 0.478, 0.115), (0.235, 0.468, 0.145),
-            (0.345, 0.480, 0.095), (0.455, 0.472, 0.120), (0.575, 0.478, 0.088),
-            (0.695, 0.466, 0.150), (0.815, 0.476, 0.108), (0.925, 0.468, 0.160)
+            (0.03, 0.512, 0.095), (0.13, 0.516, 0.072), (0.235, 0.510, 0.088),
+            (0.345, 0.518, 0.060), (0.455, 0.514, 0.078), (0.575, 0.516, 0.058),
+            (0.695, 0.508, 0.090), (0.815, 0.514, 0.068), (0.925, 0.510, 0.092)
         ]
         for (index, tree) in trees.enumerated() {
-            let base = brush.p(tree.0, tree.1)
-            var stem = Path()
-            stem.move(to: base)
-            stem.addLine(to: CGPoint(x: base.x, y: base.y - brush.ry(tree.2 * 0.42)))
-            context.stroke(stem,
-                           with: .color(willowDark.opacity(0.40)),
-                           style: brush.stroke(brush.rx(0.010)))
+            let base = brush.p(tree.0, tree.1 + 0.012)
+            brush.trunk(in: &context,
+                        base: base,
+                        top: CGPoint(x: base.x + brush.rx(habitatNoise(index, 8, -0.006, 0.006)),
+                                     y: base.y - brush.ry(tree.2 * 0.55)),
+                        baseWidth: brush.rx(0.018 + tree.2 * 0.06),
+                        topWidth: brush.rx(0.007),
+                        bark: willowDark.opacity(0.85),
+                        barkLight: Color(red: 0.36, green: 0.30, blue: 0.20).opacity(0.80),
+                        grain: 2,
+                        seed: 100 &+ index &* 7)
             brush.crown(in: &context,
-                        center: brush.p(tree.0, tree.1 - tree.2 * 0.58),
-                        width: brush.rx(tree.2 * 0.85),
-                        height: brush.ry(tree.2 * 0.80),
-                        colors: [willowMid.opacity(0.42),
-                                 willowLight.opacity(0.34),
-                                 willowDark.opacity(0.40)],
+                        center: brush.p(tree.0, tree.1 - tree.2 * 0.18),
+                        width: brush.rx(tree.2 * 1.15),
+                        height: brush.ry(tree.2 * 0.95),
+                        colors: [willowMid.opacity(0.82),
+                                 willowLight.opacity(0.70),
+                                 willowDark.opacity(0.78)],
                         seed: 100 &+ index &* 7,
                         lobes: 5)
         }
-        brush.hazeBand(in: &context, top: 0.400, bottom: 0.520, color: Color.white.opacity(0.42))
     }
 
     private func paintFarBank(_ brush: HabitatBrush, in context: inout GraphicsContext) {
@@ -142,8 +147,8 @@ struct FrogPondHabitatArtwork: View, Equatable {
         for index in 0..<26 {
             let x = -0.01 + CGFloat(index) / 25 * 1.02 + habitatNoise(index, 3, -0.012, 0.012)
             brush.reedStand(in: &context,
-                            base: brush.p(x, 0.512 + habitatNoise(index, 4, -0.006, 0.006)),
-                            height: brush.ry(habitatNoise(index, 5, 0.030, 0.062)),
+                            base: brush.p(x, 0.536 + habitatNoise(index, 4, -0.003, 0.004)),
+                            height: brush.ry(habitatNoise(index, 5, 0.022, 0.042)),
                             spread: brush.rx(0.024),
                             count: 4,
                             stem: reedGreen.opacity(0.72),

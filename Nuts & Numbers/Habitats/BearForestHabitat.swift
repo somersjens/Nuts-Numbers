@@ -245,12 +245,12 @@ struct BearForestHabitatArtwork: View, Equatable {
 
     private func paintRiver(_ brush: HabitatBrush, in context: inout GraphicsContext) {
         var river = Path()
-        river.move(to: brush.p(0.455, 0.532))
+        river.move(to: brush.p(0.455, 0.528))
         river.addCurve(to: brush.p(0.02, 1.02),
                        control1: brush.p(0.40, 0.68),
                        control2: brush.p(0.14, 0.82))
         river.addLine(to: brush.p(0.60, 1.02))
-        river.addCurve(to: brush.p(0.545, 0.532),
+        river.addCurve(to: brush.p(0.545, 0.528),
                        control1: brush.p(0.62, 0.82),
                        control2: brush.p(0.52, 0.68))
         river.closeSubpath()
@@ -300,34 +300,30 @@ struct BearForestHabitatArtwork: View, Equatable {
     }
 
     private func paintCascade(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // The river emerges between two outcrops. Water is drawn first, then
-        // the flanking stones sit in front of it so the cascade reads as
-        // flowing between rocks rather than painted over them.
-        brush.rock(in: &context, center: brush.p(0.505, 0.508), radius: brush.rx(0.048),
-                   light: stone.opacity(0.9), dark: stoneDark, seed: 1103, seated: false)
-
+        // Water first, then the source stone sits in the river mouth so it
+        // belongs to the stream instead of hovering on the horizon.
         var chute = Path()
-        chute.move(to: brush.p(0.478, 0.518))
-        chute.addLine(to: brush.p(0.532, 0.518))
-        chute.addCurve(to: brush.p(0.548, 0.578),
-                       control1: brush.p(0.540, 0.540),
-                       control2: brush.p(0.546, 0.560))
-        chute.addLine(to: brush.p(0.452, 0.578))
-        chute.addCurve(to: brush.p(0.478, 0.518),
-                       control1: brush.p(0.454, 0.560),
-                       control2: brush.p(0.460, 0.540))
+        chute.move(to: brush.p(0.478, 0.532))
+        chute.addLine(to: brush.p(0.532, 0.532))
+        chute.addCurve(to: brush.p(0.548, 0.582),
+                       control1: brush.p(0.540, 0.548),
+                       control2: brush.p(0.546, 0.566))
+        chute.addLine(to: brush.p(0.452, 0.582))
+        chute.addCurve(to: brush.p(0.478, 0.532),
+                       control1: brush.p(0.454, 0.566),
+                       control2: brush.p(0.460, 0.548))
         chute.closeSubpath()
         context.fill(chute, with: .linearGradient(
             Gradient(colors: [Color.white.opacity(0.82), Color(red: 0.66, green: 0.86, blue: 0.90).opacity(0.75)]),
-            startPoint: brush.p(0.5, 0.515),
-            endPoint: brush.p(0.5, 0.580)))
+            startPoint: brush.p(0.5, 0.530),
+            endPoint: brush.p(0.5, 0.584)))
 
         for index in 0..<5 {
             let x = 0.462 + CGFloat(index) * 0.019
             var strand = Path()
-            strand.move(to: brush.p(x, 0.522))
-            strand.addQuadCurve(to: brush.p(x - 0.004, 0.574),
-                                control: brush.p(x + 0.006, 0.548))
+            strand.move(to: brush.p(x, 0.538))
+            strand.addQuadCurve(to: brush.p(x - 0.004, 0.578),
+                                control: brush.p(x + 0.006, 0.558))
             context.stroke(strand,
                            with: .color(Color.white.opacity(index.isMultiple(of: 2) ? 0.55 : 0.30)),
                            style: brush.stroke(brush.lw(0.9)))
@@ -335,16 +331,27 @@ struct BearForestHabitatArtwork: View, Equatable {
 
         for index in 0..<6 {
             let center = brush.p(0.470 + habitatNoise(index, 11, 0, 0.062),
-                                 0.578 + habitatNoise(index, 12, 0, 0.016))
+                                 0.582 + habitatNoise(index, 12, 0, 0.016))
             let radius = brush.rx(habitatNoise(index, 13, 0.010, 0.024))
             context.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius * 0.6,
                                                 width: radius * 2, height: radius * 1.2)),
                          with: .color(Color.white.opacity(0.34)))
         }
 
-        brush.rock(in: &context, center: brush.p(0.388, 0.552), radius: brush.rx(0.078),
+        brush.rock(in: &context, center: brush.p(0.492, 0.584), radius: brush.rx(0.040),
+                   light: stone.opacity(0.92), dark: stoneDark, seed: 1103)
+        let source = brush.p(0.492, 0.584)
+        var collar = Path()
+        collar.addArc(center: source,
+                      radius: brush.rx(0.050),
+                      startAngle: .degrees(20),
+                      endAngle: .degrees(160),
+                      clockwise: false)
+        context.stroke(collar, with: .color(Color.white.opacity(0.40)),
+                       style: brush.stroke(brush.lw(1.6)))
+        brush.rock(in: &context, center: brush.p(0.388, 0.556), radius: brush.rx(0.078),
                    light: stone, dark: stoneDark, seed: 1101)
-        brush.rock(in: &context, center: brush.p(0.622, 0.548), radius: brush.rx(0.084),
+        brush.rock(in: &context, center: brush.p(0.622, 0.552), radius: brush.rx(0.084),
                    light: stone, dark: stoneDark, seed: 1102)
     }
 
