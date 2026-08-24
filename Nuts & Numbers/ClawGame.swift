@@ -67,17 +67,23 @@ enum ClawConfig {
     static var celebrationReleaseAngle: CGFloat {
         celebrationLeftAngle * 0.97 * CGFloat(cos(.pi * celebrationReleasePendulumT))
     }
-    static func celebrationPendulumAngle(age: Double, startSwing: CGFloat) -> CGFloat {
-        let peak = celebrationLeftPeak
+    static func celebrationPendulumAngle(age: Double,
+                                         startSwing: CGFloat,
+                                         windUpExtension: Double = 0) -> CGFloat {
+        let peak = celebrationLeftPeak + windUpExtension
         if age <= peak {
-            // Ease-out toward the apex, but keep a sliver of speed so the
-            // dead point is a turn, not a pause.
-            let p = min(1, age / peak)
-            let ease = 1 - (1 - p) * (1 - p)
+            let p = min(1, max(0, age / peak))
+            // A long pull from above the bin must build speed instead of
+            // jumping straight to it. The five-tap preview keeps its proven
+            // compact ease-out because it starts near the resting position.
+            let ease = windUpExtension > 0
+                ? p * p * (3 - 2 * p)
+                : 1 - (1 - p) * (1 - p)
             let apex = celebrationLeftAngle * 0.97
             return startSwing + (apex - startSwing) * CGFloat(ease)
         }
-        let span = max(0.01, celebrationRelease - peak)
+        let release = celebrationRelease + windUpExtension
+        let span = max(0.01, release - peak)
         let linear = min(1, max(0, (age - peak) / span))
         // Advance faster than linear at the start so the throw leaves the
         // apex immediately instead of easing out of it in slow motion.
@@ -455,6 +461,10 @@ final class ClawEngine: ObservableObject {
     private var finaleAge: Double?
     private var finaleStartX: CGFloat = 0.5
     private var finaleStartSwing: CGFloat = 0
+    /// Extra wind-up used only when a real level finish has to travel all the
+    /// way from the answer bin. Preview and promo timing deliberately stay
+    /// unchanged so their already-approved salto remains the reference.
+    private(set) var celebrationWindUpExtension: Double = 0
     private var reduceMotion = false
     private var isFinalRound = false
     private var didFinishFinale = false
@@ -785,6 +795,16 @@ final class ClawEngine: ObservableObject {
         resetMoveSound()
         finaleStartX = trolleyX
         finaleStartSwing = swingAngle
+        if isPreviewingFinale || PromoTrailerRuntime.isActive || reduceMotion {
+            celebrationWindUpExtension = 0
+        } else {
+            // The standard 0.40 s pull feels right around the resting area.
+            // Above the bin it covers almost twice the distance, so give only
+            // that excess travel up to 0.22 s of extra runway.
+            let travel = abs(finaleStartX - celebrationLeftParkX)
+            let excessTravel = max(0, Double(travel - 0.40))
+            celebrationWindUpExtension = min(0.22, excessTravel * 0.78)
+        }
         lastTrolleyX = trolleyX
         trolleyY = 0
         swingVelocity = 0
@@ -799,6 +819,7 @@ final class ClawEngine: ObservableObject {
         phase = .idle
         phaseAge = 0
         finaleAge = nil
+        celebrationWindUpExtension = 0
         trolleyX = previewRestoreX
         lastTrolleyX = previewRestoreX
         trolleyY = 0
@@ -906,9 +927,11 @@ final class ClawEngine: ObservableObject {
 
         func pick(_ pool: [ClawNutRuntime], aimX: CGFloat) -> ClawNutRuntime? {
             pool.min { lhs, rhs in
-                let dy = lhs.position.y - rhs.position.y
-                if abs(dy) > 6 { return dy < 0 }
-                return abs(lhs.position.x - aimX) < abs(rhs.position.x - aimX)
+                let lhsDistance = abs(lhs.position.x - aimX)
+                let rhsDistance = abs(rhs.position.x - aimX)
+                if lhsDistance != rhsDistance { return lhsDistance < rhsDistance }
+                if lhs.position.y != rhs.position.y { return lhs.position.y < rhs.position.y }
+                return lhs.position.x < rhs.position.x
             }
         }
 
@@ -1235,10 +1258,14 @@ final class ClawEngine: ObservableObject {
         if reduceMotion {
             return left
         }
-        if age < ClawConfig.celebrationParkArrival {
-            // Ease-out so the hook gets left quickly, then settles.
-            let p = age / ClawConfig.celebrationParkArrival
-            let ease = 1 - pow(1 - p, 3)
+        let arrival = ClawConfig.celebrationParkArrival + celebrationWindUpExtension
+        if age < arrival {
+            let p = min(1, max(0, age / arrival))
+            // A level finish starts above the bin and gets a zero-velocity
+            // departure. The short preview retains the snappier cubic ease.
+            let ease = celebrationWindUpExtension > 0
+                ? p * p * (3 - 2 * p)
+                : 1 - pow(1 - p, 3)
             return finaleStartX + (left - finaleStartX) * CGFloat(ease)
         }
         return left
@@ -1246,24 +1273,26 @@ final class ClawEngine: ObservableObject {
 
     private func stepCelebration(dt: Double) {
         let releaseAngle = ClawConfig.celebrationReleaseAngle
+        let releaseAge = ClawConfig.celebrationRelease + celebrationWindUpExtension
         trolleyX = celebrationTrolleyX(at: phaseAge)
 
         if reduceMotion {
             swingAngle = 0
-        } else if phaseAge < ClawConfig.celebrationRelease {
+        } else if phaseAge < releaseAge {
             swingAngle = ClawConfig.celebrationPendulumAngle(
                 age: phaseAge,
-                startSwing: finaleStartSwing
+                startSwing: finaleStartSwing,
+                windUpExtension: celebrationWindUpExtension
             )
         } else {
-            let recoil = smoothStep(min(1, (phaseAge - ClawConfig.celebrationRelease) / 0.22))
+            let recoil = smoothStep(min(1, (phaseAge - releaseAge) / 0.22))
             // Only the empty claw settles after it lets go.
             swingAngle = releaseAngle * (1 - CGFloat(recoil))
         }
         trolleyY = 0
         lastTrolleyX = trolleyX
 
-        if phaseAge >= ClawConfig.completionDuration {
+        if phaseAge >= ClawConfig.completionDuration + celebrationWindUpExtension {
             if isPreviewingFinale {
                 restorePreviewFinale()
                 return
@@ -1601,7 +1630,8 @@ final class ClawEngine: ObservableObject {
 
     func trailerStep(dt: Double) {
         var scale = max(0.35, trailerSpeedScale)
-        if phase == .celebrating, phaseAge >= ClawConfig.celebrationRelease {
+        let releaseAge = ClawConfig.celebrationRelease + celebrationWindUpExtension
+        if phase == .celebrating, phaseAge >= releaseAge {
             scale *= 1.16
         }
         tick(dt: dt * scale)
@@ -2133,6 +2163,7 @@ struct ClawPlayfield: View {
                     swing: engine.swingAngle,
                     phase: engine.phase,
                     phaseAge: engine.phaseAge,
+                    celebrationWindUpExtension: engine.celebrationWindUpExtension,
                     motionClock: engine.motionClock,
                     play: CGRect(origin: .zero, size: size),
                     bin: bin,
@@ -2168,7 +2199,7 @@ struct ClawPlayfield: View {
                 }
             }
             .scaleEffect(habitatScale, anchor: .top)
-                .frame(width: geo.play.width, height: geo.play.height)
+            .frame(width: geo.play.width, height: geo.play.height)
 
             ClawFrameDrivenView(signal: engine.frameSignal) {
                 trolleyRail(in: geo.play)
@@ -3206,6 +3237,7 @@ private struct ClawElephantView: View {
     let swing: CGFloat
     let phase: ClawPhase
     let phaseAge: Double
+    let celebrationWindUpExtension: Double
     let motionClock: Double
     let play: CGRect
     let bin: CGRect
@@ -3327,16 +3359,19 @@ private struct ClawElephantView: View {
     private func bodyMotion(side: CGFloat) -> BodyMotion {
         switch phase {
         case .celebrating:
-            guard phaseAge >= ClawConfig.celebrationRelease else {
+            let releaseAge = ClawConfig.celebrationRelease + celebrationWindUpExtension
+            let mouthArrivalAge = ClawConfig.celebrationMouthArrival + celebrationWindUpExtension
+            let completionAge = ClawConfig.completionDuration + celebrationWindUpExtension
+            guard phaseAge >= releaseAge else {
                 return attachedBody
             }
 
             let releaseAngle: CGFloat = reduceMotion
                 ? 0
                 : ClawConfig.celebrationReleaseAngle
-            let approachDuration = ClawConfig.celebrationMouthArrival - ClawConfig.celebrationRelease
+            let approachDuration = mouthArrivalAge - releaseAge
             let approach = min(1, max(0,
-                (phaseAge - ClawConfig.celebrationRelease) / approachDuration
+                (phaseAge - releaseAge) / approachDuration
             ))
             let mouth = CatchBinArtwork.point(x: CatchBinArtwork.mouthX,
                                               y: CatchBinArtwork.mouthY,
@@ -3355,7 +3390,7 @@ private struct ClawElephantView: View {
                 width: mouth.x - origin.x,
                 height: CatchBinArtwork.y(CatchBinArtwork.hiddenY, in: bin) - origin.y
             )
-            let plungeDuration = ClawConfig.completionDuration - ClawConfig.celebrationMouthArrival
+            let plungeDuration = completionAge - mouthArrivalAge
 
             let omega = reduceMotion ? 0 : ClawConfig.celebrationReleaseAngularVelocity()
             var initialVelocity = CGSize(
@@ -3395,7 +3430,7 @@ private struct ClawElephantView: View {
             }
 
             let plunge = min(1, max(0,
-                (phaseAge - ClawConfig.celebrationMouthArrival) / plungeDuration
+                (phaseAge - mouthArrivalAge) / plungeDuration
             ))
             let plungeEase = smooth(plunge)
             let plungeTravel = 0.25 * plunge + 0.75 * plunge * plunge
@@ -4844,7 +4879,7 @@ private struct SanctuaryScene: View, Equatable {
 /// A fully procedural habitat backdrop. Every coordinate is expressed as a
 /// fraction of the chamber, so the same composition works on compact phones,
 /// tall phones and iPad without loading or cropping a background asset.
-private struct SavannaHabitatArtwork: View, Equatable {
+struct SavannaHabitatArtwork: View, Equatable {
     let palette: ClawPalette
     let character: AnimalCharacter
     let isPad: Bool

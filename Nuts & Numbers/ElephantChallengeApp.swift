@@ -63,8 +63,8 @@ struct ElephantChallengeApp: App {
     var body: some Scene {
         WindowGroup {
 #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-OctopusHabitatQA") {
-                OctopusHabitatQAView()
+            if ProcessInfo.processInfo.arguments.contains("-HabitatGalleryQA") {
+                HabitatGalleryQAView()
             } else if PromoTrailerRuntime.isActive {
                 PromoTrailerBootstrapView()
             } else {

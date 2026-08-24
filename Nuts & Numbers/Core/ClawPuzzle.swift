@@ -43,8 +43,8 @@ nonisolated public struct ClawNut: Identifiable, Equatable, Codable, Sendable {
     public let isGold: Bool
     public var position: ClawPoint
     public var radius: Double
-    /// Nuts whose shells rest on this one. Live grabability counts every
-    /// overlapping shell above (`occluderCount`), not only this snapshot.
+    /// Nuts whose shells rest on this one. Live grabability recalculates those
+    /// direct sitters after every cascade instead of trusting this snapshot.
     public var coveredBy: [UUID]
 
     public var isDistractor: Bool { sequenceIndex == nil }
@@ -180,16 +180,15 @@ nonisolated public struct ClawPuzzle: Equatable, Codable, Sendable {
 
     /// Whether `nut` can be grabbed given the nuts still sitting in the pile.
     ///
-    /// Count every remaining shell that overlaps from above — the whole
-    /// column, not only the row on top. Zero blockers is free; one blocker
-    /// leaves it half-exposed (grab 18 while 15 still sits on it). Two or more
-    /// — 24 under 19, 15 and 18 — is buried. Taking 19 drops that count for
-    /// 15 and 18, and those can then be the standing answer.
+    /// Count only shells that actually rest on this nut. Zero blockers is
+    /// fully free; one sitter leaves half of the shell exposed and therefore
+    /// grabable. The row number is deliberately irrelevant: an edge nut can
+    /// stay half exposed even when it sits many rows below the peak.
     nonisolated public static func isGrabable(_ nut: ClawNut, among remaining: [ClawNut]) -> Bool {
         ClawPuzzleBuilder.occluderCount(on: nut, among: remaining) <= 1
     }
 
-    /// Fully uncovered: nothing in the column above overlaps the shell.
+    /// Fully uncovered: no remaining shell rests directly on this one.
     nonisolated public static func isReachable(_ nut: ClawNut, among remaining: [ClawNut]) -> Bool {
         ClawPuzzleBuilder.occluderCount(on: nut, among: remaining) == 0
     }
@@ -799,17 +798,11 @@ nonisolated private enum ClawPuzzleBuilder {
         }
     }
 
-    /// Nuts anywhere above `nut` whose shells overlap it in x — the column
-    /// the claw would have to reach through, not just the immediate sitters
-    /// used for the cascade.
+    /// A shell blocks a lower nut only while the two shells physically overlap.
+    /// Counting every shell farther up the same x-column made half-visible edge
+    /// nuts become ungrabable merely because the mound happened to be tall.
     static func occludes(upper: ClawNut, lower: ClawNut) -> Bool {
-        let radius = min(upper.radius, lower.radius)
-        let dy = lower.position.y - upper.position.y
-        guard dy > radius * 0.7 else { return false }
-        // Packed ovals overlap a full diameter away (adjacent columns). The
-        // old 0.62 cutoff only saw valley neighbours at 0.5 diameter, so a 32
-        // under both 16 and 12 counted as half-free.
-        return abs(upper.position.x - lower.position.x) < (upper.radius + lower.radius) * 1.08
+        sitsOn(upper: upper, hole: lower.position, holeRadius: lower.radius)
     }
 
     static func occluderCount(on nut: ClawNut, among remaining: [ClawNut]) -> Int {
