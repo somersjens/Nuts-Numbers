@@ -452,30 +452,38 @@ struct FrogPondHabitatArtwork: View, Equatable {
                            style: brush.stroke(brush.rx(bough.6)))
         }
 
-        for index in 0..<20 {
-            let side = index < 10
-            let t = CGFloat(index % 10) / 9
-            let x = side ? 0.005 + t * 0.36 : 0.995 - t * 0.36
-            let top = 0.055 + t * 0.032 + habitatNoise(index, 31, -0.010, 0.010)
-            let length = habitatNoise(index, 32, 0.14, 0.30) * (1 - t * 0.35)
-            let drift: CGFloat = side ? 0.020 : -0.020
-            var strand = Path()
-            strand.move(to: brush.p(x, top))
-            strand.addCurve(to: brush.p(x + drift, top + length),
-                            control1: brush.p(x - drift * 0.6, top + length * 0.34),
-                            control2: brush.p(x + drift * 1.5, top + length * 0.72))
-            context.stroke(strand,
-                           with: .color(willowMid.opacity(0.80)),
-                           style: brush.stroke(brush.lw(1.3)))
-            for leafIndex in 0..<5 {
-                let lt = CGFloat(leafIndex + 1) / 6
-                let point = brush.p(x + drift * lt * lt, top + length * lt)
-                brush.leaf(in: &context,
-                           center: point,
-                           length: brush.ry(0.026),
-                           angle: .pi / 2 + Double(drift) * 6 + Double(leafIndex) * 0.16,
-                           color: (leafIndex.isMultiple(of: 2) ? willowLight : willowMid).opacity(0.88),
-                           vein: 0)
+        for (boughIndex, bough) in boughs.enumerated() {
+            let start = (x: bough.0, y: bough.1)
+            let control = (x: bough.2, y: bough.3)
+            let end = (x: bough.4, y: bough.5)
+            for sample in 0..<6 {
+                let t = 0.12 + CGFloat(sample) / 6 * 0.80
+                let oneX = start.x + (control.x - start.x) * t
+                let oneY = start.y + (control.y - start.y) * t
+                let twoX = control.x + (end.x - control.x) * t
+                let twoY = control.y + (end.y - control.y) * t
+                let x = oneX + (twoX - oneX) * t
+                let top = oneY + (twoY - oneY) * t
+                let length = habitatNoise(boughIndex &* 10 &+ sample, 32, 0.10, 0.22)
+                let drift: CGFloat = bough.0 < 0.5 ? 0.018 : -0.018
+                var strand = Path()
+                strand.move(to: brush.p(x, top))
+                strand.addCurve(to: brush.p(x + drift, top + length),
+                                control1: brush.p(x - drift * 0.5, top + length * 0.34),
+                                control2: brush.p(x + drift * 1.3, top + length * 0.72))
+                context.stroke(strand,
+                               with: .color(willowMid.opacity(0.80)),
+                               style: brush.stroke(brush.lw(1.3)))
+                for leafIndex in 0..<4 {
+                    let lt = CGFloat(leafIndex + 1) / 5
+                    let point = brush.p(x + drift * lt * lt, top + length * lt)
+                    brush.leaf(in: &context,
+                               center: point,
+                               length: brush.ry(0.024),
+                               angle: .pi / 2 + Double(drift) * 6 + Double(leafIndex) * 0.16,
+                               color: (leafIndex.isMultiple(of: 2) ? willowLight : willowMid).opacity(0.88),
+                               vein: 0)
+                }
             }
         }
 

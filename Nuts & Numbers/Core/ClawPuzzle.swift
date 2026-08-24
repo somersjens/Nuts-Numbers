@@ -43,8 +43,8 @@ nonisolated public struct ClawNut: Identifiable, Equatable, Codable, Sendable {
     public let isGold: Bool
     public var position: ClawPoint
     public var radius: Double
-    /// Nuts whose shells rest on this one. Live grabability recalculates those
-    /// direct sitters after every cascade instead of trusting this snapshot.
+    /// Nuts whose shells physically rest on this one. This snapshot drives the
+    /// cascade; live grabability separately measures the clear path from above.
     public var coveredBy: [UUID]
 
     public var isDistractor: Bool { sequenceIndex == nil }
@@ -180,17 +180,17 @@ nonisolated public struct ClawPuzzle: Equatable, Codable, Sendable {
 
     /// Whether `nut` can be grabbed given the nuts still sitting in the pile.
     ///
-    /// Count only shells that actually rest on this nut. Zero blockers is
-    /// fully free; one sitter leaves half of the shell exposed and therefore
-    /// grabable. The row number is deliberately irrelevant: an edge nut can
-    /// stay half exposed even when it sits many rows below the peak.
+    /// Project every higher shell onto this nut as seen from above and merge
+    /// those shadows. At least half of the nut's width must remain clear. The
+    /// number of rows is deliberately irrelevant: several higher shells may
+    /// all cover the same half, while one centred shell can cover everything.
     nonisolated public static func isGrabable(_ nut: ClawNut, among remaining: [ClawNut]) -> Bool {
-        ClawPuzzleBuilder.occluderCount(on: nut, among: remaining) <= 1
+        ClawPuzzleBuilder.exposedFraction(of: nut, among: remaining) >= 0.5 - 1e-9
     }
 
-    /// Fully uncovered: no remaining shell rests directly on this one.
+    /// Fully uncovered when viewed from above.
     nonisolated public static func isReachable(_ nut: ClawNut, among remaining: [ClawNut]) -> Bool {
-        ClawPuzzleBuilder.occluderCount(on: nut, among: remaining) == 0
+        ClawPuzzleBuilder.exposedFraction(of: nut, among: remaining) >= 1 - 1e-9
     }
 
     /// One nut sliding into a vacated pocket after a grab.
@@ -530,8 +530,8 @@ nonisolated private enum ClawPuzzleBuilder {
                                pile: [ClawNut],
                                random: RandomSource) -> ClawNut? {
         guard !grabable.isEmpty else { return nil }
-        let free = grabable.filter { occluderCount(on: $0, among: pile) == 0 }
-        let half = grabable.filter { occluderCount(on: $0, among: pile) == 1 }
+        let free = grabable.filter { exposedFraction(of: $0, among: pile) >= 1 - 1e-9 }
+        let half = grabable.filter { exposedFraction(of: $0, among: pile) < 1 - 1e-9 }
         let roll = random.double(in: 0..<1)
 
         if !half.isEmpty, roll < 0.60 {
@@ -798,18 +798,43 @@ nonisolated private enum ClawPuzzleBuilder {
         }
     }
 
-    /// A shell blocks a lower nut only while the two shells physically overlap.
-    /// Counting every shell farther up the same x-column made half-visible edge
-    /// nuts become ungrabable merely because the mound happened to be tall.
-    static func occludes(upper: ClawNut, lower: ClawNut) -> Bool {
-        sitsOn(upper: upper, hole: lower.position, holeRadius: lower.radius)
-    }
+    /// Fraction of the target's horizontal width that has a clear vertical
+    /// path from the top of the cabinet. Shadows are merged before measuring:
+    /// repeated blockers over the same half do not make that half "more"
+    /// blocked, while a centred shell correctly covers the complete target.
+    static func exposedFraction(of nut: ClawNut, among remaining: [ClawNut]) -> Double {
+        let targetLeft = nut.position.x - nut.radius
+        let targetRight = nut.position.x + nut.radius
+        let targetWidth = targetRight - targetLeft
+        guard targetWidth > 0 else { return 0 }
 
-    static func occluderCount(on nut: ClawNut, among remaining: [ClawNut]) -> Int {
-        remaining.reduce(0) { count, other in
-            guard other.id != nut.id else { return count }
-            return occludes(upper: other, lower: nut) ? count + 1 : count
+        let shadows: [(start: Double, end: Double)] = remaining.compactMap { other in
+            guard other.id != nut.id else { return nil }
+            let verticalGap = nut.position.y - other.position.y
+            guard verticalGap > min(nut.radius, other.radius) * 0.35 else { return nil }
+
+            let start = max(targetLeft, other.position.x - other.radius)
+            let end = min(targetRight, other.position.x + other.radius)
+            return end > start ? (start, end) : nil
         }
+        .sorted {
+            if $0.start != $1.start { return $0.start < $1.start }
+            return $0.end < $1.end
+        }
+
+        guard var current = shadows.first else { return 1 }
+        var coveredWidth = 0.0
+        for shadow in shadows.dropFirst() {
+            if shadow.start <= current.end + 1e-9 {
+                current.end = max(current.end, shadow.end)
+            } else {
+                coveredWidth += current.end - current.start
+                current = shadow
+            }
+        }
+        coveredWidth += current.end - current.start
+
+        return max(0, min(1, 1 - coveredWidth / targetWidth))
     }
 
     static func applyFall(_ nuts: inout [ClawNut], removing removed: ClawNut) {

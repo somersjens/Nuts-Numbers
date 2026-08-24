@@ -188,20 +188,6 @@ struct CrabShoreHabitatArtwork: View, Equatable {
                               thickness: brush.lw(1.2),
                               seed: index &* 13)
         }
-
-        // Two loose schools far away, small enough to read as depth cues.
-        for index in 0..<9 {
-            let cluster = index < 5 ? CGFloat(0.14) : CGFloat(0.80)
-            let sign: CGFloat = index < 5 ? 1 : -1
-            let point = CGPoint(x: brush.rx(cluster + sign * CGFloat(index % 5) * 0.032),
-                                y: brush.ry(0.31 + CGFloat((index * 7) % 5) * 0.022))
-            brush.fish(in: &context,
-                       center: point,
-                       length: brush.rx(0.022),
-                       color: Color(red: 0.10, green: 0.34, blue: 0.42).opacity(0.34),
-                       belly: Color(red: 0.24, green: 0.52, blue: 0.56).opacity(0.28),
-                       facingRight: index < 5)
-        }
     }
 
     // MARK: - Seabed
@@ -255,26 +241,38 @@ struct CrabShoreHabitatArtwork: View, Equatable {
         // Drawn as three nested, progressively darker and narrower washes.
         // Stroking the banks instead would put two hard parallel lines down
         // the middle of the cabinet, which reads as rails rather than water.
-        let widths: [(CGFloat, CGFloat, Double)] = [(0.055, 0.190, 0.16),
-                                                    (0.038, 0.140, 0.20),
-                                                    (0.022, 0.088, 0.22)]
-        for (index, band) in widths.enumerated() {
-            var channel = Path()
-            channel.move(to: brush.p(0.492 - band.0, 0.556))
-            channel.addCurve(to: brush.p(0.395 - band.1, 1.04),
-                             control1: brush.p(0.520 - band.0 * 1.6, 0.700),
-                             control2: brush.p(0.372 - band.1 * 0.7, 0.850))
-            channel.addLine(to: brush.p(0.395 + band.1, 1.04))
-            channel.addCurve(to: brush.p(0.492 + band.0, 0.556),
-                             control1: brush.p(0.470 + band.1 * 0.7, 0.850),
-                             control2: brush.p(0.512 + band.0 * 1.6, 0.700))
-            channel.closeSubpath()
-            context.fill(channel, with: .linearGradient(
-                Gradient(colors: [Color(red: 0.36, green: 0.68, blue: 0.70).opacity(band.2 * 0.8),
-                                  Color(red: 0.14, green: 0.46, blue: 0.56).opacity(band.2)]),
-                startPoint: brush.p(0.5, 0.56),
-                endPoint: brush.p(0.5, 1)))
-            _ = index
+        // The bed is a single widening wet wash. Nested bands stacked on the
+        // same curve still read as a drawn canal; one soft depression with
+        // damp patches along the banks is enough.
+        var channel = Path()
+        channel.move(to: brush.p(0.470, 0.560))
+        channel.addCurve(to: brush.p(0.250, 1.04),
+                         control1: brush.p(0.510, 0.700),
+                         control2: brush.p(0.280, 0.850))
+        channel.addLine(to: brush.p(0.560, 1.04))
+        channel.addCurve(to: brush.p(0.530, 0.558),
+                         control1: brush.p(0.540, 0.850),
+                         control2: brush.p(0.500, 0.700))
+        channel.closeSubpath()
+        context.fill(channel, with: .linearGradient(
+            Gradient(colors: [Color(red: 0.42, green: 0.70, blue: 0.68).opacity(0.22),
+                              Color(red: 0.16, green: 0.48, blue: 0.54).opacity(0.34)]),
+            startPoint: brush.p(0.5, 0.56),
+            endPoint: brush.p(0.4, 1)))
+
+        // A slightly darker thread down the middle, broken so it never becomes
+        // a hard line through the drop zone.
+        for index in 0..<5 {
+            let t = CGFloat(index) / 4
+            let y = 0.620 + t * 0.36
+            let half = 0.018 + t * 0.055
+            let centerX = 0.500 - t * 0.095
+            brush.groundPatch(in: &context,
+                              center: brush.p(centerX, y),
+                              width: brush.rx(half * 2.4),
+                              height: brush.ry(0.055 + t * 0.030),
+                              color: Color(red: 0.12, green: 0.42, blue: 0.50).opacity(0.16),
+                              seed: 760 &+ index &* 5)
         }
 
         // Damp sand blotches along the banks, so the edge is a change in
@@ -437,58 +435,59 @@ struct CrabShoreHabitatArtwork: View, Equatable {
         }
 
         brush.brainCoral(in: &context,
-                         center: brush.p(0.085, 0.618),
+                         center: brush.p(0.085, 0.668),
                          radius: brush.rx(0.058),
                          color: Color(red: 0.92, green: 0.76, blue: 0.48),
                          groove: Color(red: 0.62, green: 0.42, blue: 0.28),
                          seed: 12)
         brush.branchCoral(in: &context,
-                          base: brush.p(0.155, 0.700),
-                          height: brush.ry(0.135),
+                          base: brush.p(0.145, 0.755),
+                          height: brush.ry(0.115),
                           color: coralPink,
                           thickness: brush.lw(2.6),
                           seed: 22)
         brush.branchCoral(in: &context,
-                          base: brush.p(0.035, 0.690),
-                          height: brush.ry(0.105),
+                          base: brush.p(0.040, 0.745),
+                          height: brush.ry(0.090),
                           color: coralPurple,
                           thickness: brush.lw(2.2),
                           seed: 31)
         brush.sponge(in: &context,
-                     base: brush.p(0.205, 0.800),
+                     base: brush.p(0.175, 0.845),
                      height: brush.ry(0.085),
                      color: coralOrange,
                      shade: Color(red: 0.66, green: 0.33, blue: 0.16),
                      tubes: 3,
                      seed: 41)
         brush.anemone(in: &context,
-                      base: brush.p(0.128, 0.660),
+                      base: brush.p(0.118, 0.720),
                       radius: brush.rx(0.042),
                       color: Color(red: 0.86, green: 0.42, blue: 0.52),
                       tip: Color(red: 0.98, green: 0.84, blue: 0.72),
                       tentacles: 13,
                       seed: 51)
         brush.urchin(in: &context,
-                     center: brush.p(0.055, 0.836),
+                     center: brush.p(0.055, 0.858),
                      radius: brush.rx(0.026),
                      color: Color(red: 0.18, green: 0.12, blue: 0.24),
                      spine: Color(red: 0.30, green: 0.20, blue: 0.34),
                      seed: 61)
         brush.seaFan(in: &context,
-                     base: brush.p(0.215, 0.700),
-                     height: brush.ry(0.115),
+                     base: brush.p(0.175, 0.770),
+                     height: brush.ry(0.100),
                      color: Color(red: 0.86, green: 0.50, blue: 0.36).opacity(0.85),
                      seed: 71)
 
         // Weed skirt so the bommie is not a clean object sitting on sand.
         for index in 0..<7 {
             brush.grassTuft(in: &context,
-                            base: brush.p(0.02 + CGFloat(index) * 0.032, 0.860 + CGFloat(index % 3) * 0.026),
+                            base: brush.p(0.02 + CGFloat(index) * 0.032, 0.905 + CGFloat(index % 3) * 0.018),
                             height: brush.ry(0.052),
                             width: brush.rx(0.055),
                             colors: [weed, weedLight, weed.opacity(0.8)],
                             bladeCount: 7,
-                            seed: 500 &+ index)
+                            seed: 500 &+ index,
+                            shadow: 0.16)
         }
     }
 
@@ -542,12 +541,14 @@ struct CrabShoreHabitatArtwork: View, Equatable {
                          base: brush.p(0.885, 0.665),
                          width: brush.rx(0.185),
                          color: Color(red: 0.88, green: 0.62, blue: 0.36),
-                         shade: Color(red: 0.56, green: 0.33, blue: 0.20))
+                         shade: Color(red: 0.56, green: 0.33, blue: 0.20),
+                         seed: 83)
         brush.plateCoral(in: &context,
                          base: brush.p(0.955, 0.760),
                          width: brush.rx(0.150),
                          color: Color(red: 0.72, green: 0.44, blue: 0.62),
-                         shade: Color(red: 0.42, green: 0.24, blue: 0.40))
+                         shade: Color(red: 0.42, green: 0.24, blue: 0.40),
+                         seed: 89)
         brush.branchCoral(in: &context,
                           base: brush.p(0.845, 0.775),
                           height: brush.ry(0.115),
@@ -572,11 +573,17 @@ struct CrabShoreHabitatArtwork: View, Equatable {
         // A broken band of seagrass across the mid-distance. It softens the
         // join between sand and reef without crossing the play corridor.
         let clumps: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.055, 0.585, 0.052), (0.145, 0.600, 0.040), (0.245, 0.588, 0.034),
-            (0.325, 0.605, 0.028), (0.615, 0.596, 0.026), (0.705, 0.610, 0.036),
-            (0.795, 0.592, 0.044), (0.895, 0.612, 0.038)
+            (0.055, 0.628, 0.048), (0.145, 0.642, 0.038), (0.245, 0.632, 0.032),
+            (0.325, 0.648, 0.026), (0.615, 0.640, 0.024), (0.705, 0.652, 0.034),
+            (0.795, 0.636, 0.042), (0.895, 0.654, 0.036)
         ]
         for (index, clump) in clumps.enumerated() {
+            brush.groundPatch(in: &context,
+                              center: brush.p(clump.0, clump.1 + 0.006),
+                              width: brush.rx(clump.2 * 1.8),
+                              height: brush.ry(0.016),
+                              color: Color(red: 0.62, green: 0.52, blue: 0.34).opacity(0.35),
+                              seed: 590 &+ index)
             brush.grassTuft(in: &context,
                             base: brush.p(clump.0, clump.1),
                             height: brush.ry(clump.2),
@@ -584,7 +591,7 @@ struct CrabShoreHabitatArtwork: View, Equatable {
                             colors: [weed.opacity(0.85), weedLight.opacity(0.8)],
                             bladeCount: 8,
                             seed: 600 &+ index &* 3,
-                            shadow: 0.08)
+                            shadow: 0.20)
         }
     }
 
@@ -634,42 +641,44 @@ struct CrabShoreHabitatArtwork: View, Equatable {
     }
 
     private func paintUpperDrift(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // Floating weed rafts hanging just under the surface at both top
-        // corners, so the upper third of the tank is inhabited too.
-        for side in [false, true] {
-            let anchorX: CGFloat = side ? 0.94 : 0.06
-            let mirror: CGFloat = side ? -1 : 1
-            for index in 0..<4 {
-                let base = brush.p(anchorX + mirror * CGFloat(index) * 0.035,
-                                   0.058 + CGFloat(index % 2) * 0.016)
-                var strand = Path()
-                strand.move(to: base)
-                strand.addCurve(to: CGPoint(x: base.x + mirror * brush.rx(0.045),
-                                            y: base.y + brush.ry(0.135)),
-                                control1: CGPoint(x: base.x - mirror * brush.rx(0.030),
-                                                  y: base.y + brush.ry(0.055)),
-                                control2: CGPoint(x: base.x + mirror * brush.rx(0.070),
-                                                  y: base.y + brush.ry(0.095)))
-                context.stroke(strand,
-                               with: .color(Color(red: 0.36, green: 0.56, blue: 0.34).opacity(0.62)),
-                               style: brush.stroke(brush.lw(1.6)))
-                for bladeIndex in 0..<4 {
-                    let t = CGFloat(bladeIndex + 1) / 5
-                    let point = CGPoint(x: base.x + mirror * brush.rx(0.045) * t * t,
-                                        y: base.y + brush.ry(0.135) * t)
-                    brush.leaf(in: &context,
-                               center: point,
-                               length: brush.ry(0.030),
-                               angle: Double(mirror) * 0.9 + Double(bladeIndex) * 0.5,
-                               color: Color(red: 0.44, green: 0.62, blue: 0.34).opacity(0.66),
-                               vein: 0)
-                }
+        // Sargassum coming in from the top edge and the side walls only.
+        let curtains: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (-0.04, -0.02, 0.08, 0.16),
+            (-0.04, 0.04, 0.05, 0.20),
+            (0.02, -0.03, 0.12, 0.12),
+            (1.04, -0.02, 0.92, 0.16),
+            (1.04, 0.04, 0.95, 0.20),
+            (0.98, -0.03, 0.88, 0.12)
+        ]
+        for (index, curtain) in curtains.enumerated() {
+            let start = brush.p(curtain.0, curtain.1)
+            let end = brush.p(curtain.2, curtain.1 + curtain.3)
+            var strand = Path()
+            strand.move(to: start)
+            strand.addCurve(to: end,
+                            control1: CGPoint(x: start.x + (end.x - start.x) * 0.25,
+                                              y: start.y + brush.ry(curtain.3 * 0.40)),
+                            control2: CGPoint(x: start.x + (end.x - start.x) * 0.80,
+                                              y: start.y + brush.ry(curtain.3 * 0.72)))
+            context.stroke(strand,
+                           with: .color(Color(red: 0.28, green: 0.50, blue: 0.30).opacity(0.72)),
+                           style: brush.stroke(brush.lw(2.0)))
+            for bladeIndex in 0..<5 {
+                let t = CGFloat(bladeIndex + 1) / 6
+                let point = CGPoint(x: start.x + (end.x - start.x) * t,
+                                    y: start.y + (end.y - start.y) * t)
+                brush.leaf(in: &context,
+                           center: point,
+                           length: brush.ry(0.032),
+                           angle: Double(curtain.0 < 0.5 ? 0.7 : 2.4) + Double(bladeIndex) * 0.35,
+                           color: Color(red: 0.40, green: 0.62, blue: 0.32).opacity(0.70),
+                           vein: 0)
             }
+            _ = index
         }
 
-        // A few small air pockets pressed against the surface.
         for index in 0..<7 {
-            let point = brush.p(habitatNoise(index, 231, 0.10, 0.92), 0.062 + habitatNoise(index, 232, 0, 0.014))
+            let point = brush.p(habitatNoise(index, 231, 0.10, 0.92), 0.018 + habitatNoise(index, 232, 0, 0.012))
             let radius = brush.rx(habitatNoise(index, 233, 0.005, 0.011))
             context.fill(Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius,
                                                 width: radius * 2, height: radius * 2)),
@@ -710,7 +719,7 @@ struct CrabShoreHabitatArtwork: View, Equatable {
 
         for index in 0..<5 {
             brush.grassTuft(in: &context,
-                            base: brush.p(0.02 + CGFloat(index) * 0.045, 0.985),
+                            base: brush.p(0.02 + CGFloat(index) * 0.045, 1.005),
                             height: brush.ry(0.095),
                             width: brush.rx(0.085),
                             colors: [Color(red: 0.11, green: 0.36, blue: 0.27),
@@ -719,7 +728,7 @@ struct CrabShoreHabitatArtwork: View, Equatable {
                             seed: 800 &+ index,
                             shadow: 0)
             brush.grassTuft(in: &context,
-                            base: brush.p(0.78 + CGFloat(index) * 0.052, 0.995),
+                            base: brush.p(0.78 + CGFloat(index) * 0.052, 1.012),
                             height: brush.ry(0.108),
                             width: brush.rx(0.090),
                             colors: [Color(red: 0.10, green: 0.33, blue: 0.26),
@@ -730,15 +739,15 @@ struct CrabShoreHabitatArtwork: View, Equatable {
         }
 
         brush.kelp(in: &context,
-                   base: brush.p(0.045, 1.0),
-                   height: brush.ry(0.40),
+                   base: brush.p(0.045, 1.02),
+                   height: brush.ry(0.38),
                    sway: 0.06,
                    color: Color(red: 0.14, green: 0.36, blue: 0.24),
                    blade: Color(red: 0.24, green: 0.50, blue: 0.28),
                    seed: 121)
         brush.kelp(in: &context,
-                   base: brush.p(0.965, 1.0),
-                   height: brush.ry(0.46),
+                   base: brush.p(0.965, 1.02),
+                   height: brush.ry(0.42),
                    sway: -0.05,
                    color: Color(red: 0.11, green: 0.32, blue: 0.23),
                    blade: Color(red: 0.21, green: 0.46, blue: 0.27),

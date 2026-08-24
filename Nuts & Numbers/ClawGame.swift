@@ -1063,7 +1063,6 @@ final class ClawEngine: ObservableObject {
             if t >= 1 {
                 if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
                     grabFrom = nuts[index].position
-                    beginCascade(removing: nuts[index])
                     AppAudio.shared.playTakeNut()
                 }
                 enter(.grabbing)
@@ -1074,7 +1073,17 @@ final class ClawEngine: ObservableObject {
                 let u = smoothStep(min(1, phaseAge / ClawConfig.grabPause))
                 nuts[index].position = lerp(grabFrom, trunkPoint, CGFloat(u))
             }
-            if phaseAge >= ClawConfig.grabPause { enter(.ascending) }
+            if phaseAge >= ClawConfig.grabPause {
+                if let id = grabTarget, let index = nuts.firstIndex(where: { $0.id == id }) {
+                    // Keep the mound still until the walnut has visibly left
+                    // its pocket. Starting the cascade at first contact made a
+                    // neighbouring walnut slide into an occupied spot while
+                    // the hands were still closing around the grabbed one.
+                    nuts[index].position = trunkPoint
+                    beginCascade(removing: nuts[index])
+                }
+                enter(.ascending)
+            }
         case .ascending:
             let t = min(1, phaseAge / ascendTime)
             trolleyY = grabDepth * (1 - easeInOut(t))

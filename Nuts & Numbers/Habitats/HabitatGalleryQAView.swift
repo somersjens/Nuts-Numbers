@@ -9,6 +9,9 @@
 
 #if DEBUG
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct HabitatGalleryQAView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -39,6 +42,24 @@ struct HabitatGalleryQAView: View {
             .safeAreaInset(edge: .bottom) { controls }
         }
         .ignoresSafeArea(edges: .top)
+        .onAppear { exportSnapshotsIfRequested() }
+    }
+
+    private func exportSnapshotsIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("-HabitatGalleryExport") else { return }
+#if canImport(UIKit)
+        let dest = URL(fileURLWithPath: "/Users/jenssomers/Desktop/Nuts & Numbers/.habitatcheck")
+        try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        let width: CGFloat = 390
+        for id in order {
+            let view = cabinet(characterID: id, width: width, isPad: false)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            if let image = renderer.uiImage, let data = image.pngData() {
+                try? data.write(to: dest.appendingPathComponent("qa_\(id).png"))
+            }
+        }
+#endif
     }
 
     private func cabinet(characterID: String, width: CGFloat, isPad: Bool) -> some View {

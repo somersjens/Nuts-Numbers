@@ -691,18 +691,20 @@ struct LionSavannaHabitatArtwork: View, Equatable {
             }
         }
 
-        // Seed pods hanging under the near edge of the canopy.
-        for index in 0..<9 {
-            let anchor = brush.p(habitatNoise(index, 91, 0.06, 0.44),
-                                 habitatNoise(index, 92, 0.290, 0.345))
-            var pod = Path()
-            pod.move(to: anchor)
-            pod.addQuadCurve(to: CGPoint(x: anchor.x + brush.rx(habitatNoise(index, 93, -0.012, 0.012)),
-                                         y: anchor.y + brush.ry(habitatNoise(index, 94, 0.030, 0.062))),
-                             control: CGPoint(x: anchor.x + brush.rx(0.010), y: anchor.y + brush.ry(0.022)))
-            context.stroke(pod,
-                           with: .color(Color(red: 0.56, green: 0.42, blue: 0.22).opacity(0.80)),
-                           style: brush.stroke(brush.lw(1.6)))
+        // Seed pods hanging from the underside of the canopy slabs.
+        for (index, slab) in canopy.enumerated() {
+            for pod in 0..<2 {
+                let t = habitatNoise(index &* 5 &+ pod, 91, -0.32, 0.32)
+                let anchor = brush.p(slab.0 + t * slab.2 * 0.42, slab.1 + slab.3 * 0.42)
+                var hang = Path()
+                hang.move(to: anchor)
+                hang.addQuadCurve(to: CGPoint(x: anchor.x + brush.rx(habitatNoise(index &* 5 &+ pod, 93, -0.010, 0.010)),
+                                              y: anchor.y + brush.ry(0.038)),
+                                  control: CGPoint(x: anchor.x + brush.rx(0.008), y: anchor.y + brush.ry(0.016)))
+                context.stroke(hang,
+                               with: .color(Color(red: 0.56, green: 0.42, blue: 0.22).opacity(0.80)),
+                               style: brush.stroke(brush.lw(1.6)))
+            }
         }
     }
 

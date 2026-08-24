@@ -204,21 +204,27 @@ private extension AnimalHabitatLivingDetails {
                  opacity: 0.10 + Double(habitatNoise(index, 203, 0, 0.12)))
         }
 
-        // Three reef fish patrolling the mid water above the sand.
-        for index in 0..<3 {
-            let progress = loop(time, 17 + Double(index) * 4.5, Double(index) * 0.37)
-            let rightward = index != 1
-            let x = rightward ? -0.10 + progress * 1.20 : 1.10 - progress * 1.20
-            let y = 0.315 + CGFloat(index) * 0.055
-                + CGFloat(sin(time * 0.6 + Double(index) * 1.3)) * 0.012
+        // Reef fish cruising the mid water, kept off the drop corridor. Tail
+        // flicks so they never sit as frozen cut-outs.
+        let reefFish: [(CGFloat, Double, Bool, Color, CGFloat)] = [
+            (0.268, 9.5, true, Color(red: 0.98, green: 0.62, blue: 0.24), 0.062),
+            (0.300, 11.0, false, Color(red: 0.42, green: 0.78, blue: 0.86), 0.054),
+            (0.355, 13.5, true, Color(red: 0.94, green: 0.84, blue: 0.36), 0.070),
+            (0.390, 10.2, false, Color(red: 0.98, green: 0.52, blue: 0.38), 0.048),
+            (0.430, 12.4, true, Color(red: 0.36, green: 0.70, blue: 0.78), 0.056)
+        ]
+        for (index, swimmer) in reefFish.enumerated() {
+            let progress = loop(time, swimmer.1, Double(index) * 0.17)
+            let x = swimmer.2 ? -0.12 + progress * 1.24 : 1.12 - progress * 1.24
+            let y = swimmer.0 + CGFloat(sin(time * 1.4 + Double(index) * 1.1)) * 0.016
+            let flick = CGFloat(sin(time * 9.0 + Double(index) * 2.2))
             brush.fish(in: &context,
                        center: brush.p(x, y),
-                       length: brush.rx(0.048 + CGFloat(index % 2) * 0.018),
-                       color: [Color(red: 0.98, green: 0.62, blue: 0.24),
-                               Color(red: 0.42, green: 0.78, blue: 0.86),
-                               Color(red: 0.94, green: 0.84, blue: 0.36)][index].opacity(0.72),
+                       length: brush.rx(swimmer.4),
+                       color: swimmer.3.opacity(0.78),
                        belly: Color.white.opacity(0.55),
-                       facingRight: rightward)
+                       facingRight: swimmer.2,
+                       flick: flick)
         }
 
         // Caustics sliding along the underside of the surface.
@@ -247,17 +253,19 @@ private extension AnimalHabitatLivingDetails {
         }
 
         // A loose shoal drifting across the back of the flat.
-        for index in 0..<5 {
-            let progress = loop(time, 21 + Double(index) * 2.6, Double(index) * 0.19)
-            let x = -0.08 + progress * 1.16
-            let y = 0.400 + CGFloat(index % 3) * 0.040
-                + CGFloat(sin(time * 0.7 + Double(index))) * 0.010
+        for index in 0..<7 {
+            let progress = loop(time, 11 + Double(index) * 1.4, Double(index) * 0.13)
+            let x = -0.10 + progress * 1.20
+            let y = 0.355 + CGFloat(index % 3) * 0.038
+                + CGFloat(sin(time * 1.6 + Double(index))) * 0.012
+            let flick = CGFloat(sin(time * 10.0 + Double(index) * 1.8))
             brush.fish(in: &context,
                        center: brush.p(x, y),
-                       length: brush.rx(0.034 + CGFloat(index % 2) * 0.012),
-                       color: Color(red: 0.98, green: 0.78, blue: 0.32).opacity(0.68),
+                       length: brush.rx(0.036 + CGFloat(index % 2) * 0.014),
+                       color: Color(red: 0.98, green: 0.78, blue: 0.32).opacity(0.74),
                        belly: Color.white.opacity(0.5),
-                       facingRight: true)
+                       facingRight: true,
+                       flick: flick)
         }
 
         // Caustic net crawling over the sand.
@@ -285,26 +293,34 @@ private extension AnimalHabitatLivingDetails {
 
 private extension AnimalHabitatLivingDetails {
     func paintMountainForest(_ brush: HabitatBrush, in context: inout GraphicsContext, time: TimeInterval) {
-        // The river widens as it comes forward, so the wavelets have to widen
-        // with it or they drift off the water.
-        for index in 0..<5 {
-            let t = CGFloat(index) / 4
-            let y = 0.600 + t * 0.360
+        // Current: slow, broken glints that follow the river's own slant.
+        // Long horizontal strokes racing downstream read as stripes.
+        for index in 0..<4 {
+            let progress = loop(time, 10.5 + Double(index) * 1.4, Double(index) * 0.23)
+            let t = progress
+            let y = 0.595 + t * 0.340
             let leftBank = 0.455 - t * 0.400
             let rightBank = 0.545 + t * 0.045
             let width = rightBank - leftBank
-            let phase = CGFloat(sin(time * 0.85 + Double(index) * 1.1))
-            let start = leftBank + width * (0.12 + phase * 0.04)
+            let start = leftBank + width * (0.28 + CGFloat(index % 2) * 0.16)
             wavelet(brush, in: &context,
-                    from: brush.p(start, y + phase * 0.004),
-                    to: brush.p(start + width * 0.46, y + phase * 0.003),
-                    lift: brush.ry(0.006),
-                    opacity: 0.30 - Double(index) * 0.035)
-            wavelet(brush, in: &context,
-                    from: brush.p(start + width * 0.56, y + 0.014),
-                    to: brush.p(start + width * 0.84, y + 0.014),
-                    lift: brush.ry(0.005),
-                    opacity: 0.20 - Double(index) * 0.028)
+                    from: brush.p(start, y),
+                    to: brush.p(start - width * 0.08, y + 0.038),
+                    lift: brush.ry(0.003),
+                    opacity: 0.10 * Double(1 - t * 0.45))
+        }
+
+        // A few quieter streaks on the cascade.
+        for index in 0..<3 {
+            let progress = loop(time, 2.8, Double(index) * 0.33)
+            let x = 0.476 + CGFloat(index) * 0.018
+            var streak = Path()
+            streak.move(to: brush.p(x, 0.522 + progress * 0.006))
+            streak.addQuadCurve(to: brush.p(x - 0.003, 0.522 + progress * 0.050),
+                                control: brush.p(x + 0.004, 0.546))
+            context.stroke(streak,
+                           with: .color(Color.white.opacity(0.28 * Double(1 - progress))),
+                           style: brush.stroke(brush.lw(0.9)))
         }
 
         // Spray hanging over the cascade at the head of the river.

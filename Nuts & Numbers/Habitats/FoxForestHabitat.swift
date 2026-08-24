@@ -195,8 +195,8 @@ struct FoxForestHabitatArtwork: View, Equatable {
     }
 
     private func paintPath(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A worn game trail widening toward the viewer keeps the middle of the
-        // floor readable and gives the composition a direction.
+        // A worn game trail widening toward the viewer. Soft fill first, then
+        // broken edge patches so it never sits as a hard lozenge on the floor.
         var trail = Path()
         trail.move(to: brush.p(0.475, 0.610))
         trail.addCurve(to: brush.p(0.325, 1.02),
@@ -208,10 +208,40 @@ struct FoxForestHabitatArtwork: View, Equatable {
                        control2: brush.p(0.50, 0.74))
         trail.closeSubpath()
         context.fill(trail, with: .linearGradient(
-            Gradient(colors: [Color(red: 0.60, green: 0.44, blue: 0.24).opacity(0.55),
-                              Color(red: 0.38, green: 0.26, blue: 0.14).opacity(0.45)]),
+            Gradient(colors: [Color(red: 0.62, green: 0.46, blue: 0.26).opacity(0.38),
+                              Color(red: 0.40, green: 0.28, blue: 0.16).opacity(0.32)]),
             startPoint: brush.p(0.5, 0.61),
             endPoint: brush.p(0.5, 1)))
+
+        for index in 0..<10 {
+            let t = CGFloat(index) / 9
+            let y = 0.640 + t * t * 0.36
+            let half = 0.040 + t * 0.14
+            let side: CGFloat = index.isMultiple(of: 2) ? -1 : 1
+            brush.groundPatch(in: &context,
+                              center: brush.p(0.51 + side * half, y),
+                              width: brush.rx(0.070 + t * 0.04),
+                              height: brush.ry(0.028 + t * 0.018),
+                              color: Color(red: 0.32, green: 0.22, blue: 0.12).opacity(0.16),
+                              seed: 240 &+ index &* 7)
+        }
+
+        context.drawLayer { inner in
+            inner.clip(to: trail)
+            for index in 0..<16 {
+                let t = CGFloat(index) / 15
+                let y = 0.640 + t * t * 0.36
+                let half = 0.028 + t * 0.12
+                var scuff = Path()
+                scuff.move(to: brush.p(0.50 - half, y))
+                scuff.addQuadCurve(to: brush.p(0.50 + half * 0.7, y + 0.006),
+                                   control: brush.p(0.50, y - 0.008))
+                inner.stroke(scuff,
+                             with: .color(Color(red: 0.72, green: 0.54, blue: 0.30)
+                                .opacity(0.10 + Double(t) * 0.08)),
+                             style: brush.stroke(brush.lw(0.9 + t)))
+            }
+        }
     }
 
     private func paintLitter(_ brush: HabitatBrush, in context: inout GraphicsContext) {
@@ -529,17 +559,24 @@ struct FoxForestHabitatArtwork: View, Equatable {
                            style: brush.stroke(brush.rx(branch.6)))
         }
 
-        // Individual leaves hanging off the lower branch edges break the
-        // silhouette so the canopy is not one solid ceiling.
-        for index in 0..<22 {
-            let x = habitatNoise(index, 31, 0.02, 0.98)
-            let y = habitatNoise(index, 32, 0.135, 0.290)
-            brush.leaf(in: &context,
-                       center: brush.p(x, y),
-                       length: brush.ry(habitatNoise(index, 33, 0.030, 0.055)),
-                       angle: Double(habitatNoise(index, 34, 0.4, 2.6)),
-                       color: [canopyRed, canopyOrange, canopyGold][index % 3].opacity(0.88),
-                       vein: 0.12)
+        // Leaves hanging off the branches themselves, not sprinkled in the
+        // empty air between them.
+        for (branchIndex, branch) in branches.enumerated() {
+            for sample in 0..<5 {
+                let t = 0.18 + CGFloat(sample) / 5 * 0.70
+                let oneX = branch.0 + (branch.2 - branch.0) * t
+                let oneY = branch.1 + (branch.3 - branch.1) * t
+                let twoX = branch.2 + (branch.4 - branch.2) * t
+                let twoY = branch.3 + (branch.5 - branch.3) * t
+                let x = oneX + (twoX - oneX) * t
+                let y = oneY + (twoY - oneY) * t + 0.018
+                brush.leaf(in: &context,
+                           center: brush.p(x, y),
+                           length: brush.ry(habitatNoise(branchIndex &* 10 &+ sample, 33, 0.028, 0.048)),
+                           angle: Double(habitatNoise(branchIndex &* 10 &+ sample, 34, 0.6, 2.4)),
+                           color: [canopyRed, canopyOrange, canopyGold][sample % 3].opacity(0.88),
+                           vein: 0.12)
+            }
         }
     }
 

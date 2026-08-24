@@ -1063,6 +1063,12 @@ extension HabitatBrush {
             let spread = 0.44 + Double(habitatNoise(seed &+ depth, 131)) * 0.30
             limb(end, angle - spread, length * 0.66, depth - 1, width * 0.72)
             limb(end, angle + spread * 0.82, length * 0.62, depth - 1, width * 0.70)
+            if depth <= 2 {
+                let bud = max(1.2, width * 0.55)
+                context.fill(Path(ellipseIn: CGRect(x: end.x - bud * 0.5, y: end.y - bud * 0.5,
+                                                    width: bud, height: bud)),
+                             with: .color(color.opacity(0.95)))
+            }
         }
         limb(base, -.pi / 2, height * 0.44, 4, thickness)
         limb(CGPoint(x: base.x - height * 0.08, y: base.y),
@@ -1071,58 +1077,99 @@ extension HabitatBrush {
              -.pi / 2 + 0.30, height * 0.34, 3, thickness * 0.8)
     }
 
-    /// Table coral: a thin horizontal plate on a short stalk.
+    /// Table coral: an irregular plate on a short stalk, rimmed with polyps
+    /// so it never reads as a flat oval sticker.
     func plateCoral(in context: inout GraphicsContext,
                     base: CGPoint,
                     width: CGFloat,
                     color: Color,
                     shade: Color,
-                    flipped: Bool = false) {
+                    flipped: Bool = false,
+                    seed: Int = 0) {
         let direction: CGFloat = flipped ? -1 : 1
+        let plateCenter = CGPoint(x: base.x + width * 0.04,
+                                  y: base.y - direction * width * 0.28)
         var stalk = Path()
         stalk.move(to: base)
-        stalk.addLine(to: CGPoint(x: base.x + width * 0.05, y: base.y - direction * width * 0.24))
-        context.stroke(stalk, with: .color(shade), style: stroke(max(0.8, width * 0.09)))
+        stalk.addQuadCurve(to: plateCenter,
+                           control: CGPoint(x: base.x + width * 0.02,
+                                            y: base.y - direction * width * 0.14))
+        context.stroke(stalk, with: .color(shade), style: stroke(max(0.8, width * 0.10)))
 
-        let plateRect = CGRect(x: base.x - width * 0.5,
-                               y: base.y - direction * width * 0.34,
-                               width: width,
-                               height: width * 0.22)
-        context.fill(Path(ellipseIn: plateRect), with: .linearGradient(
+        let plate = blobPoints(center: plateCenter,
+                               radiusX: width * 0.52,
+                               radiusY: width * 0.16,
+                               count: 11,
+                               irregularity: 0.28,
+                               seed: seed)
+        context.fill(blob(plate), with: .linearGradient(
             Gradient(colors: [color, shade]),
-            startPoint: CGPoint(x: plateRect.minX, y: plateRect.minY),
-            endPoint: CGPoint(x: plateRect.maxX, y: plateRect.maxY)))
-        for index in 0..<3 {
-            let inset = plateRect.width * (0.10 + CGFloat(index) * 0.11)
-            context.stroke(Path(ellipseIn: plateRect.insetBy(dx: inset, dy: inset * 0.22)),
-                           with: .color(Color.white.opacity(0.12)),
-                           style: stroke(lw(0.7)))
+            startPoint: CGPoint(x: plateCenter.x - width * 0.5, y: plateCenter.y - width * 0.18),
+            endPoint: CGPoint(x: plateCenter.x + width * 0.5, y: plateCenter.y + width * 0.18)))
+
+        let inner = blobPoints(center: CGPoint(x: plateCenter.x - width * 0.04,
+                                               y: plateCenter.y - direction * width * 0.02),
+                               radiusX: width * 0.28,
+                               radiusY: width * 0.08,
+                               count: 8,
+                               irregularity: 0.22,
+                               seed: seed &+ 9)
+        context.fill(blob(inner), with: .color(Color.white.opacity(0.12)))
+
+        for index in 0..<14 {
+            let angle = Double(index) / 14 * 2 * .pi + Double(habitatNoise(seed, 101))
+            let reach = 0.72 + habitatNoise(seed &+ index, 102, 0, 0.22)
+            let point = CGPoint(x: plateCenter.x + CGFloat(cos(angle)) * width * 0.48 * reach,
+                                y: plateCenter.y + CGFloat(sin(angle)) * width * 0.15 * reach)
+            let bud = width * habitatNoise(seed &+ index, 103, 0.018, 0.032)
+            context.fill(Path(ellipseIn: CGRect(x: point.x - bud, y: point.y - bud * 0.7,
+                                                width: bud * 2, height: bud * 1.4)),
+                         with: .color(index.isMultiple(of: 3) ? Color.white.opacity(0.22) : shade.opacity(0.55)))
         }
     }
 
-    /// Sea fan: a flat lattice on a stubby foot.
+    /// Sea fan: a fan-shaped lattice growing from a short holdfast, with
+    /// irregular ribs so it never reads as a drawn sunburst.
     func seaFan(in context: inout GraphicsContext,
                 base: CGPoint,
                 height: CGFloat,
                 color: Color,
                 seed: Int = 0) {
-        for index in 0..<7 {
-            let spread = (CGFloat(index) / 6 - 0.5) * 1.5
-            let tip = CGPoint(x: base.x + spread * height * 0.62,
-                              y: base.y - height * habitatNoise(seed &+ index, 141, 0.62, 1.0))
+        let foot = blobPoints(center: base,
+                              radiusX: height * 0.10,
+                              radiusY: height * 0.055,
+                              count: 6,
+                              irregularity: 0.30,
+                              seed: seed)
+        context.fill(blob(foot), with: .color(color.opacity(0.85)))
+
+        var tips: [CGPoint] = []
+        for index in 0..<9 {
+            let spread = (CGFloat(index) / 8 - 0.5) * 1.55
+                + habitatNoise(seed &+ index, 140, -0.08, 0.08)
+            let reach = habitatNoise(seed &+ index, 141, 0.62, 1.02)
+            let tip = CGPoint(x: base.x + spread * height * 0.58,
+                              y: base.y - height * reach)
+            tips.append(tip)
             var rib = Path()
             rib.move(to: base)
             rib.addQuadCurve(to: tip,
-                             control: CGPoint(x: base.x + spread * height * 0.20, y: base.y - height * 0.44))
-            context.stroke(rib, with: .color(color), style: stroke(max(0.55, height * 0.035)))
+                             control: CGPoint(x: base.x + spread * height * 0.18,
+                                              y: base.y - height * 0.42))
+            context.stroke(rib, with: .color(color),
+                           style: stroke(max(0.5, height * (0.018 + (1 - abs(spread) / 1.55) * 0.028))))
         }
-        for index in 0..<3 {
-            let y = base.y - height * (0.34 + CGFloat(index) * 0.22)
+        for band in 0..<4 {
+            let t = 0.28 + CGFloat(band) * 0.18
             var web = Path()
-            web.move(to: CGPoint(x: base.x - height * 0.36, y: y + height * 0.05))
-            web.addQuadCurve(to: CGPoint(x: base.x + height * 0.36, y: y + height * 0.05),
-                             control: CGPoint(x: base.x, y: y - height * 0.09))
-            context.stroke(web, with: .color(color.opacity(0.6)), style: stroke(max(0.45, height * 0.02)))
+            for (index, tip) in tips.enumerated() {
+                let point = CGPoint(x: base.x + (tip.x - base.x) * t,
+                                    y: base.y + (tip.y - base.y) * t
+                                        + height * habitatNoise(seed &+ band &+ index, 142, -0.012, 0.012))
+                if index == 0 { web.move(to: point) } else { web.addLine(to: point) }
+            }
+            context.stroke(web, with: .color(color.opacity(0.55)),
+                           style: stroke(max(0.4, height * 0.016)))
         }
     }
 
@@ -1185,6 +1232,15 @@ extension HabitatBrush {
             context.fill(Path(ellipseIn: mouth), with: .color(shade.opacity(0.9)))
             context.stroke(Path(ellipseIn: mouth), with: .color(Color.white.opacity(0.16)), style: stroke(lw(0.7)))
         }
+        // A sand or rock collar so the cluster sits in the ground instead of
+        // hovering on a mathematical point.
+        let collar = blobPoints(center: CGPoint(x: base.x, y: base.y + height * 0.04),
+                                radiusX: height * 0.42,
+                                radiusY: height * 0.12,
+                                count: 7,
+                                irregularity: 0.28,
+                                seed: seed &+ 9)
+        context.fill(blob(collar), with: .color(shade.opacity(0.55)))
     }
 
     /// Anemone: a foot with a corona of tentacles.
@@ -1220,7 +1276,69 @@ extension HabitatBrush {
         }
     }
 
-    /// Kelp stipe with alternating blades.
+    /// Gorgonian / sea whip growing out of rock: a crusty holdfast, a tapering
+    /// stem, and tiny polyp cups along it. The cups are living tissue, not a
+    /// string of beads, and the stem starts inside the rock so it cannot
+    /// dangle unattached in open water.
+    func gorgonian(in context: inout GraphicsContext,
+                   root: CGPoint,
+                   length: CGFloat,
+                   color: Color,
+                   seed: Int = 0) {
+        let hold = blobPoints(center: root,
+                              radiusX: length * 0.16,
+                              radiusY: length * 0.10,
+                              count: 7,
+                              irregularity: 0.34,
+                              seed: seed)
+        context.fill(blob(hold), with: .color(color.opacity(0.92)))
+        context.fill(blob(blobPoints(center: CGPoint(x: root.x, y: root.y + length * 0.02),
+                                     radiusX: length * 0.09,
+                                     radiusY: length * 0.05,
+                                     count: 6,
+                                     irregularity: 0.28,
+                                     seed: seed &+ 3)),
+                     with: .color(Color.black.opacity(0.18)))
+
+        let lean = habitatNoise(seed, 201, -0.16, 0.16)
+        let tip = CGPoint(x: root.x + length * lean, y: root.y + length)
+        let normalX = -(tip.y - root.y)
+        let normalY = tip.x - root.x
+        let nLen = max(1, hypot(normalX, normalY))
+        let nx = normalX / nLen
+        let ny = normalY / nLen
+
+        var stem = Path()
+        stem.move(to: CGPoint(x: root.x - nx * length * 0.055, y: root.y - ny * length * 0.055))
+        stem.addQuadCurve(to: tip,
+                          control: CGPoint(x: root.x + (tip.x - root.x) * 0.45 - nx * length * 0.04,
+                                           y: root.y + (tip.y - root.y) * 0.45 - ny * length * 0.04))
+        stem.addQuadCurve(to: CGPoint(x: root.x + nx * length * 0.055, y: root.y + ny * length * 0.055),
+                          control: CGPoint(x: root.x + (tip.x - root.x) * 0.45 + nx * length * 0.04,
+                                           y: root.y + (tip.y - root.y) * 0.45 + ny * length * 0.04))
+        stem.closeSubpath()
+        context.fill(stem, with: .linearGradient(
+            Gradient(colors: [color, color.opacity(0.55)]),
+            startPoint: root,
+            endPoint: tip))
+
+        for index in 2...7 {
+            let t = CGFloat(index) / 8
+            let along = CGPoint(x: root.x + (tip.x - root.x) * t,
+                                y: root.y + (tip.y - root.y) * t)
+            let side: CGFloat = index.isMultiple(of: 2) ? 1 : -1
+            let reach = length * habitatNoise(seed &+ index, 202, 0.06, 0.11)
+            let cup = CGPoint(x: along.x + nx * reach * side,
+                              y: along.y + ny * reach * side)
+            var arm = Path()
+            arm.move(to: along)
+            arm.addQuadCurve(to: cup,
+                             control: CGPoint(x: along.x + nx * reach * side * 0.5,
+                                              y: along.y + ny * reach * side * 0.5 - length * 0.02))
+            context.stroke(arm, with: .color(color.opacity(0.85)),
+                           style: stroke(max(0.5, length * 0.028)))
+        }
+    }
     func kelp(in context: inout GraphicsContext,
               base: CGPoint,
               height: CGFloat,
@@ -1229,6 +1347,13 @@ extension HabitatBrush {
               blade: Color,
               seed: Int = 0) {
         let tip = CGPoint(x: base.x + sway * height, y: base.y - height)
+        let hold = blobPoints(center: CGPoint(x: base.x, y: base.y + height * 0.02),
+                              radiusX: height * 0.06,
+                              radiusY: height * 0.025,
+                              count: 6,
+                              irregularity: 0.30,
+                              seed: seed)
+        context.fill(blob(hold), with: .color(color.opacity(0.90)))
         var stipe = Path()
         stipe.move(to: base)
         stipe.addCurve(to: tip,
@@ -1252,17 +1377,19 @@ extension HabitatBrush {
         }
     }
 
-    /// Small side-on fish with a triangular tail.
+    /// Small side-on fish with a triangular tail. `flick` bends the tail so a
+    /// swimming fish never sits as a frozen silhouette.
     func fish(in context: inout GraphicsContext,
               center: CGPoint,
               length: CGFloat,
               color: Color,
               belly: Color,
-              facingRight: Bool = true) {
+              facingRight: Bool = true,
+              flick: CGFloat = 0) {
         let direction: CGFloat = facingRight ? 1 : -1
         var body = Path()
         body.move(to: CGPoint(x: center.x + direction * length * 0.5, y: center.y))
-        body.addQuadCurve(to: CGPoint(x: center.x - direction * length * 0.36, y: center.y),
+        body.addQuadCurve(to: CGPoint(x: center.x - direction * length * 0.36, y: center.y + flick * length * 0.08),
                           control: CGPoint(x: center.x, y: center.y - length * 0.28))
         body.addQuadCurve(to: CGPoint(x: center.x + direction * length * 0.5, y: center.y),
                           control: CGPoint(x: center.x, y: center.y + length * 0.26))
@@ -1272,10 +1399,13 @@ extension HabitatBrush {
             startPoint: CGPoint(x: center.x, y: center.y - length * 0.28),
             endPoint: CGPoint(x: center.x, y: center.y + length * 0.26)))
 
+        let tailBend = flick * length * 0.22
         var tail = Path()
         tail.move(to: CGPoint(x: center.x - direction * length * 0.32, y: center.y))
-        tail.addLine(to: CGPoint(x: center.x - direction * length * 0.56, y: center.y - length * 0.20))
-        tail.addLine(to: CGPoint(x: center.x - direction * length * 0.56, y: center.y + length * 0.20))
+        tail.addLine(to: CGPoint(x: center.x - direction * length * 0.56,
+                                 y: center.y - length * 0.20 + tailBend))
+        tail.addLine(to: CGPoint(x: center.x - direction * length * 0.56,
+                                 y: center.y + length * 0.20 + tailBend))
         tail.closeSubpath()
         context.fill(tail, with: .color(color.opacity(0.92)))
 

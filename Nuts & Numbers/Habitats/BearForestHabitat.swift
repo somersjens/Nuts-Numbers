@@ -264,21 +264,8 @@ struct BearForestHabitatArtwork: View, Equatable {
             startPoint: brush.p(0.5, 0.53),
             endPoint: brush.p(0.4, 1)))
 
-        // Current lines follow the flow, breaking around the stepping stones.
-        for index in 0..<9 {
-            let t = CGFloat(index) / 8
-            let y = 0.575 + t * 0.40
-            let widthAtY = 0.055 + t * 0.30
-            let centerX = 0.50 - t * 0.20
-            var flow = Path()
-            flow.move(to: brush.p(centerX - widthAtY * 0.55, y))
-            flow.addCurve(to: brush.p(centerX + widthAtY * 0.45, y + 0.012),
-                          control1: brush.p(centerX - widthAtY * 0.16, y - 0.016),
-                          control2: brush.p(centerX + widthAtY * 0.12, y + 0.022))
-            context.stroke(flow,
-                           with: .color(Color.white.opacity(0.30 - Double(t) * 0.14)),
-                           style: brush.stroke(brush.lw(1.1 + t * 0.9)))
-        }
+        // Current lives only in the motion layer. Drawn highlights here
+        // freeze into stripes the moment the river is still.
 
         // Stepping stones. Each one gets a foam collar on its upstream side.
         let stones: [(CGFloat, CGFloat, CGFloat)] = [
@@ -313,13 +300,10 @@ struct BearForestHabitatArtwork: View, Equatable {
     }
 
     private func paintCascade(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // The river emerges between two outcrops in a short two-step cascade,
-        // which explains where all that water comes from.
-        brush.rock(in: &context, center: brush.p(0.395, 0.545), radius: brush.rx(0.075),
-                   light: stone, dark: stoneDark, seed: 1101)
-        brush.rock(in: &context, center: brush.p(0.615, 0.540), radius: brush.rx(0.082),
-                   light: stone, dark: stoneDark, seed: 1102)
-        brush.rock(in: &context, center: brush.p(0.505, 0.516), radius: brush.rx(0.048),
+        // The river emerges between two outcrops. Water is drawn first, then
+        // the flanking stones sit in front of it so the cascade reads as
+        // flowing between rocks rather than painted over them.
+        brush.rock(in: &context, center: brush.p(0.505, 0.508), radius: brush.rx(0.048),
                    light: stone.opacity(0.9), dark: stoneDark, seed: 1103, seated: false)
 
         var chute = Path()
@@ -349,7 +333,6 @@ struct BearForestHabitatArtwork: View, Equatable {
                            style: brush.stroke(brush.lw(0.9)))
         }
 
-        // Plunge foam where the chute lands.
         for index in 0..<6 {
             let center = brush.p(0.470 + habitatNoise(index, 11, 0, 0.062),
                                  0.578 + habitatNoise(index, 12, 0, 0.016))
@@ -358,6 +341,11 @@ struct BearForestHabitatArtwork: View, Equatable {
                                                 width: radius * 2, height: radius * 1.2)),
                          with: .color(Color.white.opacity(0.34)))
         }
+
+        brush.rock(in: &context, center: brush.p(0.388, 0.552), radius: brush.rx(0.078),
+                   light: stone, dark: stoneDark, seed: 1101)
+        brush.rock(in: &context, center: brush.p(0.622, 0.548), radius: brush.rx(0.084),
+                   light: stone, dark: stoneDark, seed: 1102)
     }
 
     private func paintRiverbank(_ brush: HabitatBrush, in context: inout GraphicsContext) {
@@ -379,21 +367,19 @@ struct BearForestHabitatArtwork: View, Equatable {
             }
         }
 
-        // Wet, dark mud lips right where the grass gives out.
-        for side in [CGFloat(-1), CGFloat(1)] {
-            var lip = Path()
-            lip.move(to: brush.p(0.50 + side * 0.045, 0.545))
-            lip.addCurve(to: brush.p(0.50 + side * (side < 0 ? 0.48 : 0.075), 1.0),
-                         control1: brush.p(0.50 + side * 0.16, 0.70),
-                         control2: brush.p(0.50 + side * (side < 0 ? 0.36 : 0.10), 0.85))
-            context.stroke(lip,
-                           with: .color(Color(red: 0.22, green: 0.19, blue: 0.13).opacity(0.42)),
-                           style: brush.stroke(brush.lw(2.6)))
-            var highlight = context
-            highlight.translateBy(x: 0, y: -brush.lw(1.6))
-            highlight.stroke(lip,
-                             with: .color(soilLight.opacity(0.28)),
-                             style: brush.stroke(brush.lw(1.0)))
+        // Wet, dark mud where the grass gives out. Patches, not a drawn
+        // outline: a pair of long strokes along the river reads as rails.
+        for index in 0..<12 {
+            let t = CGFloat(index) / 11
+            let side: CGFloat = index.isMultiple(of: 2) ? -1 : 1
+            let x = 0.50 + side * (0.055 + t * (side < 0 ? 0.40 : 0.08))
+            let y = 0.560 + t * 0.42
+            brush.groundPatch(in: &context,
+                              center: brush.p(x, y),
+                              width: brush.rx(0.055 + t * 0.04),
+                              height: brush.ry(0.022 + t * 0.016),
+                              color: Color(red: 0.22, green: 0.19, blue: 0.13).opacity(0.28),
+                              seed: 1280 &+ index)
         }
     }
 
@@ -543,28 +529,44 @@ struct BearForestHabitatArtwork: View, Equatable {
                     grain: 4,
                     seed: 5)
         brush.trunk(in: &context,
-                    base: brush.p(0.955, 0.985),
+                    base: brush.p(0.955, 1.04),
                     top: brush.p(0.925, -0.02),
-                    baseWidth: brush.rx(0.100),
+                    baseWidth: brush.rx(0.118),
                     topWidth: brush.rx(0.048),
                     bark: bark,
                     barkLight: barkLight,
                     grain: 4,
                     seed: 9)
 
-        // Root flares spreading into the moss.
+        // Moss and root flare bury the cut at the foot of each trunk so the
+        // right one no longer ends on a hard horizontal line.
         for (side, direction) in [(CGFloat(0.045), CGFloat(1)), (CGFloat(0.955), CGFloat(-1))] {
+            let foot = brush.p(side, side < 0.5 ? 0.955 : 0.968)
+            brush.groundPatch(in: &context,
+                              center: foot,
+                              width: brush.rx(0.16),
+                              height: brush.ry(0.055),
+                              color: moss.opacity(0.72),
+                              seed: side < 0.5 ? 1710 : 1720)
             for index in 0..<3 {
-                let spread = CGFloat(index + 1) * 0.055
+                let spread = CGFloat(index + 1) * 0.058
                 var root = Path()
-                root.move(to: brush.p(side, 0.930 + CGFloat(index) * 0.020))
-                root.addQuadCurve(to: brush.p(side + direction * spread, 0.960 + CGFloat(index) * 0.022),
-                                  control: brush.p(side + direction * spread * 0.5, 0.925 + CGFloat(index) * 0.020))
+                root.move(to: brush.p(side, 0.930 + CGFloat(index) * 0.022))
+                root.addQuadCurve(to: brush.p(side + direction * spread, 0.968 + CGFloat(index) * 0.018),
+                                  control: brush.p(side + direction * spread * 0.5,
+                                                   0.938 + CGFloat(index) * 0.018))
                 context.stroke(root, with: .color(Color.black.opacity(0.20)),
-                               style: brush.stroke(brush.lw(5.5 - CGFloat(index))))
+                               style: brush.stroke(brush.lw(6.0 - CGFloat(index))))
                 context.stroke(root, with: .color(barkLight.opacity(0.85)),
-                               style: brush.stroke(brush.lw(4.0 - CGFloat(index))))
+                               style: brush.stroke(brush.lw(4.4 - CGFloat(index))))
             }
+            brush.grassTuft(in: &context,
+                            base: brush.p(side + direction * 0.070, 0.978),
+                            height: brush.ry(0.055),
+                            width: brush.rx(0.070),
+                            colors: [moss, grass, grassLight],
+                            bladeCount: 8,
+                            seed: side < 0.5 ? 1730 : 1740)
         }
 
         // A broken snag between the right trunk and the berry scrub, with
@@ -585,6 +587,19 @@ struct BearForestHabitatArtwork: View, Equatable {
                            control: CGPoint(x: snagBase.x + brush.rx(0.032), y: snagBase.y - brush.ry(0.010)))
         flare.closeSubpath()
         context.fill(flare, with: .color(snagShade.opacity(0.92)))
+        brush.groundPatch(in: &context,
+                          center: CGPoint(x: snagBase.x, y: snagBase.y + brush.ry(0.012)),
+                          width: brush.rx(0.12),
+                          height: brush.ry(0.038),
+                          color: moss.opacity(0.70),
+                          seed: 1760)
+        brush.grassTuft(in: &context,
+                        base: CGPoint(x: snagBase.x + brush.rx(0.038), y: snagBase.y + brush.ry(0.006)),
+                        height: brush.ry(0.042),
+                        width: brush.rx(0.055),
+                        colors: [moss, grass],
+                        bladeCount: 7,
+                        seed: 1765)
 
         // The shaft leans a little and narrows unevenly; the crown is torn
         // open into splinters where the top third snapped off.
@@ -811,20 +826,30 @@ struct BearForestHabitatArtwork: View, Equatable {
                            seed: 1900 &+ index)
         }
 
-        // Scattered needles and cones on the litter layer.
-        for index in 0..<14 {
-            let point = brush.p(habitatNoise(index, 41, 0.03, 0.97),
-                                habitatNoise(index, 42, 0.90, 1.0))
-            let length = brush.rx(habitatNoise(index, 43, 0.010, 0.020))
-            let angle = Double(habitatNoise(index, 44)) * .pi
-            var pin = Path()
-            pin.move(to: CGPoint(x: point.x - CGFloat(cos(angle)) * length,
-                                 y: point.y - CGFloat(sin(angle)) * length * 0.3))
-            pin.addLine(to: CGPoint(x: point.x + CGFloat(cos(angle)) * length,
-                                    y: point.y + CGFloat(sin(angle)) * length * 0.3))
-            context.stroke(pin,
-                           with: .color(Color(red: 0.36, green: 0.30, blue: 0.16).opacity(0.55)),
-                           style: brush.stroke(brush.lw(0.9)))
-        }
+        // The last stone of the river sits in front of the water, so the
+        // stream disappears behind it instead of running off the frame as a
+        // flat blue slab.
+        let mouth = brush.p(0.305, 0.975)
+        brush.rock(in: &context,
+                   center: mouth,
+                   radius: brush.rx(0.078),
+                   light: stone,
+                   dark: stoneDark,
+                   seed: 1910,
+                   flatten: 0.62)
+        var collar = Path()
+        collar.move(to: CGPoint(x: mouth.x - brush.rx(0.090), y: mouth.y - brush.ry(0.018)))
+        collar.addQuadCurve(to: CGPoint(x: mouth.x + brush.rx(0.070), y: mouth.y - brush.ry(0.010)),
+                            control: CGPoint(x: mouth.x - brush.rx(0.010), y: mouth.y - brush.ry(0.055)))
+        context.stroke(collar,
+                       with: .color(Color.white.opacity(0.42)),
+                       style: brush.stroke(brush.lw(1.6)))
+        brush.grassTuft(in: &context,
+                        base: CGPoint(x: mouth.x + brush.rx(0.070), y: mouth.y + brush.ry(0.018)),
+                        height: brush.ry(0.048),
+                        width: brush.rx(0.060),
+                        colors: [moss, grass],
+                        bladeCount: 7,
+                        seed: 1914)
     }
 }
