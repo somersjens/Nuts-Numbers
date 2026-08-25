@@ -96,29 +96,29 @@ struct FrogPondHabitatArtwork: View, Equatable {
         // so nothing reads as a floating ball of leaves in the sky.
         brush.hazeBand(in: &context, top: 0.400, bottom: 0.495, color: Color.white.opacity(0.22))
         let trees: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.03, 0.512, 0.095), (0.13, 0.516, 0.072), (0.235, 0.510, 0.088),
-            (0.345, 0.518, 0.060), (0.455, 0.514, 0.078), (0.575, 0.516, 0.058),
-            (0.695, 0.508, 0.090), (0.815, 0.514, 0.068), (0.925, 0.510, 0.092)
+            (0.03, 0.522, 0.185), (0.13, 0.526, 0.145), (0.235, 0.520, 0.170),
+            (0.345, 0.528, 0.125), (0.455, 0.524, 0.155), (0.575, 0.526, 0.118),
+            (0.695, 0.518, 0.178), (0.815, 0.524, 0.138), (0.925, 0.520, 0.188)
         ]
         for (index, tree) in trees.enumerated() {
-            let base = brush.p(tree.0, tree.1 + 0.012)
+            let base = brush.p(tree.0, tree.1)
             brush.trunk(in: &context,
                         base: base,
-                        top: CGPoint(x: base.x + brush.rx(habitatNoise(index, 8, -0.006, 0.006)),
-                                     y: base.y - brush.ry(tree.2 * 0.55)),
-                        baseWidth: brush.rx(0.018 + tree.2 * 0.06),
-                        topWidth: brush.rx(0.007),
-                        bark: willowDark.opacity(0.85),
-                        barkLight: Color(red: 0.36, green: 0.30, blue: 0.20).opacity(0.80),
+                        top: CGPoint(x: base.x + brush.rx(habitatNoise(index, 8, -0.010, 0.010)),
+                                     y: base.y - brush.ry(tree.2 * 0.62)),
+                        baseWidth: brush.rx(0.020 + tree.2 * 0.05),
+                        topWidth: brush.rx(0.008),
+                        bark: willowDark.opacity(0.88),
+                        barkLight: Color(red: 0.36, green: 0.30, blue: 0.20).opacity(0.82),
                         grain: 2,
                         seed: 100 &+ index &* 7)
             brush.crown(in: &context,
-                        center: brush.p(tree.0, tree.1 - tree.2 * 0.18),
-                        width: brush.rx(tree.2 * 1.15),
-                        height: brush.ry(tree.2 * 0.95),
-                        colors: [willowMid.opacity(0.82),
-                                 willowLight.opacity(0.70),
-                                 willowDark.opacity(0.78)],
+                        center: brush.p(tree.0, tree.1 - tree.2 * 0.58),
+                        width: brush.rx(tree.2 * 0.88),
+                        height: brush.ry(tree.2 * 0.72),
+                        colors: [willowMid.opacity(0.84),
+                                 willowLight.opacity(0.72),
+                                 willowDark.opacity(0.80)],
                         seed: 100 &+ index &* 7,
                         lobes: 5)
         }

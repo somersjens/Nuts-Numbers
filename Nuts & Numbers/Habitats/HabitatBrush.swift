@@ -1010,7 +1010,8 @@ extension HabitatBrush {
             endPoint: CGPoint(x: center.x + width * 0.3, y: center.y + height * 0.4)))
     }
 
-    /// Row of icicles hanging from an edge.
+    /// Row of icicles hanging from an edge. Roots can sit slightly inside the
+    /// ledge (`embed`) so the lip covers the attachment.
     func icicles(in context: inout GraphicsContext,
                  from start: CGPoint,
                  to end: CGPoint,
@@ -1018,24 +1019,37 @@ extension HabitatBrush {
                  maxLength: CGFloat,
                  color: Color,
                  tip: Color,
-                 seed: Int = 0) {
+                 seed: Int = 0,
+                 embed: CGFloat = 0) {
+        var roots: [CGPoint] = []
         for index in 0..<count {
             let t = CGFloat(index) / CGFloat(max(1, count - 1))
-            let x = start.x + (end.x - start.x) * t
-            let y = start.y + (end.y - start.y) * t
+            roots.append(CGPoint(x: start.x + (end.x - start.x) * t,
+                                 y: start.y + (end.y - start.y) * t - embed))
+        }
+        icicles(in: &context, roots: roots, maxLength: maxLength, color: color, tip: tip, seed: seed)
+    }
+
+    func icicles(in context: inout GraphicsContext,
+                 roots: [CGPoint],
+                 maxLength: CGFloat,
+                 color: Color,
+                 tip: Color,
+                 seed: Int = 0) {
+        for (index, root) in roots.enumerated() {
             let length = maxLength * habitatNoise(seed &+ index, 121, 0.34, 1.0)
             let width = length * habitatNoise(seed &+ index, 122, 0.18, 0.30)
             var spike = Path()
-            spike.move(to: CGPoint(x: x - width * 0.5, y: y))
-            spike.addQuadCurve(to: CGPoint(x: x, y: y + length),
-                               control: CGPoint(x: x - width * 0.18, y: y + length * 0.6))
-            spike.addQuadCurve(to: CGPoint(x: x + width * 0.5, y: y),
-                               control: CGPoint(x: x + width * 0.18, y: y + length * 0.6))
+            spike.move(to: CGPoint(x: root.x - width * 0.5, y: root.y))
+            spike.addQuadCurve(to: CGPoint(x: root.x, y: root.y + length),
+                               control: CGPoint(x: root.x - width * 0.18, y: root.y + length * 0.6))
+            spike.addQuadCurve(to: CGPoint(x: root.x + width * 0.5, y: root.y),
+                               control: CGPoint(x: root.x + width * 0.18, y: root.y + length * 0.6))
             spike.closeSubpath()
             context.fill(spike, with: .linearGradient(
                 Gradient(colors: [color, tip]),
-                startPoint: CGPoint(x: x, y: y),
-                endPoint: CGPoint(x: x, y: y + length)))
+                startPoint: CGPoint(x: root.x, y: root.y),
+                endPoint: CGPoint(x: root.x, y: root.y + length)))
         }
     }
 }
@@ -1284,23 +1298,26 @@ extension HabitatBrush {
                    root: CGPoint,
                    length: CGFloat,
                    color: Color,
-                   seed: Int = 0) {
-        let hold = blobPoints(center: root,
-                              radiusX: length * 0.16,
-                              radiusY: length * 0.10,
-                              count: 7,
-                              irregularity: 0.34,
-                              seed: seed)
-        context.fill(blob(hold), with: .color(color.opacity(0.92)))
-        context.fill(blob(blobPoints(center: CGPoint(x: root.x, y: root.y + length * 0.02),
-                                     radiusX: length * 0.09,
-                                     radiusY: length * 0.05,
-                                     count: 6,
-                                     irregularity: 0.28,
-                                     seed: seed &+ 3)),
-                     with: .color(Color.black.opacity(0.18)))
+                   seed: Int = 0,
+                   hanging: Bool = false) {
+        if !hanging {
+            let hold = blobPoints(center: root,
+                                  radiusX: length * 0.16,
+                                  radiusY: length * 0.10,
+                                  count: 7,
+                                  irregularity: 0.34,
+                                  seed: seed)
+            context.fill(blob(hold), with: .color(color.opacity(0.92)))
+            context.fill(blob(blobPoints(center: CGPoint(x: root.x, y: root.y + length * 0.02),
+                                         radiusX: length * 0.09,
+                                         radiusY: length * 0.05,
+                                         count: 6,
+                                         irregularity: 0.28,
+                                         seed: seed &+ 3)),
+                         with: .color(Color.black.opacity(0.18)))
+        }
 
-        let lean = habitatNoise(seed, 201, -0.16, 0.16)
+        let lean = habitatNoise(seed, 201, hanging ? -0.10 : -0.16, hanging ? 0.10 : 0.16)
         let tip = CGPoint(x: root.x + length * lean, y: root.y + length)
         let normalX = -(tip.y - root.y)
         let normalY = tip.x - root.x
@@ -1308,12 +1325,13 @@ extension HabitatBrush {
         let nx = normalX / nLen
         let ny = normalY / nLen
 
+        let stemHalf = hanging ? length * 0.028 : length * 0.055
         var stem = Path()
-        stem.move(to: CGPoint(x: root.x - nx * length * 0.055, y: root.y - ny * length * 0.055))
+        stem.move(to: CGPoint(x: root.x - nx * stemHalf, y: root.y - ny * stemHalf))
         stem.addQuadCurve(to: tip,
                           control: CGPoint(x: root.x + (tip.x - root.x) * 0.45 - nx * length * 0.04,
                                            y: root.y + (tip.y - root.y) * 0.45 - ny * length * 0.04))
-        stem.addQuadCurve(to: CGPoint(x: root.x + nx * length * 0.055, y: root.y + ny * length * 0.055),
+        stem.addQuadCurve(to: CGPoint(x: root.x + nx * stemHalf, y: root.y + ny * stemHalf),
                           control: CGPoint(x: root.x + (tip.x - root.x) * 0.45 + nx * length * 0.04,
                                            y: root.y + (tip.y - root.y) * 0.45 + ny * length * 0.04))
         stem.closeSubpath()
@@ -1322,19 +1340,21 @@ extension HabitatBrush {
             startPoint: root,
             endPoint: tip))
 
-        for index in 2...7 {
+        // Ceiling whips only branch on the lower half so cups never sit on the lip.
+        let cupStart = hanging ? 4 : 2
+        for index in cupStart...7 {
             let t = CGFloat(index) / 8
             let along = CGPoint(x: root.x + (tip.x - root.x) * t,
                                 y: root.y + (tip.y - root.y) * t)
             let side: CGFloat = index.isMultiple(of: 2) ? 1 : -1
-            let reach = length * habitatNoise(seed &+ index, 202, 0.06, 0.11)
+            let reach = length * habitatNoise(seed &+ index, 202, hanging ? 0.04 : 0.06, hanging ? 0.08 : 0.11)
             let cup = CGPoint(x: along.x + nx * reach * side,
-                              y: along.y + ny * reach * side)
+                              y: along.y + ny * reach * side + (hanging ? length * 0.02 : 0))
             var arm = Path()
             arm.move(to: along)
             arm.addQuadCurve(to: cup,
                              control: CGPoint(x: along.x + nx * reach * side * 0.5,
-                                              y: along.y + ny * reach * side * 0.5 - length * 0.02))
+                                              y: along.y + ny * reach * side * 0.5 + length * (hanging ? 0.03 : -0.02)))
             context.stroke(arm, with: .color(color.opacity(0.85)),
                            style: stroke(max(0.5, length * 0.028)))
         }

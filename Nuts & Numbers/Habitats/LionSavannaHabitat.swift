@@ -241,75 +241,66 @@ struct LionSavannaHabitatArtwork: View, Equatable {
     }
 
     private func paintDryWash(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A sandy watercourse crossing the plain. It gives the eye a path into
-        // the scene and keeps the middle of the cabinet low in contrast.
+        // Same vanishing recipe as the octopus channel: a pale band that
+        // pinches to a point on the horizon instead of ending as a blunt bar.
         var wash = Path()
-        wash.move(to: brush.p(0.415, 0.600))
-        wash.addCurve(to: brush.p(0.300, 0.800),
-                      control1: brush.p(0.400, 0.670),
-                      control2: brush.p(0.318, 0.735))
-        wash.addCurve(to: brush.p(0.360, 1.04),
-                      control1: brush.p(0.282, 0.878),
-                      control2: brush.p(0.318, 0.962))
-        wash.addLine(to: brush.p(0.640, 1.04))
-        wash.addCurve(to: brush.p(0.560, 0.795),
-                      control1: brush.p(0.612, 0.948),
-                      control2: brush.p(0.566, 0.872))
-        wash.addCurve(to: brush.p(0.500, 0.600),
-                      control1: brush.p(0.552, 0.720),
-                      control2: brush.p(0.508, 0.658))
+        wash.move(to: brush.p(0.490, 0.590))
+        wash.addCurve(to: brush.p(0.300, 1.04),
+                      control1: brush.p(0.430, 0.72),
+                      control2: brush.p(0.305, 0.88))
+        wash.addLine(to: brush.p(0.720, 1.04))
+        wash.addCurve(to: brush.p(0.530, 0.590),
+                      control1: brush.p(0.715, 0.88),
+                      control2: brush.p(0.590, 0.72))
         wash.closeSubpath()
         context.fill(wash, with: .linearGradient(
-            Gradient(colors: [Color(red: 0.90, green: 0.80, blue: 0.58).opacity(0.55),
-                              Color(red: 0.80, green: 0.66, blue: 0.42).opacity(0.72)]),
-            startPoint: brush.p(0.45, 0.60),
-            endPoint: brush.p(0.5, 1)))
-        context.stroke(wash, with: .color(earthDeep.opacity(0.20)), style: brush.stroke(brush.lw(1.2)))
+            Gradient(colors: [Color(red: 0.90, green: 0.80, blue: 0.58).opacity(0.18),
+                              Color(red: 0.80, green: 0.66, blue: 0.42).opacity(0.70)]),
+            startPoint: brush.p(0.51, 0.590),
+            endPoint: brush.p(0.51, 1)))
 
-        // The bed is braided with pale sand bars, not with parallel lines:
-        // long even strokes down the middle of a channel read as tyre tracks.
-        let bars: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (0.418, 0.690, 0.052, 0.060), (0.492, 0.760, 0.070, 0.048),
-            (0.398, 0.858, 0.058, 0.070), (0.520, 0.900, 0.062, 0.055),
-            (0.452, 0.985, 0.080, 0.050)
-        ]
-        for (index, bar) in bars.enumerated() {
-            var sandBar = Path()
-            sandBar.move(to: brush.p(bar.0 - bar.2 * 0.5, bar.1))
-            sandBar.addQuadCurve(to: brush.p(bar.0 + bar.2 * 0.5, bar.1 - bar.3 * 0.18),
-                                 control: brush.p(bar.0, bar.1 - bar.3 * 0.62))
-            sandBar.addQuadCurve(to: brush.p(bar.0 - bar.2 * 0.5, bar.1),
-                                 control: brush.p(bar.0 + habitatNoise(index, 61, -0.01, 0.01),
-                                                  bar.1 + bar.3 * 0.38))
-            sandBar.closeSubpath()
-            context.fill(sandBar,
-                         with: .color(Color(red: 0.93, green: 0.85, blue: 0.66)
-                            .opacity(0.42 + habitatNoise(index, 62, 0, 0.16))))
-            context.stroke(sandBar,
-                           with: .color(Color(red: 0.66, green: 0.53, blue: 0.33).opacity(0.20)),
-                           style: brush.stroke(brush.lw(0.7)))
-        }
+        context.drawLayer { inner in
+            inner.clip(to: wash)
+            // The bed is braided with pale sand bars, not with parallel lines:
+            // long even strokes down the middle of a channel read as tyre tracks.
+            let bars: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+                (0.470, 0.720, 0.040, 0.048), (0.510, 0.800, 0.055, 0.042),
+                (0.455, 0.880, 0.048, 0.055), (0.525, 0.930, 0.052, 0.048),
+                (0.490, 0.995, 0.070, 0.045)
+            ]
+            for (index, bar) in bars.enumerated() {
+                var sandBar = Path()
+                sandBar.move(to: brush.p(bar.0 - bar.2 * 0.5, bar.1))
+                sandBar.addQuadCurve(to: brush.p(bar.0 + bar.2 * 0.5, bar.1 - bar.3 * 0.18),
+                                     control: brush.p(bar.0, bar.1 - bar.3 * 0.62))
+                sandBar.addQuadCurve(to: brush.p(bar.0 - bar.2 * 0.5, bar.1),
+                                     control: brush.p(bar.0 + habitatNoise(index, 61, -0.01, 0.01),
+                                                      bar.1 + bar.3 * 0.38))
+                sandBar.closeSubpath()
+                inner.fill(sandBar,
+                           with: .color(Color(red: 0.93, green: 0.85, blue: 0.66)
+                              .opacity(0.28 + habitatNoise(index, 62, 0, 0.12))))
+            }
 
-        // Short scour marks between the bars, all pointing downstream but each
-        // one different in length and curve.
-        for index in 0..<9 {
-            let x = 0.400 + habitatNoise(index, 63, 0, 0.210)
-            let y = 0.640 + habitatNoise(index, 64, 0, 0.360)
-            let length = habitatNoise(index, 65, 0.030, 0.075)
-            var scour = Path()
-            scour.move(to: brush.p(x, y))
-            scour.addQuadCurve(to: brush.p(x + habitatNoise(index, 66, -0.012, 0.020), y + length),
-                               control: brush.p(x - 0.010, y + length * 0.5))
-            context.stroke(scour,
-                           with: .color(Color(red: 0.64, green: 0.51, blue: 0.31).opacity(0.22)),
-                           style: brush.stroke(brush.lw(0.8)))
+            for index in 0..<9 {
+                let x = 0.430 + habitatNoise(index, 63, 0, 0.160)
+                let y = 0.680 + habitatNoise(index, 64, 0, 0.320)
+                let length = habitatNoise(index, 65, 0.030, 0.075)
+                var scour = Path()
+                scour.move(to: brush.p(x, y))
+                scour.addQuadCurve(to: brush.p(x + habitatNoise(index, 66, -0.012, 0.020), y + length),
+                                   control: brush.p(x - 0.010, y + length * 0.5))
+                inner.stroke(scour,
+                             with: .color(Color(red: 0.64, green: 0.51, blue: 0.31).opacity(0.20)),
+                             style: brush.stroke(brush.lw(0.8)))
+            }
+            brush.pebbleBeds(in: &inner,
+                             bounds: brush.box(0.500, 0.880, 0.24, 0.240),
+                             color: Color(red: 0.60, green: 0.52, blue: 0.40),
+                             highlight: Color(red: 0.88, green: 0.82, blue: 0.68),
+                             clusters: 10,
+                             seed: 500)
         }
-        brush.pebbleBeds(in: &context,
-                         bounds: brush.box(0.450, 0.860, 0.30, 0.280),
-                         color: Color(red: 0.60, green: 0.52, blue: 0.40),
-                         highlight: Color(red: 0.88, green: 0.82, blue: 0.68),
-                         clusters: 14,
-                         seed: 500)
     }
 
     private func paintTermiteMound(_ brush: HabitatBrush, in context: inout GraphicsContext) {
@@ -489,16 +480,24 @@ struct LionSavannaHabitatArtwork: View, Equatable {
                            with: .color(Color(red: 0.66, green: 0.60, blue: 0.48).opacity(0.85)),
                            style: brush.stroke(brush.lw(2.0)))
         }
-        for (index, mass) in [(0.905, 0.432, 0.130, 0.070),
-                              (0.985, 0.462, 0.115, 0.062),
-                              (0.852, 0.478, 0.100, 0.055)].enumerated() {
-            brush.crown(in: &context,
-                        center: brush.p(mass.0, mass.1),
-                        width: brush.rx(mass.2),
-                        height: brush.ry(mass.3),
-                        colors: [foliageLight, foliage, Color(red: 0.20, green: 0.28, blue: 0.13)],
-                        seed: 700 &+ index &* 9,
-                        lobes: 5)
+        for slab in [(0.912, 0.438, 0.155, 0.048),
+                     (0.978, 0.468, 0.125, 0.042),
+                     (0.848, 0.482, 0.118, 0.040)] {
+            let center = brush.p(slab.0, slab.1)
+            let halfWidth = brush.rx(slab.2 * 0.5)
+            let halfHeight = brush.ry(slab.3 * 0.5)
+            var shape = Path()
+            shape.move(to: CGPoint(x: center.x - halfWidth, y: center.y + halfHeight * 0.55))
+            shape.addCurve(to: CGPoint(x: center.x + halfWidth, y: center.y + halfHeight * 0.50),
+                           control1: CGPoint(x: center.x - halfWidth * 0.55, y: center.y - halfHeight * 1.25),
+                           control2: CGPoint(x: center.x + halfWidth * 0.55, y: center.y - halfHeight * 1.20))
+            shape.addQuadCurve(to: CGPoint(x: center.x - halfWidth, y: center.y + halfHeight * 0.55),
+                               control: CGPoint(x: center.x, y: center.y + halfHeight * 1.15))
+            shape.closeSubpath()
+            context.fill(shape, with: .linearGradient(
+                Gradient(colors: [foliageLight, foliage, Color(red: 0.20, green: 0.28, blue: 0.13)]),
+                startPoint: CGPoint(x: center.x - halfWidth, y: center.y - halfHeight),
+                endPoint: CGPoint(x: center.x + halfWidth * 0.3, y: center.y + halfHeight)))
         }
     }
 
@@ -662,15 +661,15 @@ struct LionSavannaHabitatArtwork: View, Equatable {
             (0.255, 0.150, 0.34, 0.088, 0.0),
             (0.430, 0.278, 0.26, 0.070, 0.0)
         ]
-        for (index, slab) in canopy.enumerated() {
+        for slab in canopy {
             let center = brush.p(slab.0, slab.1)
             let halfWidth = brush.rx(slab.2 * 0.5)
             let halfHeight = brush.ry(slab.3 * 0.5)
             var shape = Path()
             shape.move(to: CGPoint(x: center.x - halfWidth, y: center.y + halfHeight * 0.55))
             shape.addCurve(to: CGPoint(x: center.x + halfWidth, y: center.y + halfHeight * 0.50),
-                           control1: CGPoint(x: center.x - halfWidth * 0.55, y: center.y - halfHeight * 1.35),
-                           control2: CGPoint(x: center.x + halfWidth * 0.60, y: center.y - halfHeight * 1.30))
+                           control1: CGPoint(x: center.x - halfWidth * 0.42, y: center.y - halfHeight * 0.88),
+                           control2: CGPoint(x: center.x + halfWidth * 0.46, y: center.y - halfHeight * 0.84))
             shape.addQuadCurve(to: CGPoint(x: center.x - halfWidth, y: center.y + halfHeight * 0.55),
                                control: CGPoint(x: center.x, y: center.y + halfHeight * 1.30))
             shape.closeSubpath()
@@ -678,17 +677,6 @@ struct LionSavannaHabitatArtwork: View, Equatable {
                 Gradient(colors: [foliageLight, foliage, Color(red: 0.19, green: 0.26, blue: 0.12)]),
                 startPoint: CGPoint(x: center.x - halfWidth, y: center.y - halfHeight),
                 endPoint: CGPoint(x: center.x + halfWidth * 0.4, y: center.y + halfHeight)))
-
-            // Leaflet clumps along the sunlit upper edge.
-            for clump in 0..<9 {
-                let t = CGFloat(clump) / 8
-                let point = CGPoint(x: center.x - halfWidth + t * halfWidth * 2,
-                                    y: center.y - halfHeight * (0.55 - abs(t - 0.5) * 0.9))
-                let radius = brush.rx(habitatNoise(index &* 20 &+ clump, 81, 0.014, 0.030))
-                context.fill(Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius * 0.6,
-                                                    width: radius * 2, height: radius * 1.2)),
-                             with: .color(foliageLight.opacity(0.55)))
-            }
         }
 
         // Seed pods hanging from the underside of the canopy slabs.

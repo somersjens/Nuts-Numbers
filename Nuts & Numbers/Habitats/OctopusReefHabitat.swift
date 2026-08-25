@@ -27,7 +27,7 @@ struct OctopusReefHabitatArtwork: View, Equatable {
     private let coralOrange = Color(red: 0.96, green: 0.58, blue: 0.28)
     private let coralPurple = Color(red: 0.62, green: 0.42, blue: 0.82)
     private let coralTeal = Color(red: 0.30, green: 0.78, blue: 0.72)
-    private let algae = Color(red: 0.24, green: 0.56, blue: 0.38)
+
 
     var body: some View {
         Canvas { context, size in
@@ -39,6 +39,7 @@ struct OctopusReefHabitatArtwork: View, Equatable {
             paintDistantSchool(brush, in: &context)
             paintSeabed(brush, in: &context)
             paintSandChannel(brush, in: &context)
+            paintBehindBommies(brush, in: &context)
             paintRockArch(brush, in: &context)
             paintLeftBommie(brush, in: &context)
             paintRightBommie(brush, in: &context)
@@ -240,30 +241,30 @@ struct OctopusReefHabitatArtwork: View, Equatable {
     }
 
     private func paintSandChannel(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A swept sand run widening toward the viewer, the same device as the
-        // elephant trail: a pale band, not a set of stripes across the tank.
+        // Same vanishing recipe as the lion wash: pinch to a point on the
+        // seabed horizon so the two cabinets share a path into the distance.
         var channel = Path()
-        channel.move(to: brush.p(0.455, 0.720))
-        channel.addCurve(to: brush.p(0.28, 1.04),
-                         control1: brush.p(0.50, 0.82),
-                         control2: brush.p(0.30, 0.92))
-        channel.addLine(to: brush.p(0.74, 1.04))
-        channel.addCurve(to: brush.p(0.560, 0.718),
-                         control1: brush.p(0.72, 0.92),
-                         control2: brush.p(0.53, 0.82))
+        channel.move(to: brush.p(0.490, 0.718))
+        channel.addCurve(to: brush.p(0.300, 1.04),
+                         control1: brush.p(0.430, 0.82),
+                         control2: brush.p(0.305, 0.93))
+        channel.addLine(to: brush.p(0.720, 1.04))
+        channel.addCurve(to: brush.p(0.530, 0.718),
+                         control1: brush.p(0.715, 0.93),
+                         control2: brush.p(0.590, 0.82))
         channel.closeSubpath()
         context.fill(channel, with: .linearGradient(
-            Gradient(colors: [Color(red: 0.90, green: 0.86, blue: 0.72).opacity(0.42),
-                              Color(red: 0.78, green: 0.74, blue: 0.60).opacity(0.28)]),
-            startPoint: brush.p(0.5, 0.72),
-            endPoint: brush.p(0.5, 1.0)))
+            Gradient(colors: [Color(red: 0.90, green: 0.86, blue: 0.72).opacity(0.08),
+                              Color(red: 0.84, green: 0.80, blue: 0.66).opacity(0.40)]),
+            startPoint: brush.p(0.51, 0.718),
+            endPoint: brush.p(0.51, 1.0)))
 
         context.drawLayer { inner in
             inner.clip(to: channel)
             for index in 0..<11 {
                 let t = CGFloat(index) / 10
-                let y = 0.745 + t * t * 0.270
-                let half = 0.055 + t * 0.20
+                let y = 0.780 + t * t * 0.240
+                let half = 0.022 + t * 0.18
                 var ripple = Path()
                 ripple.move(to: brush.p(0.50 - half, y))
                 ripple.addQuadCurve(to: brush.p(0.50 + half, y + habitatNoise(index, 31, -0.006, 0.006)),
@@ -286,8 +287,26 @@ struct OctopusReefHabitatArtwork: View, Equatable {
     // MARK: - Structure
 
     private func paintRockArch(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // An overhanging ledge across the top of the frame. It anchors the
-        // upper corners and gives the soft corals something to hang from.
+        // Hanging life is drawn first, with roots inside the forthcoming
+        // ledge. The rock then covers the holdfasts so nothing sits on top
+        // of the stone or grows up into it.
+        let hang: [(CGFloat, CGFloat, CGFloat, Color)] = [
+            (0.130, 0.082, 0.112, coralOrange),
+            (0.188, 0.122, 0.092, coralPurple),
+            (0.236, 0.148, 0.074, coralOrange),
+            (0.754, 0.148, 0.076, coralOrange),
+            (0.816, 0.138, 0.110, coralPink),
+            (0.874, 0.108, 0.092, coralPurple)
+        ]
+        for (index, item) in hang.enumerated() {
+            brush.gorgonian(in: &context,
+                            root: brush.p(item.0, item.1),
+                            length: brush.ry(item.2),
+                            color: item.3,
+                            seed: 430 &+ index &* 5,
+                            hanging: true)
+        }
+
         var ledge = Path()
         ledge.move(to: brush.p(-0.02, 0.030))
         ledge.addCurve(to: brush.p(0.26, 0.185),
@@ -311,47 +330,62 @@ struct OctopusReefHabitatArtwork: View, Equatable {
             startPoint: brush.p(0.5, 0),
             endPoint: brush.p(0.5, 0.20)))
 
-        // Encrusting sponges sitting on the lip itself, following the rock
-        // rather than a decorative arc of coloured dots.
-        let crust: [(CGFloat, CGFloat, CGFloat, Color)] = [
-            (0.04, 0.055, 0.028, algae),
-            (0.11, 0.100, 0.024, coralPink),
-            (0.18, 0.155, 0.030, coralOrange),
-            (0.25, 0.178, 0.022, coralPurple),
-            (0.34, 0.155, 0.018, algae),
-            (0.66, 0.150, 0.020, coralPink),
-            (0.74, 0.178, 0.026, coralOrange),
-            (0.82, 0.188, 0.024, algae),
-            (0.90, 0.155, 0.028, coralPurple),
-            (0.97, 0.110, 0.022, coralPink)
-        ]
-        for (index, patch) in crust.enumerated() {
-            brush.groundPatch(in: &context,
-                              center: brush.p(patch.0, patch.1),
-                              width: brush.rx(patch.2 * 2.2),
-                              height: brush.ry(patch.2 * 1.1),
-                              color: patch.3.opacity(0.72),
-                              seed: 410 &+ index)
-        }
+        var lip = Path()
+        lip.move(to: brush.p(-0.02, 0.030))
+        lip.addCurve(to: brush.p(0.26, 0.185),
+                     control1: brush.p(0.08, 0.090),
+                     control2: brush.p(0.16, 0.170))
+        lip.addCurve(to: brush.p(0.50, 0.128),
+                     control1: brush.p(0.35, 0.198),
+                     control2: brush.p(0.43, 0.164))
+        lip.addCurve(to: brush.p(0.78, 0.196),
+                     control1: brush.p(0.60, 0.098),
+                     control2: brush.p(0.70, 0.166))
+        lip.addCurve(to: brush.p(1.02, 0.108),
+                     control1: brush.p(0.88, 0.220),
+                     control2: brush.p(0.96, 0.170))
+        context.stroke(lip, with: .color(Color(red: 0.10, green: 0.14, blue: 0.22).opacity(0.55)),
+                       style: brush.stroke(brush.lw(2.2)))
+    }
 
-        // Short hydroid tufts growing out of the underside of the overhang.
-        // They stay on the rock; longer stems in open water read as loose
-        // strings.
-        let colonies: [(CGFloat, CGFloat, CGFloat, Color)] = [
-            (0.075, 0.078, 0.048, coralPink),
-            (0.155, 0.138, 0.042, coralPurple),
-            (0.230, 0.175, 0.038, coralOrange),
-            (0.760, 0.178, 0.040, coralPurple),
-            (0.845, 0.182, 0.046, coralOrange),
-            (0.930, 0.140, 0.042, coralPink)
-        ]
-        for (index, colony) in colonies.enumerated() {
-            brush.gorgonian(in: &context,
-                            root: brush.p(colony.0, colony.1),
-                            length: brush.ry(colony.2),
-                            color: colony.3,
-                            seed: 430 &+ index &* 5)
-        }
+    private func paintBehindBommies(_ brush: HabitatBrush, in context: inout GraphicsContext) {
+        // Pink and purple sit on the sand behind the towers: in front of the
+        // channel wash, tucked under the rock so they peek at the inner flanks
+        // instead of occupying the open middle.
+        brush.seaFan(in: &context,
+                     base: brush.p(0.208, 0.776),
+                     height: brush.ry(0.100),
+                     color: coralPink.opacity(0.72),
+                     seed: 37)
+        brush.branchCoral(in: &context,
+                          base: brush.p(0.186, 0.818),
+                          height: brush.ry(0.092),
+                          color: coralPurple.opacity(0.76),
+                          thickness: brush.lw(1.8),
+                          seed: 29)
+        brush.starfish(in: &context,
+                       center: brush.p(0.078, 0.872),
+                       radius: brush.rx(0.032),
+                       color: Color(red: 0.62, green: 0.48, blue: 0.86),
+                       shade: Color(red: 0.36, green: 0.24, blue: 0.58),
+                       rotation: -0.4)
+        brush.seaFan(in: &context,
+                     base: brush.p(0.788, 0.780),
+                     height: brush.ry(0.096),
+                     color: coralPurple.opacity(0.70),
+                     seed: 71)
+        brush.branchCoral(in: &context,
+                          base: brush.p(0.812, 0.822),
+                          height: brush.ry(0.088),
+                          color: coralPink.opacity(0.76),
+                          thickness: brush.lw(1.8),
+                          seed: 61)
+        brush.urchin(in: &context,
+                     center: brush.p(0.805, 0.852),
+                     radius: brush.rx(0.024),
+                     color: Color(red: 0.22, green: 0.16, blue: 0.30),
+                     spine: Color(red: 0.42, green: 0.30, blue: 0.52),
+                     seed: 1004)
     }
 
     private func paintLeftBommie(_ brush: HabitatBrush, in context: inout GraphicsContext) {
@@ -386,8 +420,8 @@ struct OctopusReefHabitatArtwork: View, Equatable {
                          shade: Color(red: 0.62, green: 0.30, blue: 0.16),
                          seed: 21)
         brush.plateCoral(in: &context,
-                         base: brush.p(0.196, 0.700),
-                         width: brush.rx(0.185),
+                         base: brush.p(0.118, 0.668),
+                         width: brush.rx(0.170),
                          color: coralPink.opacity(0.88),
                          shade: Color(red: 0.56, green: 0.20, blue: 0.28),
                          seed: 27)
@@ -398,22 +432,11 @@ struct OctopusReefHabitatArtwork: View, Equatable {
                          groove: Color(red: 0.52, green: 0.38, blue: 0.20),
                          seed: 23)
         brush.branchCoral(in: &context,
-                          base: brush.p(0.168, 0.792),
-                          height: brush.ry(0.185),
-                          color: coralPurple,
-                          thickness: brush.lw(2.6),
-                          seed: 29)
-        brush.branchCoral(in: &context,
                           base: brush.p(0.040, 0.828),
                           height: brush.ry(0.150),
                           color: coralTeal,
                           thickness: brush.lw(2.3),
                           seed: 31)
-        brush.seaFan(in: &context,
-                     base: brush.p(0.238, 0.740),
-                     height: brush.ry(0.185),
-                     color: coralPink.opacity(0.80),
-                     seed: 37)
         brush.sponge(in: &context,
                      base: brush.p(0.010, 0.790),
                      height: brush.ry(0.105),
@@ -460,8 +483,8 @@ struct OctopusReefHabitatArtwork: View, Equatable {
                          shade: Color(red: 0.14, green: 0.44, blue: 0.42),
                          seed: 51)
         brush.plateCoral(in: &context,
-                         base: brush.p(0.812, 0.685),
-                         width: brush.rx(0.170),
+                         base: brush.p(0.888, 0.655),
+                         width: brush.rx(0.155),
                          color: coralOrange.opacity(0.85),
                          shade: Color(red: 0.60, green: 0.28, blue: 0.14),
                          seed: 57)
@@ -472,22 +495,11 @@ struct OctopusReefHabitatArtwork: View, Equatable {
                          groove: Color(red: 0.38, green: 0.46, blue: 0.30),
                          seed: 59)
         brush.branchCoral(in: &context,
-                          base: brush.p(0.845, 0.804),
-                          height: brush.ry(0.175),
-                          color: coralPink,
-                          thickness: brush.lw(2.5),
-                          seed: 61)
-        brush.branchCoral(in: &context,
                           base: brush.p(0.982, 0.836),
                           height: brush.ry(0.145),
                           color: Color(red: 0.96, green: 0.78, blue: 0.34),
                           thickness: brush.lw(2.2),
                           seed: 67)
-        brush.seaFan(in: &context,
-                     base: brush.p(0.762, 0.756),
-                     height: brush.ry(0.175),
-                     color: coralPurple.opacity(0.78),
-                     seed: 71)
         brush.sponge(in: &context,
                      base: brush.p(0.900, 0.800),
                      height: brush.ry(0.115),
@@ -542,8 +554,8 @@ struct OctopusReefHabitatArtwork: View, Equatable {
         // grows scale with the stipe, so tall stands in the middle would put
         // large leaves straight across the drop corridor.
         let stands: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.012, 0.930, 0.40), (0.058, 0.950, 0.32), (0.122, 0.915, 0.26),
-            (0.878, 0.915, 0.25), (0.942, 0.950, 0.34), (0.994, 0.925, 0.40)
+            (0.012, 0.930, 0.28), (0.058, 0.950, 0.22), (0.108, 0.925, 0.16),
+            (0.892, 0.925, 0.16), (0.942, 0.950, 0.22), (0.994, 0.925, 0.28)
         ]
         for (index, stand) in stands.enumerated() {
             brush.kelp(in: &context,
@@ -565,22 +577,13 @@ struct OctopusReefHabitatArtwork: View, Equatable {
                        color: Color(red: 0.95, green: 0.52, blue: 0.30),
                        shade: Color(red: 0.68, green: 0.28, blue: 0.16),
                        rotation: 0.4)
-        brush.starfish(in: &context,
-                       center: brush.p(0.665, 0.884),
-                       radius: brush.rx(0.040),
-                       color: Color(red: 0.62, green: 0.48, blue: 0.86),
-                       shade: Color(red: 0.36, green: 0.24, blue: 0.58),
-                       rotation: -0.7)
 
-        for index in 0..<3 {
-            brush.urchin(in: &context,
-                         center: brush.p([CGFloat(0.288), 0.735, 0.585][index],
-                                         [CGFloat(0.812), 0.836, 0.788][index]),
-                         radius: brush.rx(0.026),
-                         color: Color(red: 0.22, green: 0.16, blue: 0.30),
-                         spine: Color(red: 0.42, green: 0.30, blue: 0.52),
-                         seed: 1000 &+ index)
-        }
+        brush.urchin(in: &context,
+                     center: brush.p(0.255, 0.868),
+                     radius: brush.rx(0.026),
+                     color: Color(red: 0.22, green: 0.16, blue: 0.30),
+                     spine: Color(red: 0.42, green: 0.30, blue: 0.52),
+                     seed: 1000)
 
         // Sea grass tufts rooted in the sand at the channel edges.
         for index in 0..<9 {

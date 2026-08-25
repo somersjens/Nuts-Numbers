@@ -615,18 +615,6 @@ private extension AnimalHabitatLivingDetails {
                   color: Color(red: 0.18, green: 0.20, blue: 0.18).opacity(0.45))
         }
 
-        for index in 0..<3 {
-            let orbit = time * (0.40 + Double(index) * 0.11) + Double(index) * 2.0
-            let point = brush.p([CGFloat(0.075), 0.905, 0.640][index] + CGFloat(cos(orbit)) * 0.055,
-                                [CGFloat(0.900), 0.820, 0.960][index] + CGFloat(sin(orbit * 1.8)) * 0.045)
-            flutterer(brush, in: &context,
-                      at: point,
-                      size: brush.ry(0.028),
-                      beat: time * 8 + Double(index),
-                      wing: Color(red: 0.99, green: 0.98, blue: 0.86).opacity(0.85),
-                      body: Color(red: 0.32, green: 0.28, blue: 0.18).opacity(0.8))
-        }
-
         for index in 0..<7 {
             let rise = loop(time, 19 + Double(index % 3) * 4, Double(index) * 0.14)
             let sway = CGFloat(sin(time * 0.5 + Double(index))) * 0.018

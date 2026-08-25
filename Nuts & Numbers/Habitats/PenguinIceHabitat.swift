@@ -77,39 +77,40 @@ struct PenguinIceHabitatArtwork: View, Equatable {
                   glow: Color(red: 1.0, green: 0.82, blue: 0.62).opacity(0.34),
                   glowSpread: 4.6)
 
-        // High cirrus: long, thin, wind-stretched strokes.
-        for index in 0..<7 {
-            let y = 0.075 + CGFloat(index) * 0.038
-            let x = habitatNoise(index, 3, 0.02, 0.40)
-            let length = habitatNoise(index, 4, 0.30, 0.60)
+        // High cirrus, kept above the cornice and out of the right-hand
+        // undercut so they cannot read as a seam through the icicles.
+        for index in 0..<5 {
+            let y = 0.042 + CGFloat(index) * 0.022
+            let x = habitatNoise(index, 3, 0.08, 0.38)
+            let length = habitatNoise(index, 4, 0.22, 0.40)
             var streak = Path()
             streak.move(to: brush.p(x, y))
-            streak.addCurve(to: brush.p(min(1.02, x + length), y + habitatNoise(index, 5, -0.012, 0.012)),
-                            control1: brush.p(x + length * 0.32, y - 0.014),
-                            control2: brush.p(x + length * 0.70, y + 0.012))
+            streak.addCurve(to: brush.p(min(0.72, x + length), y + habitatNoise(index, 5, -0.008, 0.008)),
+                            control1: brush.p(x + length * 0.32, y - 0.010),
+                            control2: brush.p(x + length * 0.70, y + 0.008))
             context.stroke(streak,
-                           with: .color(Color.white.opacity(index.isMultiple(of: 2) ? 0.30 : 0.18)),
-                           style: brush.stroke(brush.lw(1.6 + CGFloat(index % 3) * 0.8)))
+                           with: .color(Color.white.opacity(index.isMultiple(of: 2) ? 0.26 : 0.15)),
+                           style: brush.stroke(brush.lw(1.4 + CGFloat(index % 3) * 0.6)))
         }
 
         // Pale aurora ribbons hanging in the upper sky. Kept faint so the
         // scene still reads as daylight.
-        for index in 0..<3 {
+        for index in 0..<2 {
             var ribbon = Path()
-            let y = 0.055 + CGFloat(index) * 0.048
-            ribbon.move(to: brush.p(0.04, y + 0.030))
-            ribbon.addCurve(to: brush.p(0.96, y + 0.020),
-                            control1: brush.p(0.30, y - 0.048),
-                            control2: brush.p(0.66, y + 0.075))
+            let y = 0.040 + CGFloat(index) * 0.036
+            ribbon.move(to: brush.p(0.06, y + 0.022))
+            ribbon.addCurve(to: brush.p(0.70, y + 0.012),
+                            control1: brush.p(0.26, y - 0.036),
+                            control2: brush.p(0.50, y + 0.048))
             context.stroke(ribbon,
                            with: .linearGradient(
                             Gradient(colors: [.clear,
-                                              Color(red: 0.58, green: 0.94, blue: 0.80).opacity(0.16),
-                                              Color(red: 0.70, green: 0.82, blue: 0.98).opacity(0.10),
+                                              Color(red: 0.58, green: 0.94, blue: 0.80).opacity(0.14),
+                                              Color(red: 0.70, green: 0.82, blue: 0.98).opacity(0.08),
                                               .clear]),
                             startPoint: brush.p(0, y),
-                            endPoint: brush.p(1, y)),
-                           style: brush.stroke(brush.ry(0.030 - CGFloat(index) * 0.006)))
+                            endPoint: brush.p(0.72, y)),
+                           style: brush.stroke(brush.ry(0.026 - CGFloat(index) * 0.006)))
         }
     }
 
@@ -300,17 +301,17 @@ struct PenguinIceHabitatArtwork: View, Equatable {
         // Sastrugi: wind-carved scallops that get larger toward the viewer.
         brush.surfaceStrokes(in: &context,
                              bounds: CGRect(x: 0, y: brush.ry(0.660),
-                                            width: brush.w, height: brush.ry(0.33)),
-                             count: 26,
-                             color: snowBlue.opacity(0.42),
-                             highlight: Color.white.opacity(0.65),
-                             lengthRange: 0.05...0.17,
+                                            width: brush.w, height: brush.ry(0.22)),
+                             count: 14,
+                             color: snowBlue.opacity(0.32),
+                             highlight: nil,
+                             lengthRange: 0.04...0.12,
                              seed: 51)
 
         // Broad, soft drifts.
         let drifts: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
             (0.16, 0.700, 0.34, 0.055), (0.78, 0.720, 0.32, 0.060),
-            (0.36, 0.830, 0.40, 0.085), (0.88, 0.900, 0.36, 0.090)
+            (0.36, 0.830, 0.40, 0.085), (0.88, 0.880, 0.36, 0.070)
         ]
         for (index, drift) in drifts.enumerated() {
             brush.snowMound(in: &context,
@@ -323,9 +324,9 @@ struct PenguinIceHabitatArtwork: View, Equatable {
         }
 
         // Blue melt cracks in the older ice.
-        for index in 0..<9 {
-            let x = habitatNoise(index, 21, 0.05, 0.95)
-            let y = habitatNoise(index, 22, 0.680, 0.960)
+        for index in 0..<6 {
+            let x = habitatNoise(index, 21, 0.08, 0.92)
+            let y = habitatNoise(index, 22, 0.680, 0.860)
             let length = habitatNoise(index, 23, 0.04, 0.12)
             var crack = Path()
             crack.move(to: brush.p(x, y))
@@ -336,27 +337,14 @@ struct PenguinIceHabitatArtwork: View, Equatable {
                            style: brush.stroke(brush.lw(1.1)))
         }
 
-        // Snow-capped boulders poking through the shelf.
-        let stones: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.235, 0.712, 0.032), (0.700, 0.688, 0.026), (0.135, 0.905, 0.056), (0.615, 0.958, 0.048)
-        ]
-        for (index, stone) in stones.enumerated() {
-            let center = brush.p(stone.0, stone.1)
-            let radius = brush.rx(stone.2)
-            brush.rock(in: &context, center: center, radius: radius,
-                       light: rock, dark: rockDark, seed: 300 &+ index)
-            var cap = Path()
-            cap.move(to: CGPoint(x: center.x - radius * 0.86, y: center.y - radius * 0.18))
-            cap.addQuadCurve(to: CGPoint(x: center.x + radius * 0.80, y: center.y - radius * 0.22),
-                             control: CGPoint(x: center.x, y: center.y - radius * 0.92))
-            cap.addQuadCurve(to: CGPoint(x: center.x - radius * 0.86, y: center.y - radius * 0.18),
-                             control: CGPoint(x: center.x, y: center.y - radius * 0.02))
-            cap.closeSubpath()
-            context.fill(cap, with: .linearGradient(
-                Gradient(colors: [snowWhite, snowShade]),
-                startPoint: CGPoint(x: center.x, y: center.y - radius),
-                endPoint: CGPoint(x: center.x, y: center.y)))
-        }
+        // Boulders along the waterline, banked into the shelf with a single
+        // snowdrift rather than a cap on every stone.
+        paintStoneHeap(brush, in: &context,
+                       origin: brush.p(0.228, 0.708),
+                       seed: 300)
+        paintStoneHeap(brush, in: &context,
+                       origin: brush.p(0.702, 0.696),
+                       seed: 318)
     }
 
     private func paintDiveHole(_ brush: HabitatBrush, in context: inout GraphicsContext) {
@@ -405,76 +393,90 @@ struct PenguinIceHabitatArtwork: View, Equatable {
                            style: brush.stroke(brush.lw(1.0)))
         }
 
-        // Broken ice blocks pushed up around the near rim.
-        for index in 0..<7 {
-            let angle = .pi * 0.13 + Double(index) / 6 * .pi * 0.74
-                + Double(habitatNoise(index, 30, -0.09, 0.09))
-            let point = CGPoint(x: center.x + CGFloat(cos(angle)) * brush.rx(0.190),
-                                y: center.y + CGFloat(sin(angle)) * brush.ry(0.076))
-            let size = brush.rx(habitatNoise(index, 31, 0.020, 0.038))
+        // Broken ice pushed up on the far rim only, so the near stones
+        // around the lead are not ringed by polygonal plates.
+        for index in 0..<4 {
+            let angle = -.pi * 0.12 + Double(index) / 3 * .pi * 0.55
+                + Double(habitatNoise(index, 30, -0.06, 0.06))
+            let point = CGPoint(x: center.x + CGFloat(cos(angle)) * brush.rx(0.176),
+                                y: center.y + CGFloat(sin(angle)) * brush.ry(0.062) - brush.ry(0.012))
+            let size = brush.rx(habitatNoise(index, 31, 0.016, 0.028))
             var block = Path()
-            block.move(to: CGPoint(x: point.x - size, y: point.y + size * 0.30))
-            block.addLine(to: CGPoint(x: point.x - size * 0.60, y: point.y - size * 0.55))
-            block.addLine(to: CGPoint(x: point.x + size * 0.75, y: point.y - size * 0.30))
-            block.addLine(to: CGPoint(x: point.x + size * 0.95, y: point.y + size * 0.36))
+            block.move(to: CGPoint(x: point.x - size, y: point.y + size * 0.22))
+            block.addLine(to: CGPoint(x: point.x - size * 0.50, y: point.y - size * 0.48))
+            block.addLine(to: CGPoint(x: point.x + size * 0.70, y: point.y - size * 0.26))
+            block.addLine(to: CGPoint(x: point.x + size * 0.88, y: point.y + size * 0.28))
             block.closeSubpath()
             context.fill(block, with: .linearGradient(
                 Gradient(colors: [snowWhite, iceBlue.opacity(0.85)]),
                 startPoint: CGPoint(x: point.x - size, y: point.y - size),
                 endPoint: CGPoint(x: point.x + size, y: point.y + size)))
-            context.stroke(block, with: .color(crevasse.opacity(0.25)), style: brush.joined(brush.lw(0.8)))
         }
     }
 
     private func paintRookery(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // Pebble nests: shallow scrapes ringed with small stones, plus the
-        // tracks leading between them. Unmistakably a penguin colony.
-        let nests: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.175, 0.808, 0.062), (0.290, 0.870, 0.052), (0.815, 0.842, 0.058)
-        ]
-        for (index, nest) in nests.enumerated() {
-            let center = brush.p(nest.0, nest.1)
-            let radius = brush.rx(nest.2)
-            context.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius * 0.42,
-                                                width: radius * 2, height: radius * 0.84)),
-                         with: .color(snowBlue.opacity(0.42)))
-            for stoneIndex in 0..<14 {
-                let angle = Double(stoneIndex) / 14 * 2 * .pi
-                    + Double(habitatNoise(index &* 30 &+ stoneIndex, 41)) * 0.4
-                let distance = radius * habitatNoise(index &* 30 &+ stoneIndex, 42, 0.78, 1.06)
-                let point = CGPoint(x: center.x + CGFloat(cos(angle)) * distance,
-                                    y: center.y + CGFloat(sin(angle)) * distance * 0.42)
-                let pebble = brush.rx(habitatNoise(index &* 30 &+ stoneIndex, 43, 0.007, 0.014))
-                context.fill(Path(ellipseIn: CGRect(x: point.x - pebble, y: point.y - pebble * 0.7,
-                                                    width: pebble * 2, height: pebble * 1.4)),
-                             with: .color(stoneIndex.isMultiple(of: 3)
-                                          ? Color(red: 0.46, green: 0.44, blue: 0.44)
-                                          : Color(red: 0.30, green: 0.30, blue: 0.33)))
-            }
-        }
+        // Irregular heaps on the snow, not dotted rings with a cap on each stone.
+        paintStoneHeap(brush, in: &context, origin: brush.p(0.155, 0.828), seed: 420)
+        paintStoneHeap(brush, in: &context, origin: brush.p(0.286, 0.878), seed: 437)
+        paintStoneHeap(brush, in: &context, origin: brush.p(0.822, 0.848), seed: 454)
 
-        // Two-toed tracks walking away from the dive hole.
+        // Two-toed tracks walking away from the dive hole, kept clear of the heaps.
         for track in 0..<2 {
-            let startX: CGFloat = track == 0 ? 0.360 : 0.660
-            let startY: CGFloat = track == 0 ? 0.885 : 0.930
-            let drift: CGFloat = track == 0 ? -0.055 : 0.075
-            for step in 0..<7 {
-                let t = CGFloat(step) / 6
-                let point = brush.p(startX + drift * t, startY + t * 0.055)
+            let startX: CGFloat = track == 0 ? 0.390 : 0.640
+            let startY: CGFloat = track == 0 ? 0.900 : 0.938
+            let drift: CGFloat = track == 0 ? -0.040 : 0.055
+            for step in 0..<5 {
+                let t = CGFloat(step) / 4
+                let point = brush.p(startX + drift * t, startY + t * 0.042)
                 let side: CGFloat = step.isMultiple(of: 2) ? -1 : 1
-                for toe in 0..<3 {
-                    let angle = -Double.pi * 0.5 + Double(toe - 1) * 0.42
+                for toe in 0..<2 {
+                    let angle = -Double.pi * 0.5 + Double(toe) * 0.55 - 0.22
                     var print = Path()
-                    print.move(to: CGPoint(x: point.x + side * brush.rx(0.012), y: point.y))
-                    print.addLine(to: CGPoint(x: point.x + side * brush.rx(0.012)
-                                              + CGFloat(cos(angle)) * brush.rx(0.014),
-                                              y: point.y + CGFloat(sin(angle)) * brush.ry(0.012)))
+                    print.move(to: CGPoint(x: point.x + side * brush.rx(0.010), y: point.y))
+                    print.addLine(to: CGPoint(x: point.x + side * brush.rx(0.010)
+                                              + CGFloat(cos(angle)) * brush.rx(0.012),
+                                              y: point.y + CGFloat(sin(angle)) * brush.ry(0.010)))
                     context.stroke(print,
-                                   with: .color(snowBlue.opacity(0.55)),
-                                   style: brush.stroke(brush.lw(1.0)))
+                                   with: .color(snowBlue.opacity(0.42)),
+                                   style: brush.stroke(brush.lw(0.9)))
                 }
             }
         }
+    }
+
+    /// A small pile of stones on the snow: overlapping, uneven, no dish of
+    /// shadow or snow around the group.
+    private func paintStoneHeap(_ brush: HabitatBrush,
+                                in context: inout GraphicsContext,
+                                origin: CGPoint,
+                                seed: Int) {
+        let layout: [(CGFloat, CGFloat, CGFloat)] = [
+            (-0.022, 0.010, 0.032), (0.014, 0.014, 0.024),
+            (-0.002, -0.008, 0.020), (0.030, 0.002, 0.017),
+            (-0.032, 0.000, 0.018)
+        ]
+        for (index, spec) in layout.enumerated() {
+            brush.rock(in: &context,
+                       center: CGPoint(x: origin.x + brush.rx(spec.0),
+                                       y: origin.y + brush.ry(spec.1)),
+                       radius: brush.rx(spec.2),
+                       light: index.isMultiple(of: 2)
+                            ? Color(red: 0.44, green: 0.44, blue: 0.49)
+                            : Color(red: 0.28, green: 0.29, blue: 0.34),
+                       dark: rockDark,
+                       seed: seed &+ index &* 11,
+                       flatten: 0.58,
+                       seated: false)
+        }
+        // A drift against one side of the pile, not a ring under it.
+        brush.snowMound(in: &context,
+                        center: CGPoint(x: origin.x - brush.rx(0.020),
+                                        y: origin.y + brush.ry(0.018)),
+                        width: brush.rx(0.048),
+                        height: brush.ry(0.018),
+                        snow: snowWhite.opacity(0.88),
+                        shade: snowBlue.opacity(0.40),
+                        seed: seed &+ 40)
     }
 
     // MARK: - Edges
@@ -483,9 +485,9 @@ struct PenguinIceHabitatArtwork: View, Equatable {
         // A cluster of ice towers cropped by the left edge, tall enough to
         // frame the whole height of the cabinet.
         let towers: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (-0.03, 0.780, 0.190, 0.640),
-            (0.105, 0.812, 0.130, 0.470),
-            (0.195, 0.845, 0.095, 0.320)
+            (-0.03, 0.868, 0.190, 0.728),
+            (0.105, 0.892, 0.130, 0.550),
+            (0.195, 0.910, 0.095, 0.385)
         ]
         for (index, tower) in towers.enumerated() {
             let baseY = tower.1
@@ -520,27 +522,58 @@ struct PenguinIceHabitatArtwork: View, Equatable {
             }
             _ = index
         }
-        // Snow banked against the feet of the towers.
-        brush.snowMound(in: &context,
-                        center: brush.p(0.075, 0.812),
-                        width: brush.rx(0.36),
-                        height: brush.ry(0.075),
-                        snow: snowWhite,
-                        shade: snowShade,
-                        seed: 501)
+        // A wide ellipse over the feet, not a peaked mound that only covers
+        // a sliver at the top. Drawn last so it sits on the ice.
+        let bank = CGRect(x: brush.rx(-0.12),
+                          y: brush.ry(0.872),
+                          width: brush.rx(0.50),
+                          height: brush.ry(0.145))
+        context.fill(Path(ellipseIn: bank), with: .linearGradient(
+            Gradient(colors: [snowWhite, snowShade, snowBlue.opacity(0.85)]),
+            startPoint: CGPoint(x: bank.midX, y: bank.minY),
+            endPoint: CGPoint(x: bank.midX, y: bank.maxY)))
     }
 
     private func paintRightCliff(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A cropped ice wall with an undercut and a fringe of icicles.
+        func cubic(_ t: CGFloat, _ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint) -> CGPoint {
+            let u = 1 - t
+            return CGPoint(x: u*u*u*a.x + 3*u*u*t*b.x + 3*u*t*t*c.x + t*t*t*d.x,
+                           y: u*u*u*a.y + 3*u*u*t*b.y + 3*u*t*t*c.y + t*t*t*d.y)
+        }
+        let lipA = brush.p(0.800, 0.330)
+        let lipC1 = brush.p(0.816, 0.424)
+        let lipC2 = brush.p(0.862, 0.500)
+        let lipB = brush.p(0.870, 0.560)
+
+        // Solid ice behind the fringe so the glacier skyline cannot cut
+        // through the hanging teeth.
+        var curtain = Path()
+        curtain.move(to: brush.p(0.772, 0.318))
+        curtain.addLine(to: lipA)
+        curtain.addCurve(to: cubic(0.48, lipA, lipC1, lipC2, lipB),
+                         control1: lipC1, control2: brush.p(0.828, 0.455))
+        curtain.addLine(to: brush.p(0.768, 0.468))
+        curtain.closeSubpath()
+        context.fill(curtain, with: .color(iceBlue))
+
         var wall = Path()
         wall.move(to: brush.p(1.04, -0.02))
         wall.addLine(to: brush.p(0.845, 0.055))
-        wall.addCurve(to: brush.p(0.800, 0.330),
+        wall.addCurve(to: lipA,
                       control1: brush.p(0.792, 0.145),
                       control2: brush.p(0.784, 0.245))
-        wall.addCurve(to: brush.p(0.870, 0.560),
-                      control1: brush.p(0.816, 0.424),
-                      control2: brush.p(0.862, 0.500))
+        let teeth = 8
+        for index in 0..<teeth {
+            let t0 = CGFloat(index) / CGFloat(teeth) * 0.48
+            let t1 = CGFloat(index + 1) / CGFloat(teeth) * 0.48
+            let a = cubic(t0, lipA, lipC1, lipC2, lipB)
+            let b = cubic(t1, lipA, lipC1, lipC2, lipB)
+            let mid = cubic((t0 + t1) * 0.5, lipA, lipC1, lipC2, lipB)
+            let length = brush.ry(habitatNoise(601 &+ index, 121, 0.045, 0.095))
+            if index == 0 { wall.addLine(to: a) }
+            wall.addLine(to: CGPoint(x: mid.x - brush.rx(0.018), y: mid.y + length))
+            wall.addLine(to: b)
+        }
         wall.addCurve(to: brush.p(1.04, 0.760),
                       control1: brush.p(0.880, 0.640),
                       control2: brush.p(0.958, 0.716))
@@ -549,31 +582,19 @@ struct PenguinIceHabitatArtwork: View, Equatable {
             Gradient(colors: [snowWhite, iceBlue, iceDeep]),
             startPoint: brush.p(0.80, 0.10),
             endPoint: brush.p(1.02, 0.72)))
-        context.stroke(wall, with: .color(crevasse.opacity(0.24)), style: brush.joined(brush.lw(1.3)))
 
-        for index in 0..<5 {
-            var seam = Path()
-            let y = 0.120 + CGFloat(index) * 0.115
-            seam.move(to: brush.p(0.810 + CGFloat(index % 2) * 0.014, y))
-            seam.addQuadCurve(to: brush.p(1.03, y + 0.055),
-                              control: brush.p(0.92, y + 0.010))
-            context.stroke(seam,
+        for index in 0..<3 {
+            var facet = Path()
+            let x = 0.918 + CGFloat(index) * 0.032
+            facet.move(to: brush.p(x, 0.068))
+            facet.addLine(to: brush.p(x + 0.010, 0.360 + CGFloat(index) * 0.04))
+            context.stroke(facet,
                            with: .color(index.isMultiple(of: 2)
-                                        ? Color.white.opacity(0.42)
-                                        : crevasse.opacity(0.22)),
-                           style: brush.stroke(brush.lw(1.3)))
+                                        ? Color.white.opacity(0.24)
+                                        : crevasse.opacity(0.12)),
+                           style: brush.stroke(brush.lw(1.1)))
         }
 
-        brush.icicles(in: &context,
-                      from: brush.p(0.812, 0.322),
-                      to: brush.p(1.02, 0.372),
-                      count: 11,
-                      maxLength: brush.ry(0.115),
-                      color: Color.white.opacity(0.92),
-                      tip: iceBlue.opacity(0.75),
-                      seed: 601)
-
-        // Snow shoulder on top of the wall.
         brush.snowMound(in: &context,
                         center: brush.p(0.930, 0.058),
                         width: brush.rx(0.28),
@@ -584,96 +605,75 @@ struct PenguinIceHabitatArtwork: View, Equatable {
     }
 
     private func paintTopOverhang(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A snow cornice hanging into the top-left of the frame, with icicles.
+        // One filled mass: the hanging teeth are the bottom edge of the
+        // cornice, so they cannot sit in a gap under a separate lip.
+        let lipStart = brush.p(-0.04, 0.168)
+        let lipMid = brush.p(0.230, 0.142)
+        let c1 = brush.p(0.050, 0.164)
+        let c2 = brush.p(0.135, 0.156)
+        let c3 = brush.p(0.330, 0.108)
+        let c4 = brush.p(0.415, 0.050)
+        func cubic(_ t: CGFloat, _ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint) -> CGPoint {
+            let u = 1 - t
+            return CGPoint(x: u*u*u*a.x + 3*u*u*t*b.x + 3*u*t*t*c.x + t*t*t*d.x,
+                           y: u*u*u*a.y + 3*u*u*t*b.y + 3*u*t*t*c.y + t*t*t*d.y)
+        }
+
         var cornice = Path()
-        cornice.move(to: brush.p(-0.02, -0.02))
-        cornice.addLine(to: brush.p(0.44, -0.02))
-        cornice.addCurve(to: brush.p(0.235, 0.108),
-                         control1: brush.p(0.40, 0.062),
-                         control2: brush.p(0.320, 0.098))
-        cornice.addCurve(to: brush.p(-0.02, 0.145),
-                         control1: brush.p(0.150, 0.118),
-                         control2: brush.p(0.060, 0.108))
+        cornice.move(to: brush.p(-0.04, -0.02))
+        cornice.addLine(to: brush.p(0.48, -0.02))
+        cornice.addCurve(to: lipMid, control1: c4, control2: c3)
+        let teeth = 11
+        for index in 0..<teeth {
+            let t0 = CGFloat(index) / CGFloat(teeth)
+            let t1 = CGFloat(index + 1) / CGFloat(teeth)
+            let a = cubic(t0, lipMid, c2, c1, lipStart)
+            let b = cubic(t1, lipMid, c2, c1, lipStart)
+            let mid = cubic((t0 + t1) * 0.5, lipMid, c2, c1, lipStart)
+            let length = brush.ry(habitatNoise(701 &+ index, 121, 0.048, 0.110))
+            if index == 0 { cornice.addLine(to: a) }
+            cornice.addLine(to: CGPoint(x: mid.x, y: mid.y + length))
+            cornice.addLine(to: b)
+        }
         cornice.closeSubpath()
         context.fill(cornice, with: .linearGradient(
-            Gradient(colors: [snowWhite, snowShade, iceBlue.opacity(0.8)]),
-            startPoint: brush.p(0.2, 0),
-            endPoint: brush.p(0.2, 0.15)))
-
-        var lip = Path()
-        lip.move(to: brush.p(-0.02, 0.145))
-        lip.addCurve(to: brush.p(0.235, 0.108),
-                     control1: brush.p(0.060, 0.108),
-                     control2: brush.p(0.150, 0.118))
-        lip.addCurve(to: brush.p(0.44, -0.02),
-                     control1: brush.p(0.320, 0.098),
-                     control2: brush.p(0.40, 0.062))
-        context.stroke(lip, with: .color(Color.white.opacity(0.75)), style: brush.joined(brush.lw(1.8)))
-
-        brush.icicles(in: &context,
-                      from: brush.p(-0.01, 0.140),
-                      to: brush.p(0.245, 0.104),
-                      count: 10,
-                      maxLength: brush.ry(0.105),
-                      color: Color.white.opacity(0.90),
-                      tip: iceBlue.opacity(0.70),
-                      seed: 701)
+            Gradient(colors: [snowWhite, snowShade, iceBlue]),
+            startPoint: brush.p(0.16, 0),
+            endPoint: brush.p(0.16, 0.24)))
     }
 
     private func paintForeground(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        // A near snow bank across the bottom, with wind scallops and a few
-        // ice shards catching the low light.
-        var bank = Path()
-        bank.move(to: brush.p(-0.02, 1.04))
-        bank.addCurve(to: brush.p(0.32, 0.918),
-                      control1: brush.p(0.06, 0.968),
-                      control2: brush.p(0.19, 0.912))
-        bank.addCurve(to: brush.p(0.68, 0.946),
-                      control1: brush.p(0.45, 0.924),
-                      control2: brush.p(0.57, 0.958))
-        bank.addCurve(to: brush.p(1.02, 0.900),
-                      control1: brush.p(0.80, 0.934),
-                      control2: brush.p(0.93, 0.888))
-        bank.addLine(to: brush.p(1.02, 1.04))
-        bank.closeSubpath()
-        context.fill(bank, with: .linearGradient(
-            Gradient(colors: [Color.white.opacity(0.95), snowBlue.opacity(0.92)]),
-            startPoint: brush.p(0.5, 0.90),
-            endPoint: brush.p(0.5, 1.02)))
-
-        for index in 0..<9 {
-            let x = 0.02 + CGFloat(index) * 0.115
-            var scallop = Path()
-            scallop.move(to: brush.p(x, 0.975 + habitatNoise(index, 51, -0.012, 0.012)))
-            scallop.addQuadCurve(to: brush.p(x + 0.085, 0.975 + habitatNoise(index, 52, -0.010, 0.010)),
-                                 control: brush.p(x + 0.042, 0.948))
-            context.stroke(scallop,
-                           with: .color(snowBlue.opacity(0.42)),
-                           style: brush.stroke(brush.lw(1.5)))
-            var lit = context
-            lit.translateBy(x: 0, y: -brush.lw(1.4))
-            lit.stroke(scallop, with: .color(Color.white.opacity(0.75)), style: brush.stroke(brush.lw(1.0)))
-        }
-
         let shards: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.055, 0.985, 0.048), (0.185, 1.005, 0.038),
-            (0.905, 0.965, 0.052), (0.775, 1.000, 0.040)
+            (0.050, 1.005, 0.046), (0.175, 1.022, 0.036),
+            (0.910, 0.995, 0.050), (0.780, 1.020, 0.038)
         ]
-        for (index, shard) in shards.enumerated() {
+        for shard in shards {
             let base = brush.p(shard.0, shard.1)
             let size = brush.rx(shard.2)
             var spike = Path()
-            spike.move(to: CGPoint(x: base.x - size * 0.6, y: base.y))
-            spike.addLine(to: CGPoint(x: base.x - size * 0.15, y: base.y - size * 1.5))
-            spike.addLine(to: CGPoint(x: base.x + size * 0.35, y: base.y - size * 0.9))
-            spike.addLine(to: CGPoint(x: base.x + size * 0.7, y: base.y))
+            spike.move(to: CGPoint(x: base.x - size * 0.50, y: base.y))
+            spike.addLine(to: CGPoint(x: base.x - size * 0.10, y: base.y - size * 1.28))
+            spike.addLine(to: CGPoint(x: base.x + size * 0.28, y: base.y - size * 0.78))
+            spike.addLine(to: CGPoint(x: base.x + size * 0.55, y: base.y))
             spike.closeSubpath()
             context.fill(spike, with: .linearGradient(
-                Gradient(colors: [Color.white, iceBlue.opacity(0.85)]),
+                Gradient(colors: [snowWhite, iceBlue]),
                 startPoint: CGPoint(x: base.x - size, y: base.y - size),
                 endPoint: CGPoint(x: base.x + size, y: base.y)))
-            context.stroke(spike, with: .color(crevasse.opacity(0.22)), style: brush.joined(brush.lw(0.8)))
-            _ = index
         }
+
+        // A quiet, almost flat drift. A scalloped top read as kringels
+        // under the shards.
+        var bank = Path()
+        bank.move(to: brush.p(-0.02, 1.04))
+        bank.addLine(to: brush.p(-0.02, 0.972))
+        bank.addQuadCurve(to: brush.p(1.02, 0.968),
+                          control: brush.p(0.50, 0.984))
+        bank.addLine(to: brush.p(1.02, 1.04))
+        bank.closeSubpath()
+        context.fill(bank, with: .linearGradient(
+            Gradient(colors: [snowWhite, snowBlue.opacity(0.92)]),
+            startPoint: brush.p(0.5, 0.96),
+            endPoint: brush.p(0.5, 1.03)))
     }
 }
