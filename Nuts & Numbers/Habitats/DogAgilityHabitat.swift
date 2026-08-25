@@ -41,10 +41,10 @@ struct DogAgilityHabitatArtwork: View, Equatable {
             paintAFrame(brush, in: &context)
             paintSeesaw(brush, in: &context)
             paintTyreJump(brush, in: &context)
-            paintHurdles(brush, in: &context)
             paintRingDressing(brush, in: &context)
             paintBunting(brush, in: &context)
             paintTunnel(brush, in: &context)
+            paintHurdles(brush, in: &context)
             paintForeground(brush, in: &context)
         }
         .overlay {
@@ -480,7 +480,7 @@ struct DogAgilityHabitatArtwork: View, Equatable {
         // One remaining jump, kept clear of the tyre so they read as two
         // separate pieces of kit rather than a fused left-hand cluster.
         let jumps: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (0.545, 0.958, 0.210, 0.125)
+            (0.430, 0.958, 0.190, 0.125)
         ]
         for jump in jumps {
             let baseY = jump.1
@@ -598,8 +598,8 @@ struct DogAgilityHabitatArtwork: View, Equatable {
         // Mid-field, 1.5× the previous run. The A-frame is drawn first so the
         // plank covers the near foot; the fulcrum never sits on top of the board.
         let pivot = brush.p(0.495, 0.730)
-        let low = brush.p(0.215, 0.808)
-        let high = brush.p(0.775, 0.652)
+        let low = brush.p(0.243, 0.800)
+        let high = brush.p(0.747, 0.660)
         let thickness = brush.ry(0.028)
         let dx = high.x - low.x
         let dy = high.y - low.y
@@ -608,7 +608,7 @@ struct DogAgilityHabitatArtwork: View, Equatable {
         let ny = dx / span
         brush.contactShadow(in: &context,
                             center: brush.p(0.495, 0.778),
-                            width: brush.rx(0.58),
+                            width: brush.rx(0.52),
                             height: brush.ry(0.032),
                             opacity: 0.28)
 
@@ -727,11 +727,8 @@ struct DogAgilityHabitatArtwork: View, Equatable {
                                             height: bowlWidth * 0.34)),
                      with: .color(Color(red: 0.62, green: 0.84, blue: 0.94)))
 
-        // Loose balls sit in the grass, never jammed against kit. A small
-        // wire basket on the right keeps the extras together.
-        paintTennisBall(brush, in: &context, at: (0.338, 0.848), radius: 0.017)
+        paintTennisBall(brush, in: &context, at: (0.280, 0.858), radius: 0.017)
         paintTennisBall(brush, in: &context, at: (0.175, 0.938), radius: 0.015)
-        paintBallBasket(brush, in: &context)
     }
 
     private func paintTennisBall(_ brush: HabitatBrush,
@@ -756,33 +753,6 @@ struct DogAgilityHabitatArtwork: View, Equatable {
         seam.addQuadCurve(to: CGPoint(x: point.x + r * 0.9, y: point.y - r * 0.2),
                           control: CGPoint(x: point.x, y: point.y + r * 0.7))
         context.stroke(seam, with: .color(Color.white.opacity(0.75)), style: brush.stroke(brush.lw(0.9)))
-    }
-
-    private func paintBallBasket(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        let origin = brush.p(0.405, 0.978)
-        let width = brush.rx(0.070)
-        let height = brush.ry(0.055)
-        brush.contactShadow(in: &context,
-                            center: CGPoint(x: origin.x, y: origin.y + height * 0.45),
-                            width: width * 1.6, height: height * 0.5, opacity: 0.26)
-        var basket = Path()
-        basket.move(to: CGPoint(x: origin.x - width * 0.55, y: origin.y - height * 0.55))
-        basket.addLine(to: CGPoint(x: origin.x - width * 0.42, y: origin.y + height * 0.45))
-        basket.addQuadCurve(to: CGPoint(x: origin.x + width * 0.42, y: origin.y + height * 0.45),
-                            control: CGPoint(x: origin.x, y: origin.y + height * 0.58))
-        basket.addLine(to: CGPoint(x: origin.x + width * 0.55, y: origin.y - height * 0.55))
-        context.stroke(basket, with: .color(Color(red: 0.32, green: 0.32, blue: 0.34)),
-                       style: brush.joined(brush.lw(1.6)))
-        for t in [CGFloat(0.25), 0.50, 0.75] {
-            var wire = Path()
-            wire.move(to: CGPoint(x: origin.x - width * (0.55 - t * 0.13),
-                                  y: origin.y - height * 0.55 + height * t * 0.95))
-            wire.addQuadCurve(to: CGPoint(x: origin.x + width * (0.55 - t * 0.13),
-                                          y: origin.y - height * 0.55 + height * t * 0.95),
-                              control: CGPoint(x: origin.x, y: origin.y - height * 0.48 + height * t))
-            context.stroke(wire, with: .color(Color(red: 0.32, green: 0.32, blue: 0.34).opacity(0.75)),
-                           style: brush.stroke(brush.lw(1.0)))
-        }
     }
 
     private func paintBunting(_ brush: HabitatBrush, in context: inout GraphicsContext) {

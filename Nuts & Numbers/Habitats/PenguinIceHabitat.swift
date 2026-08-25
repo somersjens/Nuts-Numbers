@@ -158,13 +158,12 @@ struct PenguinIceHabitatArtwork: View, Equatable {
             (0.136, 0.469), (0.205, 0.464), (0.262, 0.441), (0.334, 0.447),
             (0.342, 0.470), (0.398, 0.466), (0.404, 0.452), (0.487, 0.455),
             (0.560, 0.473), (0.618, 0.470), (0.626, 0.449), (0.702, 0.454),
-            (0.766, 0.443), (0.838, 0.449), (0.846, 0.471), (0.918, 0.467),
-            (0.962, 0.452), (1.02, 0.456)
+            (0.766, 0.448), (0.798, 0.462)
         ]
         var front = Path()
         front.move(to: brush.p(profile[0].0, profile[0].1))
         for point in profile.dropFirst() { front.addLine(to: brush.p(point.0, point.1)) }
-        front.addLine(to: brush.p(1.02, 0.545))
+        front.addLine(to: brush.p(0.82, 0.545))
         front.addLine(to: brush.p(-0.02, 0.545))
         front.closeSubpath()
         context.fill(front, with: .linearGradient(
@@ -176,7 +175,7 @@ struct PenguinIceHabitatArtwork: View, Equatable {
         // short of the waterline.
         let cracks: [CGFloat] = [0.048, 0.061, 0.134, 0.258, 0.271, 0.281,
                                  0.340, 0.406, 0.492, 0.556, 0.624, 0.636,
-                                 0.762, 0.774, 0.844, 0.958]
+                                 0.762, 0.774]
         for (index, x) in cracks.enumerated() {
             let top = 0.458 + habitatNoise(index, 12, -0.008, 0.008)
             let bottom = top + habitatNoise(index, 16, 0.028, 0.086)
@@ -233,8 +232,7 @@ struct PenguinIceHabitatArtwork: View, Equatable {
     private func paintFloes(_ brush: HabitatBrush, in context: inout GraphicsContext) {
         let floes: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
             (0.085, 0.578, 0.140, 0.022), (0.245, 0.600, 0.115, 0.020),
-            (0.400, 0.572, 0.090, 0.016), (0.520, 0.612, 0.130, 0.024),
-            (0.815, 0.588, 0.120, 0.020), (0.945, 0.618, 0.105, 0.022)
+            (0.400, 0.572, 0.090, 0.016), (0.560, 0.608, 0.120, 0.022)
         ]
         for (index, floe) in floes.enumerated() {
             let center = brush.p(floe.0, floe.1)
@@ -535,45 +533,27 @@ struct PenguinIceHabitatArtwork: View, Equatable {
     }
 
     private func paintRightCliff(_ brush: HabitatBrush, in context: inout GraphicsContext) {
-        func cubic(_ t: CGFloat, _ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint) -> CGPoint {
-            let u = 1 - t
-            return CGPoint(x: u*u*u*a.x + 3*u*u*t*b.x + 3*u*t*t*c.x + t*t*t*d.x,
-                           y: u*u*u*a.y + 3*u*u*t*b.y + 3*u*t*t*c.y + t*t*t*d.y)
-        }
-        let lipA = brush.p(0.800, 0.330)
-        let lipC1 = brush.p(0.816, 0.424)
-        let lipC2 = brush.p(0.862, 0.500)
-        let lipB = brush.p(0.870, 0.560)
-
-        // Solid ice behind the fringe so the glacier skyline cannot cut
-        // through the hanging teeth.
-        var curtain = Path()
-        curtain.move(to: brush.p(0.772, 0.318))
-        curtain.addLine(to: lipA)
-        curtain.addCurve(to: cubic(0.48, lipA, lipC1, lipC2, lipB),
-                         control1: lipC1, control2: brush.p(0.828, 0.455))
-        curtain.addLine(to: brush.p(0.768, 0.468))
-        curtain.closeSubpath()
-        context.fill(curtain, with: .color(iceBlue))
+        // A cropped ice wall. Keep the silhouette one piece: extra ovals,
+        // facets and toothed holes read as stray objects on the right.
+        brush.icicles(in: &context,
+                      from: brush.p(0.808, 0.328),
+                      to: brush.p(0.858, 0.510),
+                      count: 8,
+                      maxLength: brush.ry(0.088),
+                      color: snowWhite,
+                      tip: iceBlue,
+                      seed: 601,
+                      embed: brush.rx(0.014))
 
         var wall = Path()
         wall.move(to: brush.p(1.04, -0.02))
         wall.addLine(to: brush.p(0.845, 0.055))
-        wall.addCurve(to: lipA,
+        wall.addCurve(to: brush.p(0.800, 0.330),
                       control1: brush.p(0.792, 0.145),
                       control2: brush.p(0.784, 0.245))
-        let teeth = 8
-        for index in 0..<teeth {
-            let t0 = CGFloat(index) / CGFloat(teeth) * 0.48
-            let t1 = CGFloat(index + 1) / CGFloat(teeth) * 0.48
-            let a = cubic(t0, lipA, lipC1, lipC2, lipB)
-            let b = cubic(t1, lipA, lipC1, lipC2, lipB)
-            let mid = cubic((t0 + t1) * 0.5, lipA, lipC1, lipC2, lipB)
-            let length = brush.ry(habitatNoise(601 &+ index, 121, 0.045, 0.095))
-            if index == 0 { wall.addLine(to: a) }
-            wall.addLine(to: CGPoint(x: mid.x - brush.rx(0.018), y: mid.y + length))
-            wall.addLine(to: b)
-        }
+        wall.addCurve(to: brush.p(0.870, 0.560),
+                      control1: brush.p(0.816, 0.424),
+                      control2: brush.p(0.862, 0.500))
         wall.addCurve(to: brush.p(1.04, 0.760),
                       control1: brush.p(0.880, 0.640),
                       control2: brush.p(0.958, 0.716))
@@ -582,26 +562,6 @@ struct PenguinIceHabitatArtwork: View, Equatable {
             Gradient(colors: [snowWhite, iceBlue, iceDeep]),
             startPoint: brush.p(0.80, 0.10),
             endPoint: brush.p(1.02, 0.72)))
-
-        for index in 0..<3 {
-            var facet = Path()
-            let x = 0.918 + CGFloat(index) * 0.032
-            facet.move(to: brush.p(x, 0.068))
-            facet.addLine(to: brush.p(x + 0.010, 0.360 + CGFloat(index) * 0.04))
-            context.stroke(facet,
-                           with: .color(index.isMultiple(of: 2)
-                                        ? Color.white.opacity(0.24)
-                                        : crevasse.opacity(0.12)),
-                           style: brush.stroke(brush.lw(1.1)))
-        }
-
-        brush.snowMound(in: &context,
-                        center: brush.p(0.930, 0.058),
-                        width: brush.rx(0.28),
-                        height: brush.ry(0.055),
-                        snow: snowWhite,
-                        shade: snowShade,
-                        seed: 602)
     }
 
     private func paintTopOverhang(_ brush: HabitatBrush, in context: inout GraphicsContext) {
