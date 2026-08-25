@@ -219,7 +219,7 @@ struct LionSavannaHabitatArtwork: View, Equatable {
                              seed: 360)
 
         // Stubble: short paired flicks of dry grass, denser toward the viewer.
-        for index in 0..<90 {
+        for index in 0..<52 {
             let depth = habitatNoise(index, 41)
             let y = 0.610 + depth * depth * 0.39
             let x = habitatNoise(index, 42, -0.01, 1.01)

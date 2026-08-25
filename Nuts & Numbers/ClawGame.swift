@@ -1848,7 +1848,9 @@ struct ClawPlayfield: View {
                 )
                 .equatable()
 
-                CabinetLivingDetails(palette: palette, reduceMotion: reduceMotion)
+                CabinetLivingDetails(palette: palette,
+                                     reduceMotion: reduceMotion,
+                                     isActive: isRunning)
 
                 glassChamber(geo: geo)
 
@@ -2194,17 +2196,20 @@ struct ClawPlayfield: View {
         return ZStack(alignment: .topLeading) {
             SanctuaryScene(palette: palette, character: character, isPad: isPad)
                 .equatable()
-                .drawingGroup()
+                .drawingGroup(opaque: true)
                 .scaleEffect(habitatScale, anchor: .top)
                 .frame(width: geo.play.width, height: geo.play.height)
 
             Group {
                 if character.id == "elephant" {
-                    SanctuaryLivingDetails(isPad: isPad, reduceMotion: reduceMotion)
+                    SanctuaryLivingDetails(isPad: isPad,
+                                           reduceMotion: reduceMotion,
+                                           isActive: isRunning)
                 } else {
                     AnimalHabitatLivingDetails(characterID: character.id,
                                                isPad: isPad,
-                                               reduceMotion: reduceMotion)
+                                               reduceMotion: reduceMotion,
+                                               isActive: isRunning)
                 }
             }
             .scaleEffect(habitatScale, anchor: .top)
@@ -3782,7 +3787,7 @@ private struct MachineCabinet: View, Equatable {
                     }
                 }
             }
-            .drawingGroup()
+            .drawingGroup(opaque: true)
 
             HStack(spacing: 0) {
                 woodPost
@@ -4130,9 +4135,10 @@ private struct VinesOverlay: View {
 private struct CabinetLivingDetails: View {
     let palette: ClawPalette
     let reduceMotion: Bool
+    var isActive: Bool = true
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 18.0, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 18.0, paused: reduceMotion || !isActive)) { timeline in
             GeometryReader { proxy in
                 let time = timeline.date.timeIntervalSinceReferenceDate
                 let sway = reduceMotion ? 0 : sin(time * 0.78) * 3.2
@@ -6551,12 +6557,13 @@ struct SavannaHabitatArtwork: View, Equatable {
 private struct SanctuaryLivingDetails: View {
     let isPad: Bool
     let reduceMotion: Bool
+    var isActive: Bool = true
 
     var body: some View {
         // Cheap ambient motion on its own clock so it never contends with the
         // claw's 60 Hz pose. 30 Hz with a handful of solid fills is smoother
         // than 12 Hz of gradient leaves, and far cheaper to composite.
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || !isActive)) { timeline in
             let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)

@@ -174,7 +174,7 @@ struct PromoTrailerHostView: View {
     private var appIconOverlay: some View {
         VStack {
             Spacer()
-            Image("app_icon_clean")
+            trailerAppIcon
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(1, contentMode: .fit)
@@ -189,6 +189,30 @@ struct PromoTrailerHostView: View {
             Spacer()
         }
         .allowsHitTesting(false)
+    }
+
+    /// Marketing icon for the teaser finale. Kept next to these sources and
+    /// excluded from the App Store catalog — a Display P3 1024px imageset was
+    /// compiling to ~1.7 MB of unused renditions for every player.
+    private var trailerAppIcon: Image {
+        if let image = Self.loadTrailerAppIcon() {
+            return Image(uiImage: image)
+        }
+        return Image("1_main")
+    }
+
+    private static func loadTrailerAppIcon() -> UIImage? {
+        let besideSources = URL(fileURLWithPath: #file)
+            .deletingLastPathComponent()
+            .appendingPathComponent("app_icon_clean.png")
+        if let image = UIImage(contentsOfFile: besideSources.path) {
+            return image
+        }
+        if let url = Bundle.main.url(forResource: "app_icon_clean", withExtension: "png",
+                                     subdirectory: "Promo") {
+            return UIImage(contentsOfFile: url.path)
+        }
+        return UIImage(named: "app_icon_clean")
     }
 
     private func boot() async {

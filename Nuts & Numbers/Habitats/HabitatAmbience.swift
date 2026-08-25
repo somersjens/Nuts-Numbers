@@ -6,7 +6,8 @@
 //  same budget as the elephant sanctuary: one 30 Hz timeline, a couple of
 //  dozen solid fills and short strokes, no gradients and no per-frame path
 //  rebuilding beyond what is unavoidable. Motion is placed away from the drop
-//  corridor and stops completely under Reduce Motion.
+//  corridor, freezes in place while the level is not running, and stops
+//  completely under Reduce Motion.
 //
 
 import SwiftUI
@@ -31,10 +32,14 @@ struct AnimalHabitatLivingDetails: View {
     let characterID: String
     let isPad: Bool
     let reduceMotion: Bool
+    /// False behind the start / pause card and in the background, so the
+    /// timeline lets go of the display link. The last frame stays on screen.
+    var isActive: Bool = true
 
     var body: some View {
         let habitat = AnimalHabitatKind(characterID: characterID)
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
+        let paused = reduceMotion || !isActive
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: paused)) { timeline in
             let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 let brush = HabitatBrush(size: size, isPad: isPad)
@@ -181,7 +186,7 @@ private extension AnimalHabitatLivingDetails {
         // corridor, and thin out before they reach the surface.
         let vents: [(CGFloat, CGFloat)] = [(0.088, 0.845), (0.905, 0.868), (0.205, 0.900)]
         for (ventIndex, vent) in vents.enumerated() {
-            let count = ventIndex == 2 ? 3 : 5
+            let count = ventIndex == 2 ? 2 : 4
             for index in 0..<count {
                 let progress = loop(time, 6.2 + Double(ventIndex) * 1.4, Double(index) / Double(count))
                 bubble(brush, in: &context,
@@ -194,7 +199,7 @@ private extension AnimalHabitatLivingDetails {
         }
 
         // Suspended plankton sinking slowly through the light.
-        for index in 0..<12 {
+        for index in 0..<8 {
             let fall = loop(time, 26 + Double(index % 4) * 5, Double(index) * 0.083)
             let x = habitatNoise(index, 201, 0.05, 0.95)
             let sway = CGFloat(sin(time * 0.30 + Double(index))) * 0.010
@@ -241,7 +246,7 @@ private extension AnimalHabitatLivingDetails {
 
     func paintShallows(_ brush: HabitatBrush, in context: inout GraphicsContext, time: TimeInterval) {
         for (ventIndex, vent) in [(0.075, 0.880), (0.930, 0.860)].enumerated() {
-            for index in 0..<4 {
+            for index in 0..<3 {
                 let progress = loop(time, 5.4 + Double(ventIndex) * 1.1, Double(index) * 0.25)
                 bubble(brush, in: &context,
                        vent: brush.p(vent.0, vent.1),
@@ -253,7 +258,7 @@ private extension AnimalHabitatLivingDetails {
         }
 
         // A loose shoal drifting across the back of the flat.
-        for index in 0..<7 {
+        for index in 0..<5 {
             let progress = loop(time, 11 + Double(index) * 1.4, Double(index) * 0.13)
             let x = -0.10 + progress * 1.20
             let y = 0.355 + CGFloat(index % 3) * 0.038
@@ -269,7 +274,7 @@ private extension AnimalHabitatLivingDetails {
         }
 
         // Caustic net crawling over the sand.
-        for index in 0..<5 {
+        for index in 0..<4 {
             let slide = CGFloat(sin(time * 0.5 + Double(index) * 0.9)) * 0.035
             let y = 0.760 + CGFloat(index) * 0.052
             wavelet(brush, in: &context,
@@ -279,7 +284,7 @@ private extension AnimalHabitatLivingDetails {
                     opacity: 0.16 - Double(index) * 0.015)
         }
 
-        for index in 0..<8 {
+        for index in 0..<6 {
             let fall = loop(time, 22 + Double(index % 3) * 6, Double(index) * 0.125)
             mote(brush, in: &context,
                  at: brush.p(habitatNoise(index, 211, 0.04, 0.96), 0.20 + fall * 0.62),
@@ -392,7 +397,7 @@ private extension AnimalHabitatLivingDetails {
         }
 
         // The shafts breathe as the canopy moves overhead.
-        for index in 0..<3 {
+        for index in 0..<2 {
             let pulse = 0.5 + 0.5 * sin(time * 0.55 + Double(index) * 1.2)
             var shaft = Path()
             let topX = 0.60 + CGFloat(index) * 0.13
@@ -479,7 +484,7 @@ private extension AnimalHabitatLivingDetails {
     func paintPolar(_ brush: HabitatBrush, in context: inout GraphicsContext, time: TimeInterval) {
         // Wind-driven snow: it crosses the frame diagonally rather than
         // falling straight, which is what makes it read as cold.
-        for index in 0..<20 {
+        for index in 0..<12 {
             let fall = loop(time, 7.5 + Double(index % 5) * 2.6, Double(index) * 0.05)
             let lane = habitatNoise(index, 251)
             let gust = CGFloat(sin(time * 0.7 + Double(index) * 0.6)) * 0.030
@@ -574,9 +579,11 @@ private extension AnimalHabitatLivingDetails {
                              Color(red: 0.30, green: 0.72, blue: 0.42)]
 
         // The bunting is the one thing on this field that should always be
-        // moving; each pennant swings on its own slightly offset clock.
+        // moving; each pennant swings on its own slightly offset clock. Every
+        // other flag is enough for the breeze — the static pennants in between
+        // still read as the rest of the string.
         for line in 0..<2 {
-            for index in 0..<13 {
+            for index in stride(from: 0, to: 13, by: 2) {
                 let t = CGFloat(index) / 12
                 let sag = CGFloat(0.150 + CGFloat(line) * 0.095)
                 let start = brush.p(0.016, 0.045 + CGFloat(line) * 0.075)
@@ -628,12 +635,12 @@ private extension AnimalHabitatLivingDetails {
     func paintSavanna(_ brush: HabitatBrush, in context: inout GraphicsContext, time: TimeInterval) {
         // Heat shimmer over the far plain: thin bands that slide sideways and
         // fade, never a hard moving line.
-        for index in 0..<4 {
+        for index in 0..<2 {
             let slide = CGFloat(sin(time * 0.45 + Double(index) * 1.35))
             let y = brush.ry(0.600 + CGFloat(index) * 0.022)
             let width = brush.rx(0.34)
             let height = brush.ry(0.012)
-            context.fill(Path(ellipseIn: CGRect(x: brush.rx(0.18 + CGFloat(index) * 0.22) + slide * brush.rx(0.03) - width * 0.5,
+            context.fill(Path(ellipseIn: CGRect(x: brush.rx(0.28 + CGFloat(index) * 0.32) + slide * brush.rx(0.03) - width * 0.5,
                                                 y: y - height * 0.5,
                                                 width: width, height: height)),
                          with: .color(Color(red: 1.0, green: 0.94, blue: 0.76)
@@ -653,7 +660,7 @@ private extension AnimalHabitatLivingDetails {
         }
 
         // Dust lifting off the dry ground and blowing right.
-        for index in 0..<10 {
+        for index in 0..<7 {
             let drift = loop(time, 13 + Double(index % 4) * 4, Double(index) * 0.1)
             let lift = CGFloat(sin(time * 0.4 + Double(index) * 1.1)) * 0.020
             mote(brush, in: &context,

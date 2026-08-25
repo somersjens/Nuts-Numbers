@@ -1398,7 +1398,9 @@ extension HabitatBrush {
     }
 
     /// Small side-on fish with a triangular tail. `flick` bends the tail so a
-    /// swimming fish never sits as a frozen silhouette.
+    /// swimming fish never sits as a frozen silhouette. Solid fills only: this
+    /// primitive is drawn on the 30 Hz living layer, where a per-frame
+    /// gradient would contend with the claw.
     func fish(in context: inout GraphicsContext,
               center: CGPoint,
               length: CGFloat,
@@ -1414,10 +1416,12 @@ extension HabitatBrush {
         body.addQuadCurve(to: CGPoint(x: center.x + direction * length * 0.5, y: center.y),
                           control: CGPoint(x: center.x, y: center.y + length * 0.26))
         body.closeSubpath()
-        context.fill(body, with: .linearGradient(
-            Gradient(colors: [color, belly]),
-            startPoint: CGPoint(x: center.x, y: center.y - length * 0.28),
-            endPoint: CGPoint(x: center.x, y: center.y + length * 0.26)))
+        context.fill(body, with: .color(color))
+        let bellyRect = CGRect(x: center.x - length * 0.16,
+                               y: center.y,
+                               width: length * 0.32,
+                               height: length * 0.12)
+        context.fill(Path(ellipseIn: bellyRect), with: .color(belly))
 
         let tailBend = flick * length * 0.22
         var tail = Path()

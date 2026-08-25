@@ -254,13 +254,24 @@ struct FoxForestHabitatArtwork: View, Equatable {
             let x = habitatNoise(index, 12, 0.01, 0.99)
             let y = 0.610 + depth * depth * 0.39
             let length = brush.rx(0.014 + depth * 0.034)
-            let angle = Double(habitatNoise(index, 13)) * .pi
-            brush.leaf(in: &context,
-                       center: brush.p(x, y),
-                       length: length,
-                       angle: angle,
-                       color: colors[index % colors.count].opacity(0.62 + Double(depth) * 0.32),
-                       vein: 0.10)
+            let color = colors[index % colors.count].opacity(0.62 + Double(depth) * 0.32)
+            if depth < 0.38 {
+                // Distant litter reads as a speck. A full leaf() is lost at
+                // that size and costs a gradient plus a vein on first raster.
+                let center = brush.p(x, y)
+                context.fill(Path(ellipseIn: CGRect(x: center.x - length * 0.45,
+                                                    y: center.y - length * 0.22,
+                                                    width: length * 0.90,
+                                                    height: length * 0.44)),
+                             with: .color(color))
+            } else {
+                brush.leaf(in: &context,
+                           center: brush.p(x, y),
+                           length: length,
+                           angle: Double(habitatNoise(index, 13)) * .pi,
+                           color: color,
+                           vein: 0.10)
+            }
         }
 
         // Acorns and beech mast in a few clusters rather than spread evenly.
