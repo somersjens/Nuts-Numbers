@@ -2,8 +2,8 @@
 //  ClawPuzzle.swift
 //  Nuts & Numbers
 //
-//  Builds one claw-machine level: the full sum list, the gold nuts, and a
-//  physical pile that is guaranteed to stay solvable and finish empty.
+//  Builds one claw-machine level: the full sum list and a physical pile that
+//  is guaranteed to stay solvable and finish empty.
 //
 //  The brick mound is built first and every sum is printed onto a nut before
 //  play starts. Those printed numbers never move. The next sum is chosen from
@@ -40,7 +40,6 @@ nonisolated public struct ClawNut: Identifiable, Equatable, Codable, Sendable {
     /// 0-based index of the sum this nut was laid for. The optional shape is
     /// retained for save compatibility, although new piles contain no decoys.
     public let sequenceIndex: Int?
-    public let isGold: Bool
     public var position: ClawPoint
     public var radius: Double
     /// Nuts whose shells physically rest on this one. This snapshot drives the
@@ -57,14 +56,12 @@ nonisolated public struct ClawNut: Identifiable, Equatable, Codable, Sendable {
     public init(id: UUID = UUID(),
                 text: String,
                 sequenceIndex: Int?,
-                isGold: Bool,
                 position: ClawPoint,
                 radius: Double,
                 coveredBy: [UUID] = []) {
         self.id = id
         self.text = text
         self.sequenceIndex = sequenceIndex
-        self.isGold = isGold
         self.position = position
         self.radius = radius
         self.coveredBy = coveredBy
@@ -243,14 +240,12 @@ nonisolated private enum ClawPuzzleBuilder {
         let ordered = preservesQuestionOrder
             ? questions
             : peelSchedule(questions, random: random)
-        let gold = goldIndices(count: ordered.count, random: random)
         let distractors = makeDistractors(for: ordered, random: random)
         let strategy = LayoutStrategy.allCases[
             random.int(in: 0...(LayoutStrategy.allCases.count - 1))
         ]
 
         var nuts = place(answers: ordered,
-                         gold: gold,
                          distractors: distractors,
                          strategy: strategy,
                          random: random)
@@ -264,7 +259,6 @@ nonisolated private enum ClawPuzzleBuilder {
         refreshCovering(&nuts)
         if !isSolvableWithCascade(nuts, answerCount: ordered.count) {
             nuts = placePeakFirst(answers: ordered,
-                                  gold: gold,
                                   distractors: distractors,
                                   strategy: .strictPyramid,
                                   random: random)
@@ -276,7 +270,6 @@ nonisolated private enum ClawPuzzleBuilder {
         var puzzle = ClawPuzzle(questions: ordered, nuts: nuts, seed: seed)
         if !puzzle.isPlayablePlan(expectedCount: ordered.count) {
             nuts = placePeakFirst(answers: ordered,
-                                  gold: gold,
                                   distractors: distractors,
                                   strategy: .strictPyramid,
                                   random: random)
@@ -314,14 +307,7 @@ nonisolated private enum ClawPuzzleBuilder {
         return random.shuffled(unique) + random.shuffled(repeats)
     }
 
-    // MARK: Gold & distractors
-
-    static func goldIndices(count: Int, random: RandomSource) -> Set<Int> {
-        guard count > 0 else { return [] }
-        let wanted = max(1, Int((Double(count) * GameConfig.clawGoldRatio).rounded()))
-        let pool = count == 1 ? [0] : Array(1..<count)
-        return Set(random.shuffled(pool).prefix(wanted))
-    }
+    // MARK: Distractors
 
     static func makeDistractors(for questions: [MathQuestion],
                                 random: RandomSource) -> [String] {
@@ -372,7 +358,6 @@ nonisolated private enum ClawPuzzleBuilder {
     }
 
     static func place(answers: [MathQuestion],
-                      gold: Set<Int>,
                       distractors: [String],
                       strategy: LayoutStrategy,
                       random: RandomSource) -> [ClawNut] {
@@ -381,13 +366,11 @@ nonisolated private enum ClawPuzzleBuilder {
         var nuts = slots.map { slot in
             ClawNut(text: "",
                     sequenceIndex: nil,
-                    isGold: false,
                     position: slot.position,
                     radius: slot.radius)
         }
         assignAnswers(&nuts,
                       answers: answers,
-                      gold: gold,
                       distractors: distractors,
                       random: random)
         return nuts
@@ -396,7 +379,6 @@ nonisolated private enum ClawPuzzleBuilder {
     /// Emergency layout: early sums on the peak, later sums underneath.
     /// Only used if grabable-slot assignment somehow cannot finish a session.
     static func placePeakFirst(answers: [MathQuestion],
-                               gold: Set<Int>,
                                distractors: [String],
                                strategy: LayoutStrategy,
                                random: RandomSource) -> [ClawNut] {
@@ -421,7 +403,6 @@ nonisolated private enum ClawPuzzleBuilder {
             let slot = slots[index]
             nuts.append(ClawNut(text: answer.correctAnswer,
                                 sequenceIndex: index,
-                                isGold: gold.contains(index),
                                 position: slot.position,
                                 radius: slot.radius))
         }
@@ -429,7 +410,6 @@ nonisolated private enum ClawPuzzleBuilder {
         for (slot, text) in zip(remainingSlots, distractors) {
             nuts.append(ClawNut(text: text,
                                 sequenceIndex: nil,
-                                isGold: false,
                                 position: slot.position,
                                 radius: slot.radius))
         }
@@ -438,12 +418,10 @@ nonisolated private enum ClawPuzzleBuilder {
 
     static func relabel(_ nut: ClawNut,
                         text: String,
-                        sequenceIndex: Int?,
-                        isGold: Bool) -> ClawNut {
+                        sequenceIndex: Int?) -> ClawNut {
         ClawNut(id: nut.id,
                 text: text,
                 sequenceIndex: sequenceIndex,
-                isGold: isGold,
                 position: nut.position,
                 radius: nut.radius,
                 coveredBy: nut.coveredBy)
@@ -451,7 +429,6 @@ nonisolated private enum ClawPuzzleBuilder {
 
     static func assignAnswers(_ nuts: inout [ClawNut],
                               answers: [MathQuestion],
-                              gold: Set<Int>,
                               distractors: [String],
                               random: RandomSource) {
         let startGrabableIDs = Set(nuts.filter { ClawPuzzle.isGrabable($0, among: nuts) }.map(\.id))
@@ -504,8 +481,7 @@ nonisolated private enum ClawPuzzleBuilder {
             if let i = nuts.firstIndex(where: { $0.id == chosen.id }) {
                 nuts[i] = relabel(nuts[i],
                                   text: question.correctAnswer,
-                                  sequenceIndex: index,
-                                  isGold: gold.contains(index))
+                                  sequenceIndex: index)
             }
             if let live = sim.first(where: { $0.id == chosen.id }) {
                 applyFall(&sim, removing: live)
@@ -516,13 +492,12 @@ nonisolated private enum ClawPuzzleBuilder {
             guard let i = nuts.firstIndex(where: { $0.sequenceIndex == nil }) else { break }
             nuts[i] = relabel(nuts[i],
                               text: question.correctAnswer,
-                              sequenceIndex: index,
-                              isGold: gold.contains(index))
+                              sequenceIndex: index)
         }
         var decoys = distractors
         for i in nuts.indices where nuts[i].sequenceIndex == nil {
             let text = decoys.isEmpty ? "0" : decoys.removeFirst()
-            nuts[i] = relabel(nuts[i], text: text, sequenceIndex: nil, isGold: false)
+            nuts[i] = relabel(nuts[i], text: text, sequenceIndex: nil)
         }
     }
 
@@ -723,7 +698,6 @@ nonisolated private enum ClawPuzzleBuilder {
                 nuts[i] = ClawNut(id: nuts[i].id,
                                   text: uniqueExtra(),
                                   sequenceIndex: nuts[i].sequenceIndex,
-                                  isGold: nuts[i].isGold,
                                   position: nuts[i].position,
                                   radius: nuts[i].radius,
                                   coveredBy: nuts[i].coveredBy)

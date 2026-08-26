@@ -29,6 +29,8 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     /// Optional so sessions written before the in-level streak feature remain
     /// decodable and simply resume without an active streak/aura.
     public let correctStreak: Int?
+    /// Unused leftover from the old 2x helper fish. Kept so older paused
+    /// sessions still decode.
     public let hasBonusFishPower: Bool?
     /// Seconds left on the claw clock. Missing on sessions saved before the
     /// claw game, which resume with a fresh full timer.

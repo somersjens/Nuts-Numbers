@@ -46,7 +46,7 @@ nonisolated public enum GameOverReason: String, Equatable, Sendable {
 
 /// What resolving a tap produced, so the view knows which feedback to play.
 nonisolated public enum AnswerOutcome: Equatable, Sendable {
-    case correct(cardsEarned: Int, usedBonusFish: Bool, startedStreak: Bool)
+    case correct(cardsEarned: Int)
     case wrong(correctOptionID: UUID)
     /// The tap was ignored (wrong state, or the round was already answered).
     case ignored
@@ -58,10 +58,9 @@ nonisolated public struct SessionResult: Equatable, Sendable {
     public var correctAnswers = 0
     public var wrongAnswers = 0
     public var cardsEarned = 0
-    /// Cards awarded over and above the normal one-nut reward.
+    /// Kept for paused-session compatibility. New play never awards extra nuts.
     public var bonusCards = 0
-    /// Kept under its persisted name for save compatibility; now counts caught
-    /// 2x fish whose bonus was paid out.
+    /// Kept for paused-session compatibility. New play never doubles a nut.
     public var doubleCardsAnswered = 0
     public var isNewPersonalBest = false
     public var previousPersonalBest = 0
@@ -122,9 +121,8 @@ nonisolated public final class MemoryGame {
 
     // MARK: Derived
 
-    /// Number of physical answer nuts on this board. A golden answer may raise
-    /// the score faster, but the session still visits every one of these rounds
-    /// so the machine is empty when the level completes.
+    /// Number of physical answer nuts on this board. The session visits every
+    /// one of these rounds so the machine is empty when the level completes.
     public var maximumRounds: Int { trailerRoundCap ?? board.maximum }
 
     /// Whether a tap on an answer card can be accepted right now.
@@ -197,8 +195,7 @@ nonisolated public final class MemoryGame {
 
     /// A snapshot of the session as it stands, for storing when the player
     /// leaves. Nil once the session is over — there is nothing to come back to.
-    public func pausedSession(hasBonusFishPower: Bool = false,
-                              remainingTime: Double? = nil) -> PausedSession? {
+    public func pausedSession(remainingTime: Double? = nil) -> PausedSession? {
         guard state != .intro, state != .gameOver else { return nil }
         return PausedSession(boardID: board.storageID,
                              roundNumber: roundNumber,
@@ -210,7 +207,6 @@ nonisolated public final class MemoryGame {
                              // Legacy field: the helper it counted is gone.
                              flamethrowersUsed: 0,
                              correctStreak: correctStreak,
-                             hasBonusFishPower: hasBonusFishPower,
                              remainingTime: remainingTime,
                              puzzleSeed: puzzleSeed,
                              puzzle: clawPuzzle,
@@ -243,7 +239,7 @@ nonisolated public final class MemoryGame {
     /// state — a second tap on the same round, a tap during feedback, a tap on
     /// a burned card — is ignored without touching the score.
     @discardableResult
-    public func select(optionID: UUID, usesBonusFish: Bool = false) -> AnswerOutcome {
+    public func select(optionID: UUID) -> AnswerOutcome {
         guard state == .answering,
               let round,
               selectedOptionID == nil,
@@ -254,7 +250,6 @@ nonisolated public final class MemoryGame {
             return .ignored
         }
         return resolveAnswer(isCorrect: option.isCorrect,
-                             usesBonusFish: usesBonusFish,
                              selectedID: optionID,
                              correctOptionID: round.correctOption?.id ?? optionID)
     }
@@ -276,7 +271,6 @@ nonisolated public final class MemoryGame {
             ? (round.targetNutID ?? round.correctOption?.id ?? nut.id)
             : nut.id
         return resolveAnswer(isCorrect: isCorrect,
-                             usesBonusFish: nut.isGold,
                              selectedID: selectedID,
                              correctOptionID: round.targetNutID ?? round.correctOption?.id ?? selectedID)
     }
@@ -313,9 +307,6 @@ nonisolated public final class MemoryGame {
             state = .answering
             return state
         }
-        // A gold nut can make the score reach the displayed target early. The
-        // physical level is only complete after its last assigned answer nut,
-        // otherwise golden rewards would strand shells in the machine.
         if roundNumber >= maximumRounds {
             finish(reason: .roundsCompleted)
             return state
@@ -456,7 +447,6 @@ nonisolated public final class MemoryGame {
     }
 
     private func resolveAnswer(isCorrect: Bool,
-                               usesBonusFish: Bool,
                                selectedID: UUID,
                                correctOptionID: UUID) -> AnswerOutcome {
         // Lock input for the whole of the resolve phase, before any scoring.
@@ -465,19 +455,12 @@ nonisolated public final class MemoryGame {
 
         let outcome: AnswerOutcome
         if isCorrect {
-            let fishMultiplier = usesBonusFish ? GameConfig.bonusFishMultiplier : 1
-            let earned = GameConfig.normalCardReward * fishMultiplier
+            let earned = GameConfig.normalCardReward
             cards += earned
             result.correctAnswers += 1
             result.cardsEarned += earned
-            if usesBonusFish {
-                result.doubleCardsAnswered += 1
-            }
-            result.bonusCards += earned - GameConfig.normalCardReward
             correctStreak += 1
-            outcome = .correct(cardsEarned: earned,
-                               usedBonusFish: usesBonusFish,
-                               startedStreak: false)
+            outcome = .correct(cardsEarned: earned)
         } else {
             result.wrongAnswers += 1
             correctStreak = 0

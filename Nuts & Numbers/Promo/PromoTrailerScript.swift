@@ -56,7 +56,6 @@ enum PromoTrailerScript {
             nuts.append(ClawNut(id: nutIDs[index],
                                 text: label.text,
                                 sequenceIndex: label.sequence,
-                                isGold: false,
                                 position: slot.position,
                                 radius: slot.radius))
         }

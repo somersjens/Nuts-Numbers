@@ -21,7 +21,7 @@ struct ResultView: View {
     @State private var isPresented = false
     @State private var badgeLanded = false
     @State private var shineSweep = false
-    @State private var showsNutRain = false
+    @State private var showsConfetti = false
 
     private var isPad: Bool { AppLayout.isPad }
     private var scale: CGFloat { isPad ? 1.2 : 1 }
@@ -86,8 +86,8 @@ struct ResultView: View {
 
             // Layered above the card, so the burst rains over the result rather
             // than behind it. It starts once the card entrance is underway.
-            if showsNutRain {
-                NutRainView(color: character.color)
+            if showsConfetti {
+                ConfettiRainView(accentColor: character.color)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
@@ -96,11 +96,11 @@ struct ResultView: View {
             withAnimation(.spring(response: 0.46, dampingFraction: 0.82)) {
                 isPresented = true
             }
-            // Only a score this level has never seen before rains nuts;
+            // Only a score this level has never seen before rains confetti;
             // matching or falling short of the old best ends quietly.
             guard showsNewBest else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
-                showsNutRain = true
+                showsConfetti = true
             }
             // The badge drops in after the card has settled, then glints once.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
@@ -397,47 +397,65 @@ struct ResultView: View {
     }
 }
 
-/// A shower of nuts for a new personal best: they drift down over the card
-/// and fade, one after another, instead of the confetti this used to rain.
-private struct NutRainView: View {
-    let color: Color
-    @State private var nuts: [RainNut]
+/// A shower of paper confetti for a new personal best. The result conditions
+/// stay independent of the effect, so this is purely a visual celebration.
+private struct ConfettiRainView: View {
+    let accentColor: Color
+    @State private var pieces: [ConfettiPiece]
 
-    init(color: Color) {
-        self.color = color
+    init(accentColor: Color) {
+        self.accentColor = accentColor
         // Keep the reward visible without covering the result card in a dense
         // curtain. The varied timing still makes this feel organic.
-        _nuts = State(initialValue: (0..<18).map { _ in RainNut() })
+        _pieces = State(initialValue: (0..<28).map { index in
+            ConfettiPiece(colorIndex: index % 7)
+        })
     }
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                ForEach(nuts) { nut in
-                    FallingNut(nut: nut, area: proxy.size, color: color)
+                ForEach(pieces) { piece in
+                    FallingConfetti(piece: piece,
+                                    area: proxy.size,
+                                    color: color(for: piece.colorIndex))
                 }
             }
         }
         .accessibilityHidden(true)
     }
+
+    private func color(for index: Int) -> Color {
+        switch index {
+        case 0: return accentColor
+        case 1: return .pink
+        case 2: return .yellow
+        case 3: return .cyan
+        case 4: return .green
+        case 5: return .orange
+        default: return .purple
+        }
+    }
 }
 
-private struct RainNut: Identifiable {
+private struct ConfettiPiece: Identifiable {
     let id = UUID()
-    /// Share of the width the nut falls down.
-    let x = CGFloat.random(in: 0.08...0.92)
-    let diameter = CGFloat.random(in: 8...22)
+    let colorIndex: Int
+    /// Share of the width the paper falls down.
+    let x = CGFloat.random(in: 0.04...0.96)
+    let width = CGFloat.random(in: 6...11)
+    let height = CGFloat.random(in: 10...20)
     /// Share of the height at which it fades, so they do not all vanish in a line.
-    let fadeY = CGFloat.random(in: 0.34...0.86)
-    let fallDuration = Double.random(in: 1.55...2.45)
-    let delay = Double.random(in: 0...1.1)
+    let fadeY = CGFloat.random(in: 0.48...0.94)
+    let fallDuration = Double.random(in: 1.65...2.7)
+    let delay = Double.random(in: 0...1.15)
     /// A little sideways wander on the way down.
-    let drift = CGFloat.random(in: -14...14)
-    let rotation = Double.random(in: -32...32)
+    let drift = CGFloat.random(in: -32...32)
+    let rotation = Double.random(in: 220...620) * (Bool.random() ? 1 : -1)
 }
 
-private struct FallingNut: View {
-    let nut: RainNut
+private struct FallingConfetti: View {
+    let piece: ConfettiPiece
     let area: CGSize
     let color: Color
 
@@ -445,26 +463,27 @@ private struct FallingNut: View {
     @State private var hasFaded = false
 
     var body: some View {
-        CurrencyIcon(size: nut.diameter)
-            .foregroundStyle(color)
-            .rotationEffect(.degrees(hasFallen ? nut.rotation : -nut.rotation))
-            .scaleEffect(hasFaded ? 1.22 : 1)
-            .opacity(hasFaded ? 0 : 0.82)
-        .frame(width: nut.diameter, height: nut.diameter)
-        .position(x: area.width * nut.x + (hasFallen ? nut.drift : 0),
-                  y: hasFallen ? area.height * nut.fadeY : -nut.diameter)
+        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+            .fill(color)
+            .frame(width: piece.width, height: piece.height)
+            .rotation3DEffect(.degrees(hasFallen ? piece.rotation : 0),
+                              axis: (x: 0.35, y: 1, z: 0.2))
+            .rotationEffect(.degrees(hasFallen ? piece.rotation * 0.55 : 0))
+            .opacity(hasFaded ? 0 : 0.9)
+            .position(x: area.width * piece.x + (hasFallen ? piece.drift : 0),
+                      y: hasFallen ? area.height * piece.fadeY : -piece.height)
         .onAppear {
             withAnimation(
                 .timingCurve(0.32, 0.48, 0.42, 1,
-                             duration: nut.fallDuration)
-                    .delay(nut.delay)
+                             duration: piece.fallDuration)
+                    .delay(piece.delay)
             ) {
                 hasFallen = true
             }
 
-            // Let the nut settle, then gently fade instead of ending on a hard cut.
+            // Let the paper settle, then gently fade instead of ending on a hard cut.
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + nut.delay + nut.fallDuration + 0.06
+                deadline: .now() + piece.delay + piece.fallDuration + 0.06
             ) {
                 withAnimation(.easeOut(duration: 0.34)) { hasFaded = true }
             }

@@ -37,18 +37,16 @@ nonisolated public enum GameConfig {
     /// only to sanity-check a stored session.
     public static var maximumRoundCeiling: Int { supermixLevelMaximum }
 
-    /// Cards awarded for a correct answer on a normal card.
+    /// Cards awarded for a correct nut.
     public static let normalCardReward = 1
 
     // MARK: Bonuses
 
-    /// Five correct answers in a row starts the fast 2x streak mode. It lasts
-    /// until the next wrong answer.
+    /// Five correct answers in a row used to start a 2x streak. The threshold
+    /// is kept so older trailer cues still clamp to a valid pre-boost count;
+    /// scoring itself never multiplies.
     public static let streakThreshold = 5
     public static let streakMultiplier = 2
-    /// Catching a gold nut doubles that answer. Same multiplier the old 2x
-    /// helper fish used, so stored sessions keep paying the same bonus.
-    public static let bonusFishMultiplier = 2
 
     // MARK: Timing (seconds)
     //
@@ -110,8 +108,6 @@ nonisolated public enum GameConfig {
     /// Every shell in the initial pile belongs to one of the level's sums. A
     /// zero ratio deliberately leaves no decoys behind after the final answer.
     public static let clawDistractorRatio = 0.0
-    /// Share of the real answer nuts that pay double when collected correctly.
-    public static let clawGoldRatio = 0.10
 
     // MARK: Level progress
 

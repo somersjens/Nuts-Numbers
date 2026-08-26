@@ -350,8 +350,7 @@ public final class ProgressStore {
     }
 
     /// Records a session score on one board. The stored best is capped at that
-    /// board's maximum, so a lucky run of double cards cannot report more than
-    /// the level holds. Returns whether it beat the stored best, and what that
+    /// board's maximum. Returns whether it beat the stored best, and what that
     /// best was beforehand.
     @discardableResult
     public func recordScore(_ score: Int,

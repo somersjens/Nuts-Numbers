@@ -3723,13 +3723,6 @@ private struct ClawNutPile: View {
         }
 
         drawContext.draw(nutImage, in: imageRect)
-        if nut.spec.isGold {
-            drawContext.blendMode = .multiply
-            drawContext.fill(Path(ellipseIn: visualRect.insetBy(dx: visualWidth * 0.08,
-                                                                dy: visualHeight * 0.08)),
-                             with: .color(Color(red: 1.0, green: 0.90, blue: 0.55).opacity(0.55)))
-            drawContext.blendMode = .normal
-        }
 
         let textSize = min(ClawConfig.nutMaxTextSize(isPad: isPad),
                            visualWidth * ClawConfig.nutTextWidthFraction(isPad: isPad))

@@ -60,7 +60,6 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var selectedOptionID: UUID?
     @Published private(set) var isGameOver = false
     @Published private(set) var result = SessionResult()
-    @Published private(set) var hasBonusFishPower = false
     @Published private(set) var correctStreak = 0
     @Published private(set) var isStreakBoostActive = false
     /// Changes each time the streak boost starts, allowing the view to replay
@@ -176,7 +175,6 @@ final class GameViewModel: ObservableObject {
         PlaytimeTracker.shared.challengeStarted()
         AppAudio.shared.setGameplayActive(true, questionText: nil)
         AppAudio.shared.playSessionStart()
-        hasBonusFishPower = prepared.pausedSession?.hasBonusFishPower ?? false
         openRound()
         announceRound()
         sync()
@@ -258,8 +256,7 @@ final class GameViewModel: ObservableObject {
     /// player would restart from zero anyway.
     private func savePausedSessionIfNeeded() {
         guard !hasRecordedResult,
-              let paused = engine.pausedSession(hasBonusFishPower: hasBonusFishPower,
-                                                remainingTime: remainingTime)
+              let paused = engine.pausedSession(remainingTime: remainingTime)
         else { return }
         guard paused.cards > 0 else {
             PausedSessionStore.shared.clear(request.board)
@@ -287,7 +284,6 @@ final class GameViewModel: ObservableObject {
         isTutorialClockPaused = false
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
-        hasBonusFishPower = false
         streakAnnouncementID = 0
         configureTimer(from: nil)
         startClock()
@@ -305,8 +301,7 @@ final class GameViewModel: ObservableObject {
     /// the reef whether to burst the bubble.
     @discardableResult
     func select(optionID: UUID) -> Bool {
-        let outcome = engine.select(optionID: optionID,
-                                    usesBonusFish: hasBonusFishPower)
+        let outcome = engine.select(optionID: optionID)
         guard outcome != .ignored else { return false }
         // Every real interaction advances the playtime clock. Without these the
         // tracker only ever sees one gap from the first touch to the last,
@@ -317,15 +312,11 @@ final class GameViewModel: ObservableObject {
         let token = generation
         let delay: Double
         switch outcome {
-        case .correct(let cardsEarned, let usedBonusFish, _):
+        case .correct(let cardsEarned):
             pendingScoreRewards.append(cardsEarned)
             sync()
             onAnswerResolved?(true, false)
             AppAudio.shared.playCorrect()
-            if usedBonusFish {
-                hasBonusFishPower = false
-                AppAudio.shared.playDoubleScore()
-            }
             haptic(.success)
             delay = GameConfig.nextRoundDelay.correct
         case .wrong:
@@ -364,7 +355,7 @@ final class GameViewModel: ObservableObject {
     }
 
     /// Forwards a nut the elephant dropped in the bin. Any shell with the
-    /// standing sum's value scores; gold nuts still pay double.
+    /// standing sum's value scores one nut.
     @discardableResult
     func resolveGrab(nut: ClawNut) -> AnswerOutcome {
         let outcome = engine.resolveGrab(nut: nut)
@@ -374,14 +365,11 @@ final class GameViewModel: ObservableObject {
         let token = generation
         let delay: Double
         switch outcome {
-        case .correct(let cardsEarned, let usedBonusFish, _):
+        case .correct(let cardsEarned):
             pendingScoreRewards.append(cardsEarned)
             sync()
             onAnswerResolved?(true, false)
             AppAudio.shared.playCorrect()
-            if usedBonusFish {
-                AppAudio.shared.playDoubleScore()
-            }
             haptic(.success)
             // The finale starts from the drop itself. Waiting the usual
             // next-round beat would punch a heavy game-over view update
@@ -427,15 +415,6 @@ final class GameViewModel: ObservableObject {
         cards += pendingScoreRewards.removeFirst()
         AppAudio.shared.playCardTotal()
         haptic(.light)
-    }
-
-    /// Called by the reef when the player catches the passing 2x fish. Multiple
-    /// catches do not stack: one trailing coin always represents one doubled answer.
-    func catchBonusFish() {
-        guard !hasBonusFishPower else { return }
-        hasBonusFishPower = true
-        AppAudio.shared.playDoubleCardAppear()
-        haptic(.rigid)
     }
 
     // MARK: - Tutorial
