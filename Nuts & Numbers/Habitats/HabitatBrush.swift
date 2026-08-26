@@ -1397,48 +1397,29 @@ extension HabitatBrush {
         }
     }
 
-    /// Small side-on fish with a triangular tail. `flick` bends the tail so a
-    /// swimming fish never sits as a frozen silhouette. Solid fills only: this
-    /// primitive is drawn on the 30 Hz living layer, where a per-frame
-    /// gradient would contend with the claw.
+    /// Side-on fish as two solid fills: an oval body and a triangular tail.
+    /// `flick` rolls the whole fish rather than rebuilding a bezier, so a 30 Hz
+    /// school stays cheap next to the claw. No gradients, belly or eye — at
+    /// this size they cost draws without reading.
     func fish(in context: inout GraphicsContext,
               center: CGPoint,
               length: CGFloat,
               color: Color,
-              belly: Color,
               facingRight: Bool = true,
               flick: CGFloat = 0) {
+        var local = context
+        local.translateBy(x: center.x, y: center.y)
+        local.rotate(by: .radians(Double(flick) * 0.16))
         let direction: CGFloat = facingRight ? 1 : -1
-        var body = Path()
-        body.move(to: CGPoint(x: center.x + direction * length * 0.5, y: center.y))
-        body.addQuadCurve(to: CGPoint(x: center.x - direction * length * 0.36, y: center.y + flick * length * 0.08),
-                          control: CGPoint(x: center.x, y: center.y - length * 0.28))
-        body.addQuadCurve(to: CGPoint(x: center.x + direction * length * 0.5, y: center.y),
-                          control: CGPoint(x: center.x, y: center.y + length * 0.26))
-        body.closeSubpath()
-        context.fill(body, with: .color(color))
-        let bellyRect = CGRect(x: center.x - length * 0.16,
-                               y: center.y,
-                               width: length * 0.32,
-                               height: length * 0.12)
-        context.fill(Path(ellipseIn: bellyRect), with: .color(belly))
-
-        let tailBend = flick * length * 0.22
+        local.fill(Path(ellipseIn: CGRect(x: -length * 0.40, y: -length * 0.18,
+                                         width: length * 0.80, height: length * 0.36)),
+                   with: .color(color))
         var tail = Path()
-        tail.move(to: CGPoint(x: center.x - direction * length * 0.32, y: center.y))
-        tail.addLine(to: CGPoint(x: center.x - direction * length * 0.56,
-                                 y: center.y - length * 0.20 + tailBend))
-        tail.addLine(to: CGPoint(x: center.x - direction * length * 0.56,
-                                 y: center.y + length * 0.20 + tailBend))
+        tail.move(to: CGPoint(x: -direction * length * 0.28, y: 0))
+        tail.addLine(to: CGPoint(x: -direction * length * 0.54, y: -length * 0.18))
+        tail.addLine(to: CGPoint(x: -direction * length * 0.54, y: length * 0.18))
         tail.closeSubpath()
-        context.fill(tail, with: .color(color.opacity(0.92)))
-
-        let eye = length * 0.07
-        context.fill(Path(ellipseIn: CGRect(x: center.x + direction * length * 0.28 - eye * 0.5,
-                                            y: center.y - length * 0.055,
-                                            width: eye,
-                                            height: eye)),
-                     with: .color(Color.black.opacity(0.55)))
+        local.fill(tail, with: .color(color))
     }
 
     /// Spiral sea shell.
