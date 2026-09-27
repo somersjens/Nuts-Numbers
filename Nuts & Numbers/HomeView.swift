@@ -104,6 +104,41 @@ struct HomeView: View {
     @State private var topicTotalCache = TopicTotalCache()
     @State private var headerNutScale: CGFloat = 1
 
+#if TRAILER_EXPORT
+    @State private var promoMenuTourStarted = false
+    private let promoMenuTrailer: Bool
+    private let promoPremiumBackdrop: Bool
+    private let promoProgress: PromoMenuProgress
+#else
+    private var promoMenuTrailer: Bool { false }
+    private var promoPremiumBackdrop: Bool { false }
+#endif
+
+    init(isCoveredByFirstSession: Bool = false) {
+        self.isCoveredByFirstSession = isCoveredByFirstSession
+#if TRAILER_EXPORT
+        promoMenuTrailer = false
+        promoPremiumBackdrop = false
+        promoProgress = PromoMenuProgress()
+#endif
+    }
+
+#if TRAILER_EXPORT
+    /// Compile-only menu-tour entry point. Fixed in-memory progress, no jump.
+    init(promoMenuTrailer: Bool) {
+        self.promoMenuTrailer = promoMenuTrailer
+        self.promoPremiumBackdrop = false
+        promoProgress = .menuTour()
+    }
+
+    /// Premium-tour backdrop. Empty progress, production layout, no store refresh.
+    init(promoPremiumBackdrop: Bool) {
+        self.promoMenuTrailer = false
+        self.promoPremiumBackdrop = promoPremiumBackdrop
+        promoProgress = .premiumTour()
+    }
+#endif
+
     private var character: AnimalCharacter { CharacterCatalog.current(isPremium: premium.isPremium) }
     private var topic: MathTopic { MathTopic(rawValue: topicRaw) ?? MathTopic.allCases[0] }
     private var mixedVariant: MixedVariant {
@@ -112,8 +147,23 @@ struct HomeView: View {
     private var practiceMode: PracticeMode { PracticeMode.from(rawValue: practiceModeRaw) }
     private var isPad: Bool { AppLayout.isPad }
     /// A full-width landscape iPad can comfortably show a fourth level card.
-    /// Portrait and narrow multitasking windows retain the established layout.
-    private var isWidePad: Bool { isPad && viewportWidth >= 980 }
+    /// Portrait, including the 12.9" and 13" iPads (about 1032 pt), keeps three
+    /// columns. The old 980 pt cutoff treated that portrait as landscape.
+    private var isWidePad: Bool { isPad && viewportWidth >= 1100 }
+    /// Portrait margin is 7.5% of the pre-zoom width, which is the side gap in
+    /// the menu tour once the portrait zoom is applied. Landscape keeps the
+    /// inset of the 1080 column.
+    private var menuHorizontalPadding: CGFloat {
+        if isWidePad { return 26 }
+        if isPad { return viewportWidth > 0 ? viewportWidth * 0.075 : 62 }
+        return 16
+    }
+    /// Portrait uses the window. A fixed 760 pt column leaves a wide empty band
+    /// on a 13" iPad, and stretching that portrait to 1080 removes the margin.
+    private var menuColumnMaxWidth: CGFloat? {
+        if isWidePad { return 1080 }
+        return isPad ? nil : 640
+    }
 
     private var displayName: String {
         playerName.isEmpty ? CharacterCatalog.defaultPlayerName : playerName
@@ -121,35 +171,46 @@ struct HomeView: View {
 
     // MARK: - Metrics
 
+    private var menuScale: CGFloat { isPad ? 1.55 : 1 }
     private var menuCardSectionSpacing: CGFloat { isPad ? 18 : 12 }
     private var menuControlSpacing: CGFloat { isPad ? 14 : 10 }
-    /// Six topic circles share the menu card's inner width. On iPad they grow
-    /// until the leftover gaps are about half of the previous 70-point layout.
-    private var topicButtonDiameter: CGFloat {
-        guard isPad else { return 44 }
-        let count = CGFloat(MathTopic.allCases.count)
-        let inner = max(1, levelGridContentWidth - 44)
-        let previous: CGFloat = 70
-        let previousGap = max(0, (inner - previous * count) / max(count - 1, 1))
-        let targetGap = previousGap * 0.5
-        let raw = min(inner / count, (inner - targetGap * (count - 1)) / count)
-        return min(108, raw)
-    }
-    private var topicGlyphScale: CGFloat { topicButtonDiameter / 44 }
+    /// Fixed circles, spread across the menu card by flexible gaps.
+    private var topicButtonDiameter: CGFloat { isPad ? 70 : 44 }
     private var levelGridSpacing: CGFloat { isPad ? 16 : 10 }
-    private var levelCardHeight: CGFloat { isPad ? 132 : 96 }
+    private var levelCardHeight: CGFloat {
+        if isPad { return 132 }
+        return promoMenuTrailer ? 90 : 96
+    }
+    /// Phone menu captures sit slightly higher so the topic row and the first
+    /// level cards share the App Store crop. The iPad Premium sheet leaves a
+    /// narrow strip of this menu visible above it.
+    private var promoContentOffsetY: CGFloat {
+        if promoMenuTrailer && !isPad { return -52 }
+        if promoPremiumBackdrop && isPad { return 52 }
+        return 0
+    }
+    private var usesPromoProgress: Bool { promoMenuTrailer || promoPremiumBackdrop }
+    private var displayedTotalCards: Int {
+        usesPromoProgress ? promoDisplayedTotal : totalCards
+    }
 
-    /// Width the level cards actually occupy, matching the padded, max-width
-    /// column inside the scroll view.
+    /// Width the level cards actually occupy, matching the padded column
+    /// inside the scroll view.
     private var levelGridContentWidth: CGFloat {
-        let padding = (isPad ? 26 : 16) * 2
-        let maximum: CGFloat = isWidePad ? 1080 : (isPad ? 760 : 640)
-        let available = viewportWidth > 0 ? viewportWidth - CGFloat(padding) : maximum
-        return max(1, min(available, maximum))
+        let inset = menuHorizontalPadding * 2
+        if isWidePad {
+            let column = min(viewportWidth > 0 ? viewportWidth : 1080, 1080)
+            return max(1, column - inset)
+        }
+        if isPad {
+            return max(1, (viewportWidth > 0 ? viewportWidth : 834) - inset)
+        }
+        let available = viewportWidth > 0 ? viewportWidth - inset : 640
+        return max(1, min(available, 640 - inset))
     }
 
     private var visibleLevelColumns: Int {
-        let minimumWidth: CGFloat = isPad ? 180 : 104
+        let minimumWidth: CGFloat = isPad ? 180 / AppLayout.padMenuZoom : 104
         let possible = max(1, Int((levelGridContentWidth + levelGridSpacing)
                                   / (minimumWidth + levelGridSpacing)))
         return min(possible, isWidePad ? 4 : 3)
@@ -186,22 +247,24 @@ struct HomeView: View {
                         // grid below it. In wide landscape that grid opens up
                         // to four cards, and a menu card left at its portrait
                         // width would sit visibly narrower than the row under it.
-                        .frame(maxWidth: isWidePad ? .infinity : 760)
+                            .frame(maxWidth: isPad ? .infinity : 760)
                         .frame(maxWidth: .infinity)
                         // The closing tutorial step is about the level's score,
                         // not about the settings above it.
                         .modifier(HomeTutorialDim(isActive: showsTutorialHint))
                     levelGrid(topicTotal: topicTotal)
                 }
-                .padding(isPad ? 26 : 16)
-                .frame(maxWidth: isWidePad ? 1080 : (isPad ? 760 : 640))
+                .padding(.horizontal, menuHorizontalPadding)
+                .padding(.vertical, isPad ? 26 : 16)
+                .offset(y: promoContentOffsetY)
+                .frame(maxWidth: menuColumnMaxWidth)
                 .frame(maxWidth: .infinity)
             }
             .background(
                 GeometryReader { proxy in
                     Color.clear
                         .onAppear { viewportWidth = proxy.size.width }
-                        .onChange(of: proxy.size.width) { width in viewportWidth = width }
+                        .onChange(of: proxy.size.width) { _, width in viewportWidth = width }
                 }
             )
             .onPreferenceChange(ControlAnchorKey.self) { controlAnchors = $0 }
@@ -264,6 +327,7 @@ struct HomeView: View {
                     .allowsHitTesting(false)
             }
         }
+        .modifier(PadMenuZoom(isPad: isPad))
         .fullScreenCover(item: $selection, onDismiss: handleSessionDismissed) { item in
             GameView(request: GameSessionRequest(level: item.level,
                                                  mixedVariant: mixedVariant,
@@ -297,12 +361,16 @@ struct HomeView: View {
             }
         }
         .task {
-            premium.startInitialRefresh()
-            totalCards = Progress.store.totalCards
-            synchronizeUnlockPrompt(animated: false)
-            openTutorialLevelIfRequested()
+            if usesPromoProgress {
+                synchronizeUnlockPrompt(animated: false)
+            } else {
+                premium.startInitialRefresh()
+                totalCards = Progress.store.totalCards
+                synchronizeUnlockPrompt(animated: false)
+                openTutorialLevelIfRequested()
+            }
         }
-        .onChange(of: isCoveredByFirstSession) { isCovered in
+        .onChange(of: isCoveredByFirstSession) { _, isCovered in
             // The first game lives at the app root, so there is no cover
             // dismiss. Wait for that overlay to finish fading out, then run
             // the same return the cover's onDismiss would have.
@@ -312,10 +380,10 @@ struct HomeView: View {
                 }
             }
         }
-        .onChange(of: selection != nil) { isOpen in
+        .onChange(of: selection != nil) { _, isOpen in
             retractMenuCharacter(isOpen)
         }
-        .onChange(of: totalCards) { _ in
+        .onChange(of: totalCards) {
             // A returning session banks its cards before any of the celebration
             // is visible. Hold the old prompt until that flow releases it;
             // iCloud or restored progress may update it right away.
@@ -325,6 +393,9 @@ struct HomeView: View {
         .onAppear {
             AppAudio.shared.prepare()
             AppAudio.shared.startMusic()
+#if TRAILER_EXPORT
+            if promoMenuTrailer { preparePromoMenuTour() }
+#endif
 #if canImport(UIKit)
             let animal = character
             Task(priority: .utility) {
@@ -334,7 +405,7 @@ struct HomeView: View {
             }
 #endif
         }
-        .onChange(of: characterID) { _ in
+        .onChange(of: characterID) {
 #if canImport(UIKit)
             let animal = character
             Task(priority: .utility) {
@@ -343,7 +414,7 @@ struct HomeView: View {
             }
 #endif
         }
-        .onChange(of: scenePhase) { phase in
+        .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             AppAudio.shared.startMusic()
         }
@@ -364,7 +435,7 @@ struct HomeView: View {
                         showNameEditor = true
                     } label: {
                         Text(verbatim: displayName)
-                            .font(.system(size: isPad ? 44 : 20, weight: .heavy, design: .rounded))
+                            .font(.system(size: isPad ? 34 : 20, weight: .heavy, design: .rounded))
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                             .minimumScaleFactor(0.6)
@@ -469,7 +540,7 @@ struct HomeView: View {
     private var cardSummary: some View {
         let total = headerCount(start: celebration?.totalStart,
                                 heldStart: lastPlayedTotal,
-                                current: totalCards)
+                                current: displayedTotalCards)
         return AlternatingCardSummary(totalFrom: total.from,
                                totalTo: total.to,
                                celebrationStartedAt: total.at,
@@ -495,7 +566,7 @@ struct HomeView: View {
     private func synchronizeUnlockPrompt(animated: Bool) {
         let next: NextCharacterPrompt?
         if totalCards > 0,
-           let milestone = CharacterUnlocks.nextMilestone(totalCards: totalCards) {
+           let milestone = CharacterUnlocks.nextMilestone(totalCards: displayedTotalCards) {
             next = NextCharacterPrompt(characterID: milestone.characterID,
                                        remaining: milestone.remaining)
         } else {
@@ -518,15 +589,15 @@ struct HomeView: View {
         let count = headerCount(start: celebration?.topicStart,
                                 heldStart: lastPlayedTopic,
                                 current: topicTotal)
-        return HStack(alignment: .center, spacing: (isPad ? 16 : 12) * headerNutScale) {
+        return HStack(alignment: .center, spacing: (isPad ? 8 : 12) * headerNutScale) {
             Text(verbatim: L(key: topic.titleKey))
                 .font(.system(size: isPad ? 32 : 20, weight: .heavy, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
-            HStack(spacing: (isPad ? 12 : 8) * headerNutScale) {
+            HStack(spacing: 8 * headerNutScale) {
                 // The card that flies up from the level card aims here, so the
                 // reward visibly joins this topic before the totals move.
-                CurrencyIcon(size: (isPad ? 24 : 14) * headerNutScale)
+                CurrencyIcon(size: (isPad ? 22 : 14) * headerNutScale)
                     .scaleEffect(highlightsHeaderCards ? 1.32 : 1)
                     .rotationEffect(.degrees(highlightsHeaderCards ? -10 : 0))
                     .reportAnchor("topicTotal")
@@ -550,7 +621,8 @@ struct HomeView: View {
     /// on each Supermix combination — all contribute to its topic, so switching
     /// never appears to wipe progress off the topic total.
     private func topicCards(for topic: MathTopic) -> Int {
-        topicTotalCache.total(for: topic,
+        if usesPromoProgress { return promoDisplayedTopicTotal(topic) }
+        return topicTotalCache.total(for: topic,
                               revision: progressSync.revision,
                               totalCards: totalCards)
     }
@@ -630,10 +702,10 @@ struct HomeView: View {
         // Bare glyphs, not the `.circle.fill` variants: the button already
         // provides the circle, so the only solid is the selected one. Per-symbol
         // point sizes even out their differing optical heights.
-        let size = option.symbolPointSize * topicGlyphScale
+        let size = option.symbolPointSize * menuScale
         return Image(systemName: option.symbolName)
             .font(.system(size: size, weight: .bold))
-            .frame(height: 24 * topicGlyphScale)
+            .frame(height: 24 * menuScale)
             .foregroundStyle(isSelected ? .white : character.deepColor)
     }
 
@@ -669,7 +741,7 @@ struct HomeView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                         .frame(maxWidth: .infinity)
-                    .frame(height: isPad ? 64 : 37)
+                    .frame(height: isPad ? 56 : 37)
                         .padding(.horizontal, isPad ? 8 : 2)
                         .background(isSelected ? character.deepColor : .white.opacity(0.7),
                                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -714,7 +786,7 @@ struct HomeView: View {
                     .minimumScaleFactor(0.85)
                     .foregroundStyle(isSelected ? .white : character.deepColor)
                     .frame(maxWidth: .infinity)
-                    .frame(height: isPad ? 64 : 37)
+                    .frame(height: isPad ? 56 : 37)
                     .background(isSelected ? character.deepColor : .white.opacity(0.62),
                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -854,14 +926,14 @@ struct HomeView: View {
         let board = board(for: level)
         // Read once and share: the card's score and its status are two views of
         // the same stored best, and the grid asks for both on every level.
-        let storedBest = Progress.store.bestScore(board)
+        let storedBest = displayedBest(board)
         return LevelCardView(
             level: level,
             status: status(for: level, board: board,
                            storedBest: storedBest, recommendedID: recommendedID),
             best: heldBest(for: level, storedBest: storedBest),
             maximum: board.maximum,
-            maxCompletions: Progress.store.maxCompletionCount(board),
+            maxCompletions: displayedMaxCompletions(board),
             pausedCards: PausedSessionStore.shared.session(board)?.cards,
             celebrationStart: celebration?.levelID == level.id
                 ? celebration?.levelStart : nil,
@@ -1257,6 +1329,167 @@ struct HomeView: View {
         premiumInitialCharacterID = next
         showPremium = true
     }
+
+    private var promoDisplayedTotal: Int {
+#if TRAILER_EXPORT
+        promoProgress.total
+#else
+        0
+#endif
+    }
+
+    private func promoDisplayedTopicTotal(_ topic: MathTopic) -> Int {
+#if TRAILER_EXPORT
+        promoProgress.topicTotal(topic)
+#else
+        0
+#endif
+    }
+
+    private func displayedBest(_ board: LevelBoard) -> Int {
+#if TRAILER_EXPORT
+        if usesPromoProgress { return promoProgress.best(board) }
+#endif
+        return Progress.store.bestScore(board)
+    }
+
+    private func displayedMaxCompletions(_ board: LevelBoard) -> Int {
+#if TRAILER_EXPORT
+        if usesPromoProgress { return promoProgress.maxCompletions(board) }
+#endif
+        return Progress.store.maxCompletionCount(board)
+    }
+
+#if TRAILER_EXPORT
+    // MARK: App Store menu tour
+
+    /// One slot in the menu tour. Every slot lasts exactly the same amount of
+    /// wall-clock time; the pop-out appears inside that slot.
+    private enum PromoMenuStep {
+        case topic(MathTopic, resetsOrder: Bool = false, describesOrder: Bool = false)
+        case mode(PracticeMode)
+        case superVariant(MixedVariant)
+
+        var anchorKey: String {
+            switch self {
+            case .topic(let topic, _, let describesOrder):
+                if describesOrder { return "mode.\(PracticeMode.order.rawValue)" }
+                return "topic.\(topic.rawValue)"
+            case .mode(let mode):
+                return "mode.\(mode.rawValue)"
+            case .superVariant(let variant):
+                return "super.\(variant.rawValue)"
+            }
+        }
+
+        var eventName: String {
+            switch self {
+            case .topic(let topic, _, _):
+                return "menu_topic_\(topic.rawValue)"
+            case .mode(let mode):
+                return "menu_mode_\(mode.rawValue)"
+            case .superVariant(let variant):
+                return "menu_super_\(variant.rawValue)"
+            }
+        }
+    }
+
+    private static let promoMenuSteps: [PromoMenuStep] = [
+        // Addition + Order are already selected before recording. Begin on the
+        // Order explanation instead of spending a slot explaining `+`.
+        .mode(.order),
+        .mode(.random),
+        .mode(.mixed),
+        .topic(.subtraction),
+        .topic(.tables),
+        .topic(.fractions),
+        .topic(.percentages),
+        .topic(.mixed),
+        .superVariant(.basic),
+        .superVariant(.times),
+        .superVariant(.fraction),
+        .superVariant(.all),
+        // Restore the opening state so the last frame joins the first when an
+        // App Store preview repeats. The tap returns to `+`, and its pop-out
+        // describes Order just like the first frame.
+        .topic(.addition, resetsOrder: true, describesOrder: true),
+    ]
+
+    private func preparePromoMenuTour() {
+        guard !promoMenuTourStarted else { return }
+        promoMenuTourStarted = true
+        let recorder = AppStoreTourRecorder.shared
+        recorder.prepare()
+        recorder.waitForStart {
+            Task { @MainActor in
+                await runPromoMenuTour()
+            }
+        }
+    }
+
+    private func runPromoMenuTour() async {
+        let clock = ContinuousClock()
+        let slotDuration = Duration.milliseconds(1_800)
+        let tourStartedAt = clock.now
+
+        for (index, step) in Self.promoMenuSteps.enumerated() {
+            guard !Task.isCancelled else { return }
+            let slotStart = tourStartedAt.advanced(by: slotDuration * index)
+            try? await Task.sleep(until: slotStart, clock: clock)
+            await presentPromoMenuStep(step)
+        }
+
+        let tourEnd = tourStartedAt.advanced(by: slotDuration * Self.promoMenuSteps.count)
+        try? await Task.sleep(until: tourEnd, clock: clock)
+        AppStoreTourRecorder.shared.finish(eventName: "menu_loop_complete")
+    }
+
+    private func presentPromoMenuStep(_ step: PromoMenuStep) async {
+        withTransaction(Transaction(animation: nil)) { infoPopup = nil }
+        AppAudio.shared.playMenuTap()
+
+        switch step {
+        case .topic(let nextTopic, let resetsOrder, _):
+            if resetsOrder { practiceModeRaw = PracticeMode.order.rawValue }
+            topicRaw = nextTopic.rawValue
+
+        case .mode(let mode):
+            practiceModeRaw = mode.rawValue
+
+        case .superVariant(let variant):
+            mixedVariantRaw = variant.rawValue
+        }
+        AppStoreTourRecorder.shared.event(step.eventName)
+
+        // The explanation appears on the selecting tap. One render yield is
+        // enough for the new anchor, including the star's 2×2 grid, because
+        // that grid is already on screen for a full slot before its first pick.
+        await Task.yield()
+        guard let anchor = controlAnchors[step.anchorKey] else { return }
+
+        let header: String
+        let message: String
+        switch step {
+        case .topic(let nextTopic, _, let describesOrder):
+            if describesOrder {
+                header = L(key: PracticeMode.order.infoHeaderKey(for: nextTopic))
+                message = L(key: PracticeMode.order.infoKey(for: nextTopic))
+            } else {
+                header = L("info.topic.header")
+                message = L(key: nextTopic.detailKey)
+            }
+        case .mode(let mode):
+            header = L(key: mode.infoHeaderKey(for: topic))
+            message = L(key: mode.infoKey(for: topic))
+        case .superVariant(let variant):
+            header = L("info.topic.header")
+            message = L(key: variant.detailKey)
+        }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            infoPopup = InfoPopup(header: header, message: message, anchor: anchor)
+        }
+    }
+#endif
 }
 
 private struct HomeCharacterAnchorKey: PreferenceKey {

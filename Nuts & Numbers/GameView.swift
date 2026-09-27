@@ -215,7 +215,7 @@ struct GameView: View {
             }
         }
 #endif
-        .onChange(of: model.isGameOver) { isOver in
+        .onChange(of: model.isGameOver) { _, isOver in
             // There is nothing left to teach on a finished board.
             if isOver { tutorial.finish() }
             guard isOver else {
@@ -254,7 +254,13 @@ struct GameView: View {
         // install its timer. The tutorial itself releases it after its final
         // five-second explanation.
         if isTutorialArmed { model.setTutorialClockPaused(true) }
-        if showsPauseCard, model.state != .intro {
+        if isTutorialArmed, model.state != .intro {
+            // A zero-point pause is not progress: rewind it so the lesson can
+            // shape the machine from the first round, then walk in as usual.
+            model.rewindUnscoredRun()
+            showsPauseCard = false
+            playsFishEntrance = true
+        } else if showsPauseCard, model.state != .intro {
             showsPauseCard = false
             model.resume()
             beginArmedTutorialIfPossible()

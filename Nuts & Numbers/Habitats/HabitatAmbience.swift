@@ -41,7 +41,7 @@ struct AnimalHabitatLivingDetails: View {
         let habitat = AnimalHabitatKind(characterID: characterID)
         let paused = reduceMotion || !isActive
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: paused)) { timeline in
-            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            let time = reduceMotion ? 0 : PromoTrailerRuntime.ambienceClock(timeline.date.timeIntervalSinceReferenceDate)
             Canvas { context, size in
                 let brush = HabitatBrush(size: size, isPad: isPad)
                 switch habitat {

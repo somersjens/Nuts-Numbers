@@ -45,17 +45,27 @@ render_one() {
 
   echo "Launching teaser $size…"
   xcrun simctl terminate "$sim_name" "$APP_ID" >/dev/null 2>&1 || true
+
+  local data
+  data=$(xcrun simctl get_app_container "$sim_name" "$APP_ID" data)
+  local marker="$data/Documents/promo-trailer-ready.txt"
+  rm -f "$marker"
+
   xcrun simctl spawn "$sim_name" log stream --style compact --predicate 'eventMessage CONTAINS "PROMO_TRAILER"' >/tmp/promo-trailer-log.txt 2>/dev/null &
   local log_pid=$!
 
   xcrun simctl launch "$sim_name" "$APP_ID" -PromoTrailer "-PromoSize=$size"
 
-  local data
-  data=$(xcrun simctl get_app_container "$sim_name" "$APP_ID" data)
-  local marker="$data/Documents/promo-trailer-ready.txt"
   echo "Waiting for $marker"
   local waited=0
-  while [[ ! -f "$marker" ]]; do
+  while true; do
+    if [[ -f "$marker" ]]; then
+      local src
+      src=$(head -n 1 "$marker")
+      if [[ -n "$src" && -f "$src" ]]; then
+        break
+      fi
+    fi
     sleep 2
     waited=$((waited + 2))
     if [[ $waited -gt 420 ]]; then

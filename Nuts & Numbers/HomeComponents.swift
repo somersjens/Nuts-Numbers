@@ -527,7 +527,7 @@ struct LevelCardView: View {
         .buttonStyle(.plain)
         .disabled(isLocked)
         .onAppear { animateIfCelebrating() }
-        .onChange(of: celebrationStartedAt) { _ in animateIfCelebrating() }
+        .onChange(of: celebrationStartedAt) { animateIfCelebrating() }
         .accessibilityIdentifier("level-\(level.index)")
         .accessibilityLabel(Text(L("home.levelAccessibility \(level.index)")))
         .accessibilityValue(Text(verbatim: pausedCards.map {
@@ -1259,8 +1259,8 @@ struct AlternatingCardSummary: View {
     @State private var availableWidth: CGFloat = 0
 
     private var scale: CGFloat { isPad ? 1.5 : 1 }
-    private var baseFontSize: CGFloat { isPad ? 24 : 14 }
-    private var iconSize: CGFloat { isPad ? 24 : 14 }
+    private var baseFontSize: CGFloat { isPad ? 22 : 14 }
+    private var iconSize: CGFloat { isPad ? 19 : 14 }
     private var artworkSide: CGFloat { 28 * scale }
     /// Both alternatives share this height, so the taller artwork grows around
     /// the text line instead of pushing the player's name upward.
@@ -1268,7 +1268,7 @@ struct AlternatingCardSummary: View {
 
     var body: some View {
         let nutScale = contentScale
-        return HStack(spacing: (isPad ? 12 : 8) * nutScale) {
+        return HStack(spacing: (isPad ? 4 : 8) * nutScale) {
             // The card glyph never takes part in the swap: holding it perfectly
             // still avoids the dip two crossfading icons would produce. It does
             // follow `contentScale`, so a long unlock prompt cannot leave this

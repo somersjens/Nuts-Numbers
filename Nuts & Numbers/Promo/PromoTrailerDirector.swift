@@ -3,6 +3,8 @@
 //  Nuts & Numbers
 //
 //  Drives the real ClawEngine + GameViewModel along a fixed teaser timeline.
+//  Character order: elephant → octopus → bear → dog → elephant, each with
+//  their production habitat. Grabs wait until the body hangs straight.
 //
 
 import SwiftUI
@@ -220,21 +222,18 @@ final class PromoTrailerDirector: ObservableObject {
 
         case .firstGrab:
             engine.trailerReturnTargetX = engine.trailerNutTrolleyX(id: PromoTrailerScript.wrongNutID)
-            recoverIdlePress(engine)
             if completedGrabs >= 1, engine.trailerPhase == .idle {
-                applyCharacter("octopus")
-                model.trailerInstall(round: session.rounds[1])
-                enter(.unlockAlign)
+                engine.setInput(0)
+                alignedAge += dt
+                if alignedAge >= 0.25 {
+                    applyCharacter("octopus")
+                    model.trailerInstall(round: session.rounds[1])
+                    enter(.unlockAlign)
+                }
                 break
             }
-            if aim(engine, at: PromoTrailerScript.openingNutID) {
-                alignedAge += dt
-                if alignedAge >= 0.06 {
-                    tryGrab(engine, id: PromoTrailerScript.openingNutID)
-                }
-            } else {
-                alignedAge = 0
-            }
+            recoverIdlePress(engine)
+            grabWhenParked(engine, id: PromoTrailerScript.openingNutID)
 
         case .unlockAlign:
             engine.trailerSpeedScale = 1
@@ -251,25 +250,19 @@ final class PromoTrailerDirector: ObservableObject {
 
         case .wrongGrab:
             engine.trailerReturnTargetX = engine.trailerNutTrolleyX(id: PromoTrailerScript.showcaseNutID)
-            if engine.trailerIsHangingOverBin {
+            switch engine.trailerPhase {
+            case .spitBack, .returning:
                 applyCharacter("bear", flash: false)
-            }
-            if didPressForBeat, engine.trailerPhase == .idle {
-                applyCharacter("bear", flash: false)
-                enter(.correctGrab)
-                break
-            }
-            if !didPressForBeat {
-                applyCharacter("octopus", flash: false)
-                if aim(engine, at: PromoTrailerScript.wrongNutID) {
-                    alignedAge += dt
-                    if alignedAge >= 0.06 {
-                        tryGrab(engine, id: PromoTrailerScript.wrongNutID)
-                    }
-                } else {
-                    alignedAge = 0
+            case .idle:
+                if didPressForBeat {
+                    applyCharacter("bear", flash: false)
+                    enter(.correctGrab)
+                    break
                 }
-            } else {
+                applyCharacter("octopus", flash: false)
+                grabWhenParked(engine, id: PromoTrailerScript.wrongNutID)
+            default:
+                applyCharacter("octopus", flash: false)
                 engine.setInput(0)
             }
 
@@ -278,7 +271,7 @@ final class PromoTrailerDirector: ObservableObject {
             recoverIdlePress(engine)
             switch engine.trailerPhase {
             case .grabbing, .ascending, .carrying, .dropping, .returning:
-                applyCharacter("lion", flash: false)
+                applyCharacter("dog", flash: false)
             case .idle:
                 if completedGrabs >= 2 {
                     applyCharacter("elephant", flash: false)
@@ -287,24 +280,23 @@ final class PromoTrailerDirector: ObservableObject {
                     break
                 }
                 applyCharacter("bear", flash: false)
-                if aim(engine, at: PromoTrailerScript.showcaseNutID) {
-                    alignedAge += dt
-                    if alignedAge >= 0.06 {
-                        tryGrab(engine, id: PromoTrailerScript.showcaseNutID)
-                    }
-                } else {
-                    alignedAge = 0
-                }
+                grabWhenParked(engine, id: PromoTrailerScript.showcaseNutID)
             default:
                 engine.setInput(0)
-                if characterID != "lion" {
+                if characterID != "dog" {
                     applyCharacter("bear", flash: false)
                 }
             }
 
         case .speed:
             applyCharacter("elephant", flash: false)
-            if speedIndex == 0, beatAge < 0.36, engine.trailerPhase == .idle {
+            if engine.trailerPhase == .celebrating || playsLevelCompletion {
+                engine.setInput(0)
+                engine.trailerSpeedScale = PromoTrailerScript.finaleSpeedScale
+                enter(.finale)
+                break
+            }
+            if speedIndex == 0, beatAge < 0.16, engine.trailerPhase == .idle {
                 engine.setInput(0)
                 break
             }
@@ -327,7 +319,7 @@ final class PromoTrailerDirector: ObservableObject {
                 engine.trailerReturnTargetX = nil
             }
             recoverIdlePress(engine)
-            if completedGrabs >= 2 + speedIndex + 1 {
+            if engine.trailerPhase == .idle, completedGrabs >= 2 + speedIndex + 1 {
                 speedIndex += 1
                 didPressForBeat = false
                 alignedAge = 0
@@ -354,8 +346,13 @@ final class PromoTrailerDirector: ObservableObject {
             if !playsLevelCompletion, engine.trailerPhase == .celebrating {
                 playsLevelCompletion = true
             }
-            if iconRevealAt == nil, beatAge > 1.86 {
-                handleLevelCompletionFinished()
+            if iconRevealAt == nil {
+                let iconAt = ClawConfig.celebrationMouthArrival
+                    + engine.trailerCelebrationWindUp
+                    + 0.28
+                if beatAge >= iconAt {
+                    handleLevelCompletionFinished()
+                }
             }
             if iconRevealAt != nil {
                 enter(.icon)
@@ -377,6 +374,17 @@ final class PromoTrailerDirector: ObservableObject {
         engine.trailerPressGrab(id: id)
         didPressForBeat = true
         cueSFX("sfx_button_press", volume: 0.31)
+    }
+
+    /// Drop as soon as the trolley is over the nut. Leftover swing is left in.
+    private func grabWhenParked(_ engine: ClawEngine, id: UUID) {
+        guard !didPressForBeat else {
+            engine.setInput(0)
+            return
+        }
+        if aim(engine, at: id) {
+            tryGrab(engine, id: id)
+        }
     }
 
     private func recoverIdlePress(_ engine: ClawEngine) {
@@ -438,12 +446,12 @@ final class PromoTrailerDirector: ObservableObject {
             case .grabbing:
                 cueSFX("sfx_take_nut", volume: 0.50)
                 if beat == .correctGrab {
-                    applyCharacter("lion", flash: false)
+                    applyCharacter("dog", flash: false)
                 }
             case .dropping:
                 cueSFX("sfx_release_grip", volume: 0.07)
-            case .carrying:
-                if beat == .wrongGrab, engine.trailerIsHangingOverBin {
+            case .spitBack:
+                if beat == .wrongGrab {
                     applyCharacter("bear", flash: false)
                 }
             case .celebrating:
@@ -456,8 +464,6 @@ final class PromoTrailerDirector: ObservableObject {
                 break
             }
             lastPhase = phase
-        } else if beat == .wrongGrab, engine.trailerIsHangingOverBin {
-            applyCharacter("bear", flash: false)
         }
     }
 

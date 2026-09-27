@@ -1397,10 +1397,9 @@ extension HabitatBrush {
         }
     }
 
-    /// Side-on fish as two solid fills: an oval body and a triangular tail.
-    /// `flick` rolls the whole fish rather than rebuilding a bezier, so a 30 Hz
-    /// school stays cheap next to the claw. No gradients, belly or eye — at
-    /// this size they cost draws without reading.
+    /// Side-on fish as three solid fills: an oval body, a triangular tail and
+    /// a dark eye. `flick` rolls the whole fish rather than rebuilding a
+    /// bezier, so a 30 Hz school stays cheap next to the claw.
     func fish(in context: inout GraphicsContext,
               center: CGPoint,
               length: CGFloat,
@@ -1420,6 +1419,12 @@ extension HabitatBrush {
         tail.addLine(to: CGPoint(x: -direction * length * 0.54, y: length * 0.18))
         tail.closeSubpath()
         local.fill(tail, with: .color(color))
+        let eye = length * 0.09
+        local.fill(Path(ellipseIn: CGRect(x: direction * length * 0.18 - eye * 0.5,
+                                         y: -length * 0.07,
+                                         width: eye,
+                                         height: eye)),
+                   with: .color(Color.black.opacity(0.55)))
     }
 
     /// Spiral sea shell.

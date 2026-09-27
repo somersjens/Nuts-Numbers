@@ -516,7 +516,7 @@ struct LanguagePicker: View {
 /// Deliberately *not* localized into the language being left behind: a player
 /// who cannot read the current language is exactly the one who came here, so
 /// every row is written in its own language and there is no chrome to read.
-private struct LanguageMenuContent: View {
+struct LanguageMenuContent: View {
     @ObservedObject private var language = LanguageManager.shared
 
     /// Latin script first, then each remaining script as its own block, so the
@@ -525,7 +525,7 @@ private struct LanguageMenuContent: View {
     /// endonym — including English and Dutch, which the app is written in but
     /// which sit in the list like any other language rather than pinned above
     /// it, so scanning for a name never has to account for an exception.
-    private static let ordered: [AppLanguage] = {
+    static let ordered: [AppLanguage] = {
         let collator = Locale(identifier: "en")
         return AppLanguage.all.sorted { a, b in
             if a.script != b.script {

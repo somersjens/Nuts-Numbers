@@ -20,8 +20,8 @@ enum PromoTrailerScript {
     /// Three remaining nuts, full grab loops — brisk, but readable.
     static let speedScale: Double = 1.78
     static let lastSpeedScale: Double = 1.35
-    /// Keep a hint of the rush into the salto so the release does not slam to 1x.
-    static let finaleSpeedScale: Double = 1.32
+    /// Native speed so the production bin salto reads as in gameplay.
+    static let finaleSpeedScale: Double = 1
 
     static let openingHold: TimeInterval = 0.28
     static let iconHold: TimeInterval = 2.05

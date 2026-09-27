@@ -60,7 +60,7 @@ struct OnboardingView: View {
                             // artwork is drawn independently above it, so a
                             // longer rope never pushes the copy upward again.
                             let portrait: CGFloat = isPad
-                                ? (step == 1 ? 160 : 210)
+                                ? (step == 1 ? 200 : 264)
                                 : (step == 1 ? 112 : 150)
                             Color.clear
                                 .frame(width: portrait, height: portrait)
@@ -115,6 +115,7 @@ struct OnboardingView: View {
                 .padding(.top, isPad ? 20 : 8)
                 .padding(.trailing, isPad ? 28 : 16)
         }
+        .modifier(PadMenuZoom(isPad: isPad))
         .onAppear {
             AppAudio.shared.prepare()
 #if canImport(UIKit)
@@ -228,7 +229,7 @@ struct OnboardingView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, isPad ? 26 : 16)
-                        .frame(maxWidth: .infinity, minHeight: isPad ? 58 : 46)
+                        .frame(maxWidth: .infinity, minHeight: isPad ? 72 : 46)
                         .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     .buttonStyle(OnboardingOptionStyle())
@@ -397,10 +398,10 @@ private struct OnboardingHangingElephant: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var swaysRight = false
 
-    private var side: CGFloat { isPad ? 270 : 205 }
+    private var side: CGFloat { isPad ? 339 : 205 }
     private var ropeLength: CGFloat {
         if isPad {
-            return step == 0 ? 175 : (step == 1 ? 52 : 145)
+            return step == 0 ? 220 : (step == 1 ? 65 : 182)
         }
         return step == 0 ? 150 : (step == 1 ? 34 : 112)
     }

@@ -57,6 +57,14 @@ enum PromoTrailerRuntime {
 
     static var framesPerSecond: Int { 30 }
 
-    /// Soft ceiling past the ~20–24s target so the icon beat is never clipped.
+    /// Habitat birds, flags, leaves and water all share this clock in the
+    /// teaser so scenery stays behind the claw instead of racing it.
+    static var ambienceTimeScale: Double { isActive ? 0.34 : 1 }
+
+    static func ambienceClock(_ time: TimeInterval) -> TimeInterval {
+        isActive ? time * ambienceTimeScale : time
+    }
+
+    /// Soft ceiling so the icon beat is never clipped.
     static var maximumDuration: TimeInterval { 26 }
 }

@@ -795,7 +795,7 @@ final class ClawEngine: ObservableObject {
         resetMoveSound()
         finaleStartX = trolleyX
         finaleStartSwing = swingAngle
-        if isPreviewingFinale || PromoTrailerRuntime.isActive || reduceMotion {
+        if isPreviewingFinale || reduceMotion {
             celebrationWindUpExtension = 0
         } else {
             // The standard 0.40 s pull feels right around the resting area.
@@ -1044,7 +1044,8 @@ final class ClawEngine: ObservableObject {
             // without the body still drifting sideways through the pinch.
             swingVelocity += -swingVelocity * 10 * dtg
         }
-        if phase == .idle, abs(input) < 0.04, entranceAge == nil, !reduceMotion {
+        if phase == .idle, abs(input) < 0.04, entranceAge == nil, !reduceMotion,
+           !PromoTrailerRuntime.isActive {
             swingVelocity += CGFloat(sin(motionClock * 1.35)) * 0.018 * dtg
         }
         swingAngle += swingVelocity * dtg
@@ -1358,8 +1359,6 @@ final class ClawEngine: ObservableObject {
             refreshHighlights()
             armMoveSoundIfNeeded(input: input)
             if PromoTrailerRuntime.isActive {
-                swingAngle = 0
-                swingVelocity = 0
                 input = 0
                 joystickInput = 0
             }
@@ -1606,9 +1605,7 @@ final class ClawEngine: ObservableObject {
     /// True while a held nut is parked over the answer mouth, just before the drop.
     var trailerIsHangingOverBin: Bool {
         guard heldNutID != nil, phase == .carrying else { return false }
-        let progress = carryTime > 0 ? phaseAge / carryTime : 1
-        let nearMouth = abs(trolleyX - binUnitX) <= 0.08
-        return nearMouth || progress >= 0.70
+        return abs(trolleyX - binUnitX) <= 0.055
     }
 
     func trailerCollapseToPyramid(keeping ids: [UUID], positions: [ClawPoint]) {
@@ -1638,12 +1635,7 @@ final class ClawEngine: ObservableObject {
     }
 
     func trailerStep(dt: Double) {
-        var scale = max(0.35, trailerSpeedScale)
-        let releaseAge = ClawConfig.celebrationRelease + celebrationWindUpExtension
-        if phase == .celebrating, phaseAge >= releaseAge {
-            scale *= 1.16
-        }
-        tick(dt: dt * scale)
+        tick(dt: dt * max(0.35, trailerSpeedScale))
     }
 
     func trailerRevealAtRest(x: CGFloat) {
@@ -1682,22 +1674,36 @@ final class ClawEngine: ObservableObject {
 
     var trailerPileSettled: Bool { slides.isEmpty }
 
+    var trailerCelebrationWindUp: Double { celebrationWindUpExtension }
+
+    /// True when leftover trolley swing has damped enough to drop straight.
+    var trailerIsUpright: Bool {
+        abs(swingAngle) < 0.045 && abs(swingVelocity) < 0.14
+    }
+
+    /// Far enough from upright that an "wait until straight" timer should restart.
+    var trailerShouldResetUprightWait: Bool {
+        abs(swingAngle) > 0.08 || abs(swingVelocity) > 0.28
+    }
+
     func trailerPresentNutIDs() -> [UUID] {
         nuts.filter(\.isPresent).map(\.id)
     }
 
-    /// Park exactly over a nut and kill leftover swing so a sped-up grab
-    /// does not hunt left/right before the press.
+    /// Park exactly over a nut. Leftover swing is left to damp so the body
+    /// visibly hangs straight before the next drop, instead of popping upright.
     func trailerSnapOver(id: UUID) {
         guard let x = trailerNutTrolleyX(id: id) else { return }
-        trolleyX = min(trolleyMaxFreeX, max(trolleyMinX, x))
+        let clamped = min(trolleyMaxFreeX, max(trolleyMinX, x))
+        let moved = abs(trolleyX - clamped) > 0.0004
+        trolleyX = clamped
         lastTrolleyX = trolleyX
-        swingAngle = 0
-        swingVelocity = 0
         input = 0
         joystickInput = 0
-        objectWillChange.send()
-        frameSignal.send()
+        if moved {
+            objectWillChange.send()
+            frameSignal.send()
+        }
     }
 
     private func startLink() {
@@ -1985,14 +1991,14 @@ struct ClawPlayfield: View {
                 }
                 onEngineReady(engine)
             }
-            .onChange(of: size) { newSize in
+            .onChange(of: size) { _, newSize in
                 engine.layout(size: newSize,
                               topReserve: topReserve,
                               bottomReserve: bottomReserve,
                               isPad: isPad,
                               maximumPoints: maximumRounds)
             }
-            .onChange(of: maximumRounds) { points in
+            .onChange(of: maximumRounds) { _, points in
                 engine.layout(size: size,
                               topReserve: topReserve,
                               bottomReserve: bottomReserve,
@@ -2011,30 +2017,30 @@ struct ClawPlayfield: View {
                            question: round?.question,
                            targetNutID: round?.targetNutID)
         }
-        .onChange(of: round?.id) { _ in
+        .onChange(of: round?.id) {
             engine.setQuestion(round?.question,
                                targetNutID: round?.targetNutID)
         }
-        .onChange(of: isLive) { live in engine.setLive(live) }
-        .onChange(of: character.id) { _ in
+        .onChange(of: isLive) { _, live in engine.setLive(live) }
+        .onChange(of: character.id) {
             guard !PromoTrailerRuntime.isActive else { return }
             engine.setCharacter(character)
         }
-        .onChange(of: isRunning) { running in engine.setRunning(running) }
-        .onChange(of: scoreTarget) { target in engine.setScoreTarget(target) }
-        .onChange(of: reduceMotion) { enabled in engine.setReduceMotion(enabled) }
-        .onChange(of: isFinalRound) { isFinal in engine.setFinalRound(isFinal) }
-        .onChange(of: tutorialPlan) { plan in engine.applyTutorial(plan) }
-        .onChange(of: playsEntrance) { should in
+        .onChange(of: isRunning) { _, running in engine.setRunning(running) }
+        .onChange(of: scoreTarget) { _, target in engine.setScoreTarget(target) }
+        .onChange(of: reduceMotion) { _, enabled in engine.setReduceMotion(enabled) }
+        .onChange(of: isFinalRound) { _, isFinal in engine.setFinalRound(isFinal) }
+        .onChange(of: tutorialPlan) { _, plan in engine.applyTutorial(plan) }
+        .onChange(of: playsEntrance) { _, should in
             if should { engine.beginEntrance(completion: onEntranceComplete) }
         }
-        .onChange(of: playsLevelCompletion) { should in
+        .onChange(of: playsLevelCompletion) { _, should in
             if should {
                 engine.beginLevelCompletion(reduceMotion: reduceMotion,
                                             completion: onLevelCompletionFinished)
             }
         }
-        .onChange(of: playsTimeOutFinale) { should in
+        .onChange(of: playsTimeOutFinale) { _, should in
             if should {
                 engine.beginTimeUp(reduceMotion: reduceMotion,
                                    completion: onTimeOutFinished)
@@ -6557,8 +6563,10 @@ private struct SanctuaryLivingDetails: View {
         // claw's 60 Hz pose. 30 Hz with a handful of solid fills is smoother
         // than 12 Hz of gradient leaves, and far cheaper to composite.
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || !isActive)) { timeline in
-            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            let time = reduceMotion ? 0 : PromoTrailerRuntime.ambienceClock(timeline.date.timeIntervalSinceReferenceDate)
             Canvas { context, size in
+                let waterRate = 0.82
+                let rippleRate = 0.24
                 let travel = reduceMotion ? 0 : CGFloat(time.truncatingRemainder(dividingBy: 8) / 8)
 
                 paintFlyingBirds(in: &context, size: size, time: time)
@@ -6582,7 +6590,7 @@ private struct SanctuaryLivingDetails: View {
                 // silhouette. Broken strokes feel reflective rather than like
                 // a loading indicator placed over the scenery.
                 for index in 0..<3 {
-                    let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * 0.82 + Double(index) * 0.91))
+                    let phase = reduceMotion ? CGFloat(0) : CGFloat(sin(time * waterRate + Double(index) * 0.91))
                     let y = size.height * (0.557 + CGFloat(index) * 0.018)
                         + phase * size.height * 0.0018
                     let startX = size.width * (0.365 + CGFloat(index) * 0.016)
@@ -6617,7 +6625,7 @@ private struct SanctuaryLivingDetails: View {
                 for index in 0..<2 {
                     let rawPhase = reduceMotion
                         ? CGFloat(index) * 0.42
-                        : CGFloat((time * 0.24 + Double(index) * 0.52).truncatingRemainder(dividingBy: 1))
+                        : CGFloat((time * rippleRate + Double(index) * 0.52).truncatingRemainder(dividingBy: 1))
                     let rippleWidth = size.width * (0.025 + rawPhase * 0.105)
                     let rippleHeight = size.height * (0.004 + rawPhase * 0.014)
                     let center = CGPoint(x: size.width * 0.525, y: size.height * 0.588)
